@@ -2,11 +2,9 @@
 
 # CopyRighter
 #
-# Please direct questions and support issues to <bioperl-l@bioperl.org>
-#
 # Copyright Florent Angly <florent.angly@gmail.com>
 #
-# You may distribute this module under the same terms as perl itself
+# You may distribute this module under the terms of the GPLv3
 
 
 use strict;
@@ -81,43 +79,33 @@ Verbose mode. Display 16S copy number assignments.
 
 =back
 
-=head1 FEEDBACK
-
-=head2 Mailing Lists
-
-User feedback is an integral part of the evolution of this
-and other Bioperl modules. Send your comments and suggestions preferably
-to one of the Bioperl mailing lists.
-
-Your participation is much appreciated.
-
-  bioperl-l@bioperl.org                  - General discussion
-  http://bioperl.org/wiki/Mailing_lists  - About the mailing lists
-
-=head2 Support 
-
-Please direct usage questions or support issues to the mailing list:
-
-I<bioperl-l@bioperl.org>
-
-rather than to the module maintainer directly. Many experienced and 
-reponsive experts will be able look at the problem and quickly 
-address it. Please include a thorough description of the problem 
-with code and data examples if at all possible.
-
-=head2 Reporting Bugs
-
-Report bugs to the Bioperl bug tracking system to help us keep track
-the bugs and their resolution.  Bug reports can be submitted via the
-web:
-
-  http://bugzilla.open-bio.org/
-
 =head1 AUTHOR - Florent Angly
 
 Email florent.angly@gmail.com
 
+=head1 BUGS
+
+All complex software has bugs lurking in it, and this program is no exception.
+If you find a bug, please report it on the SourceForge Tracker:
+L<http://github.com/fangly/AmpliCopyrighter/issues>
+
+=head1 COPYRIGHT
+
+Copyright 2012 Florent ANGLY <florent.angly@gmail.com>
+
+Copyrighter is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+Copyrighter is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+You should have received a copy of the GNU General Public License
+along with Copyrighter.  If not, see <http://www.gnu.org/licenses/>.
+
 =cut
+
 
 copyrighter( $ARGV{'i'}, $ARGV{'o'}, $ARGV{'v'} );
 exit;
