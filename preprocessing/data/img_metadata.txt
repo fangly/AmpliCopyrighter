@@ -231,7 +231,7 @@ taxon_oid	Domain	Status	Genome Name	Phylum	Class	Order	Family	Genus	Species	Geno
 651324008	Bacteria	Draft	Agrobacterium sp. ATCC 31749	Proteobacteria	Alphaproteobacteria	Rhizobiales	Rhizobiaceae	Agrobacterium	sp.	5461917	5583	1	
 650716007	Bacteria	Finished	Agrobacterium sp. H13-3	Proteobacteria	Alphaproteobacteria	Rhizobiales	Rhizobiaceae	Agrobacterium	sp.	5573770	5417	5	
 639279301	Bacteria	Finished	Agrobacterium tumefaciens C58-Cereon	Proteobacteria	Alphaproteobacteria	Rhizobiales	Rhizobiaceae	Agrobacterium	tumefaciens	5673465	5380	4	
-639279302	Bacteria	Finished	Agrobacterium tumefaciens C58-UWash	Proteobacteria	Alphaproteobacteria	Rhizobiales	Rhizobiaceae	Agrobacterium	tumefaciens	5674064	5491	8	
+639279302	Bacteria	Finished	Agrobacterium tumefaciens C58-UWash	Proteobacteria	Alphaproteobacteria	Rhizobiales	Rhizobiaceae	Agrobacterium	tumefaciens	5674064	5491	4	
 643348505	Bacteria	Finished	Agrobacterium vitis S4	Proteobacteria	Alphaproteobacteria	Rhizobiales	Rhizobiaceae	Agrobacterium	vitis	6320946	5455	4	
 648276617	Bacteria	Draft	Ahrensia sp. R2A130	Proteobacteria	Alphaproteobacteria	Rhodobacterales	Rhodobacteraceae	Ahrensia	sp.	3731054	3673	1	
 642555104	Bacteria	Finished	Akkermansia muciniphila ATCC BAA-835	Verrucomicrobia	Verrucomicrobiae	Verrucomicrobiales	Verrucomicrobiaceae	Akkermansia	muciniphila	2664102	2238	3	
