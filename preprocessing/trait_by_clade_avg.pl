@@ -40,7 +40,7 @@ Adam Skarshewski
 =head1 BUGS
 
 All complex software has bugs lurking in it, and this program is no exception.
-If you find a bug, please report it on the SourceForge Tracker:
+If you find a bug, please report it on the bug tracker:
 L<http://github.com/fangly/AmpliCopyrighter/issues>
 
 =head1 COPYRIGHT
@@ -67,7 +67,7 @@ use List::Util qw(sum);
 use Getopt::Euclid qw(:minimal_keys);
 
 
-open(my $fh, '<', $ARGV{'i'}) or die "Error: Could not read file\n$!\n";
+open(my $fh, '<', $ARGV{'i'}) or die "Error: Could not read file ".$ARGV{'i'}."\n$!\n";
 
 my @genomes;
 my %ranks;

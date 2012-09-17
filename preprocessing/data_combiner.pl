@@ -86,7 +86,7 @@ Adam Skarshewski
 =head1 BUGS
 
 All complex software has bugs lurking in it, and this program is no exception.
-If you find a bug, please report it on the SourceForge Tracker:
+If you find a bug, please report it on the bug tracker:
 L<http://github.com/fangly/AmpliCopyrighter/issues>
 
 =head1 COPYRIGHT
@@ -116,7 +116,7 @@ use Getopt::Euclid qw(:minimal_keys);
 my $spp_space = ''; # space in species name?
 my $sep_space = ''; # separator ';' followed by a space?
 my %gg_taxonomies;
-open(my $fh,  $ARGV{'g'}) or die "Error: Could not read file\n$!\n";
+open(my $fh, '<', $ARGV{'g'}) or die "Error: Could not read file ".$ARGV{'g'}."\n$!\n";
 while (my $line = <$fh>) {
     chomp $line;
     next if $line =~ m/^#/;
@@ -136,7 +136,7 @@ warn "Read ".scalar(keys(%gg_taxonomies))." entries from taxonomy file\n";
 
 # Create IMG-GG correlation hash
 my %correlations;
-open($fh, $ARGV{'c'}) or die "Error: Could not read file\n$!\n";
+open($fh, '<', $ARGV{'c'}) or die "Error: Could not read file ".$ARGV{'c'}."\n$!\n";
 while (my $line = <$fh>) {
     chomp $line;
     next if $line =~ m/^#/;
@@ -150,7 +150,7 @@ warn "Read ".scalar(keys(%correlations))." entries from correlation file\n";
 # Substitutions
 my $num_fixed = 0;
 print "#IMG ID\tIMG Name\tIMG Tax\tGG ID\tGG Tax\t16S Count\tGenome Length\tGene Count\n";
-open($fh, $ARGV{'i'}) or die "Error: Could not read file\n$!\n";
+open($fh, '<', $ARGV{'i'}) or die "Error: Could not read file ".$ARGV{'i'}."\n$!\n";
 <$fh>; # burn headers
 my $num = 0;
 while (my $line = <$fh>) {

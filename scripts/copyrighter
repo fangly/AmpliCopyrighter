@@ -5,16 +5,6 @@
 # You may distribute this module under the terms of the GPLv3
 
 
-use strict;
-use warnings;
-use Bio::DB::Taxonomy;
-use Bio::Community::IO;
-use Bio::Community::Meta;
-use Bio::Community::Tools::Summarizer;
-use Method::Signatures;
-use Getopt::Euclid qw(:minimal_keys);
-
-
 =head1 NAME
 
 copyrighter - Estimate community composition from an OTU table, accounting for
@@ -84,7 +74,7 @@ Florent Angly <florent.angly@gmail.com>
 =head1 BUGS
 
 All complex software has bugs lurking in it, and this program is no exception.
-If you find a bug, please report it on the SourceForge Tracker:
+If you find a bug, please report it on the bug tracker:
 L<http://github.com/fangly/AmpliCopyrighter/issues>
 
 =head1 COPYRIGHT
@@ -104,6 +94,15 @@ along with Copyrighter.  If not, see <http://www.gnu.org/licenses/>.
 
 =cut
 
+
+use strict;
+use warnings;
+use Bio::DB::Taxonomy;
+use Bio::Community::IO;
+use Bio::Community::Meta;
+use Bio::Community::Tools::Summarizer;
+use Method::Signatures;
+use Getopt::Euclid qw(:minimal_keys);
 
 copyrighter( $ARGV{'i'}, $ARGV{'o'}, $ARGV{'v'} );
 exit;
