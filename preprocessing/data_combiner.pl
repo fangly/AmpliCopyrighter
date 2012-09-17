@@ -248,17 +248,21 @@ sub fix_gg_tax {
                 #    "string is $tax_genus. $msg\n";
             } else {
 
+                my $fixed = 0;
+ 
                 # Fix genus if it is known
                 if ( (not $genus eq '') && ($tax_genus eq 'g__') ) {
                     $names->[-2] = 'g__'.$genus;
+                    $fixed = 1;
                 }
 
                 # Fix species if it is known
                 if ( ($species !~ m/^sp\.?$/) && ($tax_species eq 's__') ) {
                     $names->[-1] = 's__'.($candidatus?'Candidatus'.$spp_space:'').$genus.$spp_space.$species;
+                    $fixed = 1;
                 }
 
-                $num_fixed++;
+                $num_fixed++ if $fixed;
                 $gg_tax = join ';'.$sep_space, @$names;
 
             }
