@@ -68,6 +68,15 @@ Default: finished.default
    finished.type: integer, finished == 0 || finished == 1
    finished.default: 1
 
+=item -s <species>
+
+Fix missing missing genus and species name in Greengenes taxonomy string when
+possible: 1 is yes, 0 is no. Default: species.default
+
+=for Euclid:
+   species.type: integer, species == 0 || species == 1
+   species.default: 1
+
 =back
 
 =head1 AUTHOR
@@ -104,13 +113,22 @@ use Getopt::Euclid qw(:minimal_keys);
 
 
 # Create GG taxonomies hash
+my $spp_space = ''; # space in species name?
+my $sep_space = ''; # separator ';' followed by a space?
 my %gg_taxonomies;
 open(my $fh,  $ARGV{'g'}) or die "Error: Could not read file\n$!\n";
 while (my $line = <$fh>) {
     chomp $line;
     next if $line =~ m/^#/;
-    my @splitline = split /\t/, $line;
-    $gg_taxonomies{$splitline[0]} = $splitline[1];
+    my ($id, $tax_string) = split /\t/, $line;
+    $gg_taxonomies{$id} = $tax_string;
+    my $species = (split /;/, $tax_string)[-1];
+    if ($species =~ s/^\s+//) {
+        $sep_space = ' ';
+    }
+    if ($species =~ m/ /) {
+        $spp_space = ' ';
+    }
 }
 close($fh);
 warn "Read ".scalar(keys(%gg_taxonomies))." entries from taxonomy file\n";
@@ -122,14 +140,15 @@ open($fh, $ARGV{'c'}) or die "Error: Could not read file\n$!\n";
 while (my $line = <$fh>) {
     chomp $line;
     next if $line =~ m/^#/;
-    my @splitline = split /\t/, $line;
-    $correlations{$splitline[0]} = $splitline[1];
+    my ($img_id, $gg_id) = split /\t/, $line;
+    $correlations{$img_id} = $gg_id;
 }
 close($fh);
 warn "Read ".scalar(keys(%correlations))." entries from correlation file\n";
 
 
 # Substitutions
+my $num_fixed = 0;
 print "#IMG ID\tIMG Name\tIMG Tax\tGG ID\tGG Tax\t16S Count\tGenome Length\tGene Count\n";
 open($fh, $ARGV{'i'}) or die "Error: Could not read file\n$!\n";
 <$fh>; # burn headers
@@ -143,29 +162,37 @@ while (my $line = <$fh>) {
     my $status = $splitline[2];
     
     if (! (($domain eq 'Bacteria') || ($domain eq 'Archaea'))) {
+        # Keep only bacteria and archaea. Skip eukaryotes, etc.
         next;
     }
 
     if ($ARGV{'f'}) {
+        # Keep only finished genomes. Skip draft genomes, etc.
         if (! ($status eq 'Finished')) {
             next;
         }
     }
     
-    my $img_id = $splitline[0];
-    my $img_name = $splitline[3];
-    my $img_tax = join(";", @splitline[4..9]);
-    my $GG_id = $correlations{$img_id};
+    my $img_id      = $splitline[0];
+    my $img_name    = $splitline[3];
+    my $img_tax     = join(";", @splitline[4..9]);
+    my $gg_id       = $correlations{$img_id};
+    my $gg_tax      = (defined($gg_id) && exists($gg_taxonomies{$gg_id})) ? $gg_taxonomies{$gg_id} : '-';
+    my $rRNA_count  = $splitline[12];
     my $genome_size = $splitline[10];
-    my $gene_count = $splitline[11];
-    my $rRNA_count = $splitline[12];
+    my $gene_count  = $splitline[11];
     
+    if ($ARGV{'s'}) {
+        $gg_tax = fix_gg_tax($gg_tax, $img_name);
+    }
+
     if ((defined ($rRNA_count)) && ($rRNA_count > 0)) {
-            print(join("\t",($img_id,
+            print(join("\t",(
+                     $img_id,
                      $img_name,
                      $img_tax,
-                     (defined($GG_id) ? $GG_id : "-"),
-                     (defined($GG_id) && defined($gg_taxonomies{$GG_id}) ? $gg_taxonomies{$GG_id} : "-"),
+                     (defined($gg_id) ? $gg_id : '-'),
+                     $gg_tax,
                      $rRNA_count,
                      $genome_size,
                      $gene_count
@@ -175,5 +202,69 @@ while (my $line = <$fh>) {
 }
 close($fh);
 warn "Read $num entries from metadata file\n";
+warn "Fixed $num_fixed GG taxonomy strings\n";
 
 exit;
+
+
+
+sub fix_gg_tax {
+    # If genus or species is missing from GG taxonomy string but present in IMG
+    # name, add them to the GG taxonomy string. Abort if anything is suspicious,
+    # e.g. lowercase genus, uppercase species, inconsistent genus, wrong number
+    # of fields.
+    my ($gg_tax, $img_name) = @_;
+
+    my $tmp_name = $img_name;
+    my $candidatus = ($tmp_name =~ s/^Candidatus\s+//i);
+    my ($genus, $species, $strain) = split /\s+/, $tmp_name;
+
+    # Genus should be capitalized
+    #my $msg = 'Not fixing the taxonomy string';
+    if ($genus =~ /^[a-z]/) {
+        # Fishy genus
+        #warn "Warning: Genus $genus is lowercase. $msg\n";
+        return $gg_tax;
+    }
+
+    # Species should not be capitalized
+    if ($species =~ /^[A-Z]/) {
+        # Fishy species
+        #warn "Warning: Species $species is uppercase. $msg\n";
+        return $gg_tax;
+    }
+
+    my $names = [ split /;\s*/, $gg_tax ];
+    if (scalar @$names == 7) { # Proper number of fields, not simply '-'
+
+        my $tax_genus   = $names->[-2];
+        my $tax_species = $names->[-1];
+
+        if ( ($tax_genus eq 'g__') || ($tax_species eq 's__') ) {
+            # Should try to fix, but check that it is safe
+            if ( (not $tax_genus eq 'g__') &&
+                 (not $tax_genus eq 'g__'.($candidatus?'Candidatus ':'').$genus) ) {
+                #warn "Warning: Genus disagreement for '$img_name'. Genus in taxonomy ".
+                #    "string is $tax_genus. $msg\n";
+            } else {
+
+                # Fix genus if it is known
+                if ( (not $genus eq '') && ($tax_genus eq 'g__') ) {
+                    $names->[-2] = 'g__'.$genus;
+                }
+
+                # Fix species if it is known
+                if ( ($species !~ m/^sp\.?$/) && ($tax_species eq 's__') ) {
+                    $names->[-1] = 's__'.($candidatus?'Candidatus'.$spp_space:'').$genus.$spp_space.$species;
+                }
+
+                $num_fixed++;
+                $gg_tax = join ';'.$sep_space, @$names;
+
+            }
+        }
+    }
+
+    return $gg_tax;
+}
+
