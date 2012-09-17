@@ -1,0 +1,16 @@
+META.*
+MYMETA.*
+Makefile
+Makefile.old
+cover_db
+blib
+inc
+pm_to_blib
+LICENSE
+MANIFEST*
+!MANIFEST.SKIP
+*~
+README*
+*.tar.gz
+man/*
+scripts/copyrighter.pod
