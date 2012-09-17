@@ -1,0 +1,1150 @@
+#! /usr/bin/env perl
+
+# CopyRighter
+#
+# Please direct questions and support issues to <bioperl-l@bioperl.org>
+#
+# Copyright Florent Angly <florent.angly@gmail.com>
+#
+# You may distribute this module under the same terms as perl itself
+
+
+use strict;
+use warnings;
+use Bio::DB::Taxonomy;
+use Bio::Community::IO;
+use Bio::Community::Meta;
+use Bio::Community::Tools::Summarizer;
+use Method::Signatures;
+use Getopt::Euclid qw(:minimal_keys);
+
+
+=head1 NAME
+
+copyrighter - Estimate community composition from an OTU table, accounting for
+16S copy number bias
+
+=head1 SYNOPSIS
+
+  copyrighter -i otu_table.qiime -o otu_table_copyrighted.generic
+
+=head1 DESCRIPTION
+
+The genome of Bacteria and Archaea often contain several copies of the 16S rRNA
+gene. This can lead to significant biases when estimating the composition of
+microbial communities using 16S libraries, since species with a large number of
+copies will contribute disproportionally more 16S genes than species with a
+unique copy. Fortunately, it is possible to infer the copy number of unsequenced
+microbial species, based on that of close relatives that have been fully
+sequenced. Using this information, microbial relative abundance can be corrected
+by applying to each species a weight proportional to the inverse of their
+estimated copy number.
+
+This script takes an OTU table containing the 16S counts of one or several
+microbial communities in the QIIME format or as a generic site-by-species table
+(note: biom format not supported at this time). The species in the table must be
+identified by their Greengenes (2011) taxonomy string, e.g.:
+
+  k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rickettsiales;f__;g__Candidatus Pelagibacter
+
+The output is a copy-corrected OTU table, with relative abundances (in percent).
+
+=head1 REQUIRED ARGUMENTS
+
+=over
+
+=item -i <input>
+
+Input OTU table (QIIME or generic site-by-species table).
+
+=for Euclid:
+   input.type: readable
+
+=back
+
+=head1 OPTIONAL ARGUMENTS
+
+=over
+
+=item -o <output>
+
+Output path for the corrected OTU table (in same format as input). Output OTU
+table has relative abundance, in percent, instead of counts. Default: output.default
+
+=for Euclid:
+   output.type: string
+   output.default: 'otu_copyrighted.txt'
+
+=item -v
+
+Verbose mode. Display 16S copy number assignments.
+
+=back
+
+=head1 FEEDBACK
+
+=head2 Mailing Lists
+
+User feedback is an integral part of the evolution of this
+and other Bioperl modules. Send your comments and suggestions preferably
+to one of the Bioperl mailing lists.
+
+Your participation is much appreciated.
+
+  bioperl-l@bioperl.org                  - General discussion
+  http://bioperl.org/wiki/Mailing_lists  - About the mailing lists
+
+=head2 Support 
+
+Please direct usage questions or support issues to the mailing list:
+
+I<bioperl-l@bioperl.org>
+
+rather than to the module maintainer directly. Many experienced and 
+reponsive experts will be able look at the problem and quickly 
+address it. Please include a thorough description of the problem 
+with code and data examples if at all possible.
+
+=head2 Reporting Bugs
+
+Report bugs to the Bioperl bug tracking system to help us keep track
+the bugs and their resolution.  Bug reports can be submitted via the
+web:
+
+  http://bugzilla.open-bio.org/
+
+=head1 AUTHOR - Florent Angly
+
+Email florent.angly@gmail.com
+
+=cut
+
+copyrighter( $ARGV{'i'}, $ARGV{'o'}, $ARGV{'v'} );
+exit;
+
+
+func copyrighter ($input, $output, $verbose = 0) {
+
+   # Read input communities and do weight assignment
+   my $meta = Bio::Community::Meta->new;
+   print "Reading file '$input'\n";
+   my $in = Bio::Community::IO->new(
+      -file          => $input,
+      -weight_assign => 'ancestor',
+      -taxonomy      => Bio::DB::Taxonomy->new( -source => 'list' ), # on-the-fly taxonomy
+      -weight_files  => [ \*DATA ], # weights are the 16S rRNA copy number
+   );
+   $in->verbose($verbose);
+   my $format = $in->format;
+   print "Detected format is '$format'\n";
+
+   while (my $community = $in->next_community) {
+      $meta->add_communities([$community]);
+   }
+   $in->close;
+
+   # Do the copy number correction
+   my $summarized_communities = Bio::Community::Tools::Summarizer->new(
+      -metacommunity => $meta,
+      -merge_dups    => 0,
+   )->get_summaries;
+
+   # Write results, converting to relative abundance if desired
+   my $fh = Bio::Community::IO->new(
+      -format         => $format,
+      -file           => '>'.$output,
+      -abundance_type => 'percentage',
+   );
+   print "Writing communities to file '$output'\n";
+   while (my $community = $meta->next_community) {
+      $fh->write_community($community);
+   }
+   $fh->close;
+
+   return 1;
+}
+
+
+__DATA__
+k__Archaea	1.3958333333
+k__Bacteria	2.4605138496
+
+k__Archaea;p__Crenarchaeota	1
+k__Archaea;p__Euryarchaeota	1.7916666667
+k__Bacteria;p__Acidobacteria	2
+k__Bacteria;p__Actinobacteria	2.065
+k__Bacteria;p__Aquificae	2
+k__Bacteria;p__Bacteroidetes	3.7916666667
+k__Bacteria;p__Chlamydiae	2.25
+k__Bacteria;p__Chlorobi	1.5
+k__Bacteria;p__Chloroflexi	1.8333333333
+k__Bacteria;p__Cyanobacteria	2.25
+k__Bacteria;p__Deferribacteres	2
+k__Bacteria;p__Dictyoglomi	2
+k__Bacteria;p__Fibrobacteres	3
+k__Bacteria;p__Firmicutes	5.754646164
+k__Bacteria;p__Fusobacteria	4.5
+k__Bacteria;p__Nitrospirae	1
+k__Bacteria;p__Planctomycetes	1
+k__Bacteria;p__Proteobacteria	3.3783251933
+k__Bacteria;p__Spirochaetes	1.875
+k__Bacteria;p__Synergistetes	3
+k__Bacteria;p__Tenericutes	1.8333333333
+k__Bacteria;p__Thermi	3
+k__Bacteria;p__Thermotogae	2.1
+k__Bacteria;p__Verrucomicrobia	2
+
+k__Archaea;p__Crenarchaeota;c__Thaumarchaeota	1
+k__Archaea;p__Crenarchaeota;c__Thermoprotei	1
+k__Archaea;p__Euryarchaeota;c__Archaeoglobi	1
+k__Archaea;p__Euryarchaeota;c__Halobacteria	2.25
+k__Archaea;p__Euryarchaeota;c__Methanobacteria	2.6666666667
+k__Archaea;p__Euryarchaeota;c__Methanococci	3
+k__Archaea;p__Euryarchaeota;c__Methanomicrobia	2.4166666667
+k__Archaea;p__Euryarchaeota;c__Methanopyri	1
+k__Archaea;p__Euryarchaeota;c__Thermococci	1
+k__Archaea;p__Euryarchaeota;c__Thermoplasmata	1
+k__Bacteria;p__Acidobacteria;c__Solibacteres	2
+k__Bacteria;p__Actinobacteria;c__Actinobacteria	2.065
+k__Bacteria;p__Aquificae;c__Aquificae	2
+k__Bacteria;p__Bacteroidetes;c__Bacteroidia	4.3333333333
+k__Bacteria;p__Bacteroidetes;c__Flavobacteria	3.25
+k__Bacteria;p__Chlamydiae;c__Chlamydiae	2.25
+k__Bacteria;p__Chlorobi;c__Chlorobia	1.5
+k__Bacteria;p__Chloroflexi;c__Chloroflexi	2.5
+k__Bacteria;p__Chloroflexi;c__Dehalococcoidetes	1
+k__Bacteria;p__Chloroflexi;c__Thermobacula	2
+k__Bacteria;p__Cyanobacteria;c__Gloeobacterophycideae	1
+k__Bacteria;p__Cyanobacteria;c__Nostocophycideae	4
+k__Bacteria;p__Cyanobacteria;c__Oscillatoriophycideae	2
+k__Bacteria;p__Cyanobacteria;c__Synechococcophycideae	2
+k__Bacteria;p__Deferribacteres;c__Deferribacteres	2
+k__Bacteria;p__Dictyoglomi;c__Dictyoglomia	2
+k__Bacteria;p__Fibrobacteres;c__Fibrobacteres	3
+k__Bacteria;p__Firmicutes;c__Bacilli	7.1209821429
+k__Bacteria;p__Firmicutes;c__Clostridia	4.3883101852
+k__Bacteria;p__Fusobacteria;c__Fusobacteria	4.5
+k__Bacteria;p__Nitrospirae;c__Nitrospira	1
+k__Bacteria;p__Planctomycetes;c__Planctomycea	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria	2.4884920635
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria	2.6928240741
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria	3.4027777778
+k__Bacteria;p__Proteobacteria;c__Epsilonproteobacteria	3.71875
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria	4.5887820513
+k__Bacteria;p__Spirochaetes;c__Leptospirae	2
+k__Bacteria;p__Spirochaetes;c__Spirochaetes	1.75
+k__Bacteria;p__Synergistetes;c__Synergistia	3
+k__Bacteria;p__Tenericutes;c__Mollicutes	1.8333333333
+k__Bacteria;p__Thermi;c__Deinococci	3
+k__Bacteria;p__Thermotogae;c__Thermotogae	2.1
+k__Bacteria;p__Verrucomicrobia;c__Opitutae	1
+k__Bacteria;p__Verrucomicrobia;c__Verrucomicrobiae	3
+
+k__Archaea;p__Crenarchaeota;c__Thaumarchaeota;o__Cenarchaeales	1
+k__Archaea;p__Crenarchaeota;c__Thermoprotei;o__Desulfurococcales	1
+k__Archaea;p__Crenarchaeota;c__Thermoprotei;o__Sulfolobales	1
+k__Archaea;p__Crenarchaeota;c__Thermoprotei;o__Thermoproteales	1
+k__Archaea;p__Euryarchaeota;c__Archaeoglobi;o__Archaeoglobales	1
+k__Archaea;p__Euryarchaeota;c__Halobacteria;o__Halobacteriales	2.25
+k__Archaea;p__Euryarchaeota;c__Methanobacteria;o__Methanobacteriales	2.6666666667
+k__Archaea;p__Euryarchaeota;c__Methanococci;o__Methanococcales	3
+k__Archaea;p__Euryarchaeota;c__Methanomicrobia;o__Methanocellales	2
+k__Archaea;p__Euryarchaeota;c__Methanomicrobia;o__Methanomicrobiales	2.75
+k__Archaea;p__Euryarchaeota;c__Methanomicrobia;o__Methanosarcinales	2.5
+k__Archaea;p__Euryarchaeota;c__Methanopyri;o__Methanopyrales	1
+k__Archaea;p__Euryarchaeota;c__Thermococci;o__Thermococcales	1
+k__Archaea;p__Euryarchaeota;c__Thermoplasmata;o__Thermoplasmatales	1
+k__Bacteria;p__Acidobacteria;c__Solibacteres;o__Solibacterales	2
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Acidimicrobiales	2
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales	3.45
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Bifidobacteriales	2.875
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Coriobacteriales	1
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Rubrobacterales	1
+k__Bacteria;p__Aquificae;c__Aquificae;o__Aquificales	2
+k__Bacteria;p__Bacteroidetes;c__Bacteroidia;o__Bacteroidales	4.3333333333
+k__Bacteria;p__Bacteroidetes;c__Flavobacteria;o__Flavobacteriales	3.25
+k__Bacteria;p__Chlamydiae;c__Chlamydiae;o__Chlamydiales	2.25
+k__Bacteria;p__Chlorobi;c__Chlorobia;o__Chlorobiales	1.5
+k__Bacteria;p__Chloroflexi;c__Chloroflexi;o__Chloroflexales	3
+k__Bacteria;p__Chloroflexi;c__Chloroflexi;o__Roseiflexales	2
+k__Bacteria;p__Chloroflexi;c__Dehalococcoidetes;o__Dehalococcoidales	1
+k__Bacteria;p__Chloroflexi;c__Thermobacula;o__Thermobaculales	2
+k__Bacteria;p__Cyanobacteria;c__Gloeobacterophycideae;o__Gloeobacterales	1
+k__Bacteria;p__Cyanobacteria;c__Nostocophycideae;o__Nostocales	4
+k__Bacteria;p__Cyanobacteria;c__Oscillatoriophycideae;o__Oscillatoriales	2
+k__Bacteria;p__Cyanobacteria;c__Synechococcophycideae;o__Synechococcales	2
+k__Bacteria;p__Deferribacteres;c__Deferribacteres;o__Deferribacterales	2
+k__Bacteria;p__Dictyoglomi;c__Dictyoglomia;o__Dictyoglomales	2
+k__Bacteria;p__Fibrobacteres;c__Fibrobacteres;o__Fibrobacterales	3
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Bacillales	8.1513888889
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Exiguobacterales	9
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales	4.2115575397
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales	5.5532407407
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Halanaerobiales	4.5
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Natranaerobiales	4
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Thermoanaerobacterales	3.5
+k__Bacteria;p__Fusobacteria;c__Fusobacteria;o__Fusobacteriales	4.5
+k__Bacteria;p__Nitrospirae;c__Nitrospira;o__Nitrospirales	1
+k__Bacteria;p__Planctomycetes;c__Planctomycea;o__Pirellulales	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Caulobacterales	2.5
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales	2.880952381
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodobacterales	2.1333333333
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodospirillales	4.1666666667
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rickettsiales	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Sphingomonadales	2.25
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales	3.1569444444
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Hydrogenophilales	2
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Methylophilales	2
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Neisseriales	4
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Nitrosomonadales	1
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Rhodocyclales	4
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Bdellovibrionales	2
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Desulfobacterales	7
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Desulfovibrionales	3.1666666667
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Desulfuromonadales	2.5
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Myxococcales	3.25
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Syntrophobacterales	2.5
+k__Bacteria;p__Proteobacteria;c__Epsilonproteobacteria;o__Campylobacterales	3.4375
+k__Bacteria;p__Proteobacteria;c__Epsilonproteobacteria;o__Nautiliales	4
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Acidithiobacillales	2
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Aeromonadales	8
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Alteromonadales	7.3666666667
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Cardiobacteriales	3
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Chromatiales	2.0833333333
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales	6.6666666667
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Legionellales	2
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Oceanospirillales	4.6875
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pasteurellales	5.75
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pseudomonadales	5.55
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Thiotrichales	3
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Vibrionales	7.05
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Xanthomonadales	2.5
+k__Bacteria;p__Spirochaetes;c__Leptospirae;o__Leptospirales	2
+k__Bacteria;p__Spirochaetes;c__Spirochaetes;o__Spirochaetales	1.75
+k__Bacteria;p__Synergistetes;c__Synergistia;o__Synergistales	3
+k__Bacteria;p__Tenericutes;c__Mollicutes;o__Acholeplasmatales	2
+k__Bacteria;p__Tenericutes;c__Mollicutes;o__Mycoplasmatales	1.6666666667
+k__Bacteria;p__Thermi;c__Deinococci;o__Deinococcales	4
+k__Bacteria;p__Thermi;c__Deinococci;o__Thermales	2
+k__Bacteria;p__Thermotogae;c__Thermotogae;o__Thermotogales	2.1
+k__Bacteria;p__Verrucomicrobia;c__Opitutae;o__Opitutales	1
+k__Bacteria;p__Verrucomicrobia;c__Verrucomicrobiae;o__Verrucomicrobiales	3
+
+k__Archaea;p__Crenarchaeota;c__Thaumarchaeota;o__Cenarchaeales;f__Cenarchaeaceae	1
+k__Archaea;p__Crenarchaeota;c__Thermoprotei;o__Desulfurococcales;f__Desulfurococcaceae	1
+k__Archaea;p__Crenarchaeota;c__Thermoprotei;o__Sulfolobales;f__Sulfolobaceae	1
+k__Archaea;p__Crenarchaeota;c__Thermoprotei;o__Thermoproteales;f__Thermofilaceae	1
+k__Archaea;p__Crenarchaeota;c__Thermoprotei;o__Thermoproteales;f__Thermoproteaceae	1
+k__Archaea;p__Euryarchaeota;c__Archaeoglobi;o__Archaeoglobales;f__Archaeoglobaceae	1
+k__Archaea;p__Euryarchaeota;c__Halobacteria;o__Halobacteriales;f__Halobacteriaceae	2.25
+k__Archaea;p__Euryarchaeota;c__Methanobacteria;o__Methanobacteriales;f__Methanobacteriaceae	2.6666666667
+k__Archaea;p__Euryarchaeota;c__Methanococci;o__Methanococcales;f__Methanococcaceae	3
+k__Archaea;p__Euryarchaeota;c__Methanomicrobia;o__Methanocellales;f__Methanocellaceae	2
+k__Archaea;p__Euryarchaeota;c__Methanomicrobia;o__Methanomicrobiales;f__Methanomicrobiaceae	1.5
+k__Archaea;p__Euryarchaeota;c__Methanomicrobia;o__Methanomicrobiales;f__Methanospirillaceae	4
+k__Archaea;p__Euryarchaeota;c__Methanomicrobia;o__Methanosarcinales;f__Methanosaetaceae	2
+k__Archaea;p__Euryarchaeota;c__Methanomicrobia;o__Methanosarcinales;f__Methanosarcinaceae	3
+k__Archaea;p__Euryarchaeota;c__Methanopyri;o__Methanopyrales;f__Methanopyraceae	1
+k__Archaea;p__Euryarchaeota;c__Thermococci;o__Thermococcales;f__Thermococcaceae	1
+k__Archaea;p__Euryarchaeota;c__Thermoplasmata;o__Thermoplasmatales;f__Thermoplasmataceae	1
+k__Bacteria;p__Acidobacteria;c__Solibacteres;o__Solibacterales;f__Solibacteraceae	2
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Acidimicrobiales;f__Acidimicrobiaceae	2
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Actinomycetaceae	3
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Corynebacteriaceae	3.4
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Frankiaceae	2.5
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Jonesiaceae	5
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Micrococcaceae	5.75
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Micromonosporaceae	3
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Mycobacteriaceae	1.2
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Nocardiaceae	4
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Nocardioidaceae	2
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Nocardiopsaceae	4
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Propionibacteriaceae	2
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Pseudonocardiaceae	3
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Streptomycetaceae	6
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Bifidobacteriales;f__Bifidobacteriaceae	2.875
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Coriobacteriales;f__Coriobacteriaceae	1
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Rubrobacterales;f__Rubrobacteraceae	1
+k__Bacteria;p__Aquificae;c__Aquificae;o__Aquificales;f__Aquificaceae	1.5
+k__Bacteria;p__Aquificae;c__Aquificae;o__Aquificales;f__Hydrogenothermaceae	2.5
+k__Bacteria;p__Bacteroidetes;c__Bacteroidia;o__Bacteroidales;f__Bacteroidaceae	6
+k__Bacteria;p__Bacteroidetes;c__Bacteroidia;o__Bacteroidales;f__Porphyromonadaceae	3
+k__Bacteria;p__Bacteroidetes;c__Bacteroidia;o__Bacteroidales;f__Prevotellaceae	4
+k__Bacteria;p__Bacteroidetes;c__Flavobacteria;o__Flavobacteriales;f__Flavobacteriaceae	3.25
+k__Bacteria;p__Chlamydiae;c__Chlamydiae;o__Chlamydiales;f__Chlamydiaceae	1.5
+k__Bacteria;p__Chlamydiae;c__Chlamydiae;o__Chlamydiales;f__Parachlamydiaceae	3
+k__Bacteria;p__Chlorobi;c__Chlorobia;o__Chlorobiales;f__Chlorobiaceae	1.5
+k__Bacteria;p__Chloroflexi;c__Chloroflexi;o__Chloroflexales;f__Chloroflexaceae	3
+k__Bacteria;p__Chloroflexi;c__Chloroflexi;o__Roseiflexales;f__Roseiflexaceae	2
+k__Bacteria;p__Chloroflexi;c__Dehalococcoidetes;o__Dehalococcoidales;f__Dehalococcoidaceae	1
+k__Bacteria;p__Chloroflexi;c__Thermobacula;o__Thermobaculales;f__Thermobaculaceae	2
+k__Bacteria;p__Cyanobacteria;c__Gloeobacterophycideae;o__Gloeobacterales;f__Gloeobacteraceae	1
+k__Bacteria;p__Cyanobacteria;c__Nostocophycideae;o__Nostocales;f__Nostocaceae	4
+k__Bacteria;p__Cyanobacteria;c__Oscillatoriophycideae;o__Oscillatoriales;f__Phormidiaceae	2
+k__Bacteria;p__Cyanobacteria;c__Synechococcophycideae;o__Synechococcales;f__Synechococcaceae	2
+k__Bacteria;p__Deferribacteres;c__Deferribacteres;o__Deferribacterales;f__Deferribacteraceae	2
+k__Bacteria;p__Dictyoglomi;c__Dictyoglomia;o__Dictyoglomales;f__Dictyoglomaceae	2
+k__Bacteria;p__Fibrobacteres;c__Fibrobacteres;o__Fibrobacterales;f__Fibrobacteraceae	3
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Bacillales;f__Bacillaceae	10.0833333333
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Bacillales;f__Listeriaceae	5.8
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Bacillales;f__Paenibacillaceae	12
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Bacillales;f__Staphylococcaceae	4.7222222222
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Exiguobacterales;f__Exiguobacteraceae	9
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Enterococcaceae	4
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Lactobacillaceae	5.1875
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Leuconostocaceae	2
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Streptococcaceae	5.6587301587
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Clostridiaceae	8.1458333333
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__ClostridialesFamilyXI.IncertaeSedis	4
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Heliobacteriaceae	10
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Peptococcaceae	5.8333333333
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Ruminococcaceae	3
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Symbiobacteriaceae	6
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Syntrophomonadaceae	3
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__ThermoanaerobacteralesFamilyIII.IncertaeSedis	5
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Veillonellaceae	5
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Halanaerobiales;f__Halanaerobiaceae	4
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Halanaerobiales;f__Halobacteroidaceae	5
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Natranaerobiales;f__Natranaerobiaceae	4
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Thermoanaerobacterales;f__Caldicellulosiruptoraceae	3
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Thermoanaerobacterales;f__Thermoanaerobacteraceae	4
+k__Bacteria;p__Fusobacteria;c__Fusobacteria;o__Fusobacteriales;f__Fusobacteriaceae	4.5
+k__Bacteria;p__Nitrospirae;c__Nitrospira;o__Nitrospirales;f__Thermodesulfovibrionaceae	1
+k__Bacteria;p__Planctomycetes;c__Planctomycea;o__Pirellulales;f__Pirellulaceae	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Caulobacterales;f__Caulobacteraceae	2.5
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Bartonellaceae	2
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Beijerinckiaceae	2.5
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Bradyrhizobiaceae	1.5
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Methylobacteriaceae	6.3333333333
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Phyllobacteriaceae	2
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Rhizobiaceae	3.3333333333
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Xanthobacteraceae	2.5
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodobacterales;f__Hyphomonadaceae	1.5
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodobacterales;f__Rhodobacteraceae	2.7666666667
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodospirillales;f__Acetobacteraceae	3.3333333333
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodospirillales;f__Rhodospirillaceae	5
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rickettsiales;f__Anaplasmataceae	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rickettsiales;f__Rickettsiaceae	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Sphingomonadales;f__Sphingomonadaceae	2.25
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Alcaligenaceae	3
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Burkholderiaceae	4.9277777778
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Comamonadaceae	2.2
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Oxalobacteraceae	2.5
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Hydrogenophilales;f__Hydrogenophilaceae	2
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Methylophilales;f__Methylophilaceae	2
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Neisseriales;f__Neisseriaceae	4
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Nitrosomonadales;f__Nitrosomonadaceae	1
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Rhodocyclales;f__Rhodocyclaceae	4
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Bdellovibrionales;f__Bdellovibrionaceae	2
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Desulfobacterales;f__Desulfobulbaceae	7
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Desulfovibrionales;f__Desulfovibrionaceae	3.1666666667
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Desulfuromonadales;f__Geobacteraceae	3
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Desulfuromonadales;f__Pelobacteraceae	2
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Myxococcales;f__Myxococcaceae	2.5
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Myxococcales;f__Polyangiaceae	4
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Syntrophobacterales;f__Desulfobacteraceae	3
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Syntrophobacterales;f__Syntrophobacteraceae	2
+k__Bacteria;p__Proteobacteria;c__Epsilonproteobacteria;o__Campylobacterales;f__Campylobacteraceae	3.875
+k__Bacteria;p__Proteobacteria;c__Epsilonproteobacteria;o__Campylobacterales;f__Helicobacteraceae	3
+k__Bacteria;p__Proteobacteria;c__Epsilonproteobacteria;o__Nautiliales;f__Nautiliaceae	4
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Acidithiobacillales;f__Acidithiobacillaceae	2
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Aeromonadales;f__Aeromonadaceae	8
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Alteromonadales;f__Alteromonadaceae	5
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Alteromonadales;f__Colwelliaceae	9
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Alteromonadales;f__Idiomarinaceae	4
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Alteromonadales;f__Pseudoalteromonadaceae	9
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Alteromonadales;f__Shewanellaceae	9.8333333333
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Cardiobacteriales;f__Cardiobacteriaceae	3
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Chromatiales;f__Chromatiaceae	2.5
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Chromatiales;f__Ectothiorhodospiraceae	1.6666666667
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae	6.6666666667
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Legionellales;f__Coxiellaceae	1
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Legionellales;f__Legionellaceae	3
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Oceanospirillales;f__Alcanivoracaceae	3
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Oceanospirillales;f__Alteromonadaceae	2.75
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Oceanospirillales;f__Halomonadaceae	5
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Oceanospirillales;f__Oceanospirillaceae	8
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pasteurellales;f__Pasteurellaceae	5.75
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pseudomonadales;f__Moraxellaceae	6
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pseudomonadales;f__Pseudomonadaceae	5.1
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Thiotrichales;f__Francisellaceae	3
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Vibrionales;f__Vibrionaceae	7.05
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Xanthomonadales;f__Xanthomonadaceae	2.5
+k__Bacteria;p__Spirochaetes;c__Leptospirae;o__Leptospirales;f__Leptospiraceae	2
+k__Bacteria;p__Spirochaetes;c__Spirochaetes;o__Spirochaetales;f__Spirochaetaceae	1.75
+k__Bacteria;p__Synergistetes;c__Synergistia;o__Synergistales;f__Synergistaceae	3
+k__Bacteria;p__Tenericutes;c__Mollicutes;o__Acholeplasmatales;f__Acholeplasmataceae	2
+k__Bacteria;p__Tenericutes;c__Mollicutes;o__Mycoplasmatales;f__Mycoplasmataceae	1.6666666667
+k__Bacteria;p__Thermi;c__Deinococci;o__Deinococcales;f__Deinococcaceae	4
+k__Bacteria;p__Thermi;c__Deinococci;o__Thermales;f__Thermaceae	2
+k__Bacteria;p__Thermotogae;c__Thermotogae;o__Thermotogales;f__Thermotogaceae	2.1
+k__Bacteria;p__Verrucomicrobia;c__Opitutae;o__Opitutales;f__Opitutaceae	1
+k__Bacteria;p__Verrucomicrobia;c__Verrucomicrobiae;o__Verrucomicrobiales;f__Verrucomicrobiaceae	3
+
+k__Archaea;p__Crenarchaeota;c__Thaumarchaeota;o__Cenarchaeales;f__Cenarchaeaceae;g__Cenarchaeum	1
+k__Archaea;p__Crenarchaeota;c__Thaumarchaeota;o__Cenarchaeales;f__Cenarchaeaceae;g__Nitrosopumilus	1
+k__Archaea;p__Crenarchaeota;c__Thermoprotei;o__Desulfurococcales;f__Desulfurococcaceae;g__Ignicoccus	1
+k__Archaea;p__Crenarchaeota;c__Thermoprotei;o__Sulfolobales;f__Sulfolobaceae;g__Metallosphaera	1
+k__Archaea;p__Crenarchaeota;c__Thermoprotei;o__Sulfolobales;f__Sulfolobaceae;g__Sulfolobus	1
+k__Archaea;p__Crenarchaeota;c__Thermoprotei;o__Thermoproteales;f__Thermofilaceae;g__Thermofilum	1
+k__Archaea;p__Crenarchaeota;c__Thermoprotei;o__Thermoproteales;f__Thermoproteaceae;g__Pyrobaculum	1
+k__Archaea;p__Crenarchaeota;c__Thermoprotei;o__Thermoproteales;f__Thermoproteaceae;g__Vulcanisaeta	1
+k__Archaea;p__Euryarchaeota;c__Archaeoglobi;o__Archaeoglobales;f__Archaeoglobaceae;g__Archaeoglobus	1
+k__Archaea;p__Euryarchaeota;c__Halobacteria;o__Halobacteriales;f__Halobacteriaceae;g__Halobacterium	1
+k__Archaea;p__Euryarchaeota;c__Halobacteria;o__Halobacteriales;f__Halobacteriaceae;g__Halomicrobium	3
+k__Archaea;p__Euryarchaeota;c__Halobacteria;o__Halobacteriales;f__Halobacteriaceae;g__Haloquadratum	2
+k__Archaea;p__Euryarchaeota;c__Halobacteria;o__Halobacteriales;f__Halobacteriaceae;g__Halorubrum	3
+k__Archaea;p__Euryarchaeota;c__Methanobacteria;o__Methanobacteriales;f__Methanobacteriaceae;g__Methanobrevibacter	2
+k__Archaea;p__Euryarchaeota;c__Methanobacteria;o__Methanobacteriales;f__Methanobacteriaceae;g__Methanosphaera	4
+k__Archaea;p__Euryarchaeota;c__Methanobacteria;o__Methanobacteriales;f__Methanobacteriaceae;g__Methanothermobacter	2
+k__Archaea;p__Euryarchaeota;c__Methanococci;o__Methanococcales;f__Methanococcaceae;g__Methanococcus	3
+k__Archaea;p__Euryarchaeota;c__Methanomicrobia;o__Methanocellales;f__Methanocellaceae;g__Methanocella	2
+k__Archaea;p__Euryarchaeota;c__Methanomicrobia;o__Methanomicrobiales;f__Methanomicrobiaceae;g__Methanoculleus	1
+k__Archaea;p__Euryarchaeota;c__Methanomicrobia;o__Methanomicrobiales;f__Methanomicrobiaceae;g__Methanoplanus	2
+k__Archaea;p__Euryarchaeota;c__Methanomicrobia;o__Methanomicrobiales;f__Methanospirillaceae;g__Methanospirillum	4
+k__Archaea;p__Euryarchaeota;c__Methanomicrobia;o__Methanosarcinales;f__Methanosaetaceae;g__Methanosaeta	2
+k__Archaea;p__Euryarchaeota;c__Methanomicrobia;o__Methanosarcinales;f__Methanosarcinaceae;g__Methanococcoides	3
+k__Archaea;p__Euryarchaeota;c__Methanomicrobia;o__Methanosarcinales;f__Methanosarcinaceae;g__Methanosarcina	3
+k__Archaea;p__Euryarchaeota;c__Methanopyri;o__Methanopyrales;f__Methanopyraceae;g__Methanopyrus	1
+k__Archaea;p__Euryarchaeota;c__Thermococci;o__Thermococcales;f__Thermococcaceae;g__Pyrococcus	1
+k__Archaea;p__Euryarchaeota;c__Thermococci;o__Thermococcales;f__Thermococcaceae;g__Thermococcus	1
+k__Archaea;p__Euryarchaeota;c__Thermoplasmata;o__Thermoplasmatales;f__Thermoplasmataceae;g__Thermoplasma	1
+k__Bacteria;p__Acidobacteria;c__Solibacteres;o__Solibacterales;f__Solibacteraceae;g__CandidatusSolibacter	2
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Acidimicrobiales;f__Acidimicrobiaceae;g__Acidimicrobium	2
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Actinomycetaceae;g__Arcanobacterium	4
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Actinomycetaceae;g__Mobiluncus	2
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Corynebacteriaceae;g__Corynebacterium	3.4
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Frankiaceae;g__Frankia	2.5
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Jonesiaceae;g__Jonesia	5
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Micrococcaceae;g__Arthrobacter	5.75
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Micromonosporaceae;g__Micromonospora	3
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Micromonosporaceae;g__Salinispora	3
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Mycobacteriaceae;g__Mycobacterium	1.2
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Nocardiaceae;g__Rhodococcus	4
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Nocardioidaceae;g__Nocardioides	2
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Nocardiopsaceae;g__Thermobifida	4
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Propionibacteriaceae;g__Microlunatus	1
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Propionibacteriaceae;g__Propionibacterium	3
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Pseudonocardiaceae;g__Pseudonocardia	3
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Streptomycetaceae;g__Streptomyces	6
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Bifidobacteriales;f__Bifidobacteriaceae;g__Bifidobacterium	3.75
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Bifidobacteriales;f__Bifidobacteriaceae;g__Gardnerella	2
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Coriobacteriales;f__Coriobacteriaceae;g__Olsenella	1
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Rubrobacterales;f__Rubrobacteraceae;g__Rubrobacter	1
+k__Bacteria;p__Aquificae;c__Aquificae;o__Aquificales;f__Aquificaceae;g__Aquifex	2
+k__Bacteria;p__Aquificae;c__Aquificae;o__Aquificales;f__Aquificaceae;g__Thermocrinis	1
+k__Bacteria;p__Aquificae;c__Aquificae;o__Aquificales;f__Hydrogenothermaceae;g__Sulfurihydrogenibium	2.5
+k__Bacteria;p__Bacteroidetes;c__Bacteroidia;o__Bacteroidales;f__Bacteroidaceae;g__Bacteroides	6
+k__Bacteria;p__Bacteroidetes;c__Bacteroidia;o__Bacteroidales;f__Porphyromonadaceae;g__CandidatusAzobacteroides	2
+k__Bacteria;p__Bacteroidetes;c__Bacteroidia;o__Bacteroidales;f__Porphyromonadaceae;g__Porphyromonas	4
+k__Bacteria;p__Bacteroidetes;c__Bacteroidia;o__Bacteroidales;f__Prevotellaceae;g__Prevotella	4
+k__Bacteria;p__Bacteroidetes;c__Flavobacteria;o__Flavobacteriales;f__Flavobacteriaceae;g__Croceibacter	2
+k__Bacteria;p__Bacteroidetes;c__Flavobacteria;o__Flavobacteriales;f__Flavobacteriaceae;g__Flavobacterium	6
+k__Bacteria;p__Bacteroidetes;c__Flavobacteria;o__Flavobacteriales;f__Flavobacteriaceae;g__Gramella	3
+k__Bacteria;p__Bacteroidetes;c__Flavobacteria;o__Flavobacteriales;f__Flavobacteriaceae;g__Robiginitalea	2
+k__Bacteria;p__Chlamydiae;c__Chlamydiae;o__Chlamydiales;f__Chlamydiaceae;g__Chlamydia	2
+k__Bacteria;p__Chlamydiae;c__Chlamydiae;o__Chlamydiales;f__Chlamydiaceae;g__Chlamydophila	1
+k__Bacteria;p__Chlamydiae;c__Chlamydiae;o__Chlamydiales;f__Parachlamydiaceae;g__CandidatusProtochlamydia	3
+k__Bacteria;p__Chlorobi;c__Chlorobia;o__Chlorobiales;f__Chlorobiaceae;g__Chlorobaculum	2
+k__Bacteria;p__Chlorobi;c__Chlorobia;o__Chlorobiales;f__Chlorobiaceae;g__Chlorobium	1
+k__Bacteria;p__Chlorobi;c__Chlorobia;o__Chlorobiales;f__Chlorobiaceae;g__Chloroherpeton	1
+k__Bacteria;p__Chlorobi;c__Chlorobia;o__Chlorobiales;f__Chlorobiaceae;g__Pelodictyon	2.5
+k__Bacteria;p__Chlorobi;c__Chlorobia;o__Chlorobiales;f__Chlorobiaceae;g__Prosthecochloris	1
+k__Bacteria;p__Chloroflexi;c__Chloroflexi;o__Chloroflexales;f__Chloroflexaceae;g__Chloroflexus	3
+k__Bacteria;p__Chloroflexi;c__Chloroflexi;o__Roseiflexales;f__Roseiflexaceae;g__Roseiflexus	2
+k__Bacteria;p__Chloroflexi;c__Dehalococcoidetes;o__Dehalococcoidales;f__Dehalococcoidaceae;g__Dehalococcoides	1
+k__Bacteria;p__Chloroflexi;c__Thermobacula;o__Thermobaculales;f__Thermobaculaceae;g__Thermobaculum	2
+k__Bacteria;p__Cyanobacteria;c__Gloeobacterophycideae;o__Gloeobacterales;f__Gloeobacteraceae;g__Gloeobacter	1
+k__Bacteria;p__Cyanobacteria;c__Nostocophycideae;o__Nostocales;f__Nostocaceae;g__Anabaena	4
+k__Bacteria;p__Cyanobacteria;c__Nostocophycideae;o__Nostocales;f__Nostocaceae;g__Nostoc	4
+k__Bacteria;p__Cyanobacteria;c__Oscillatoriophycideae;o__Oscillatoriales;f__Phormidiaceae;g__Trichodesmium	2
+k__Bacteria;p__Cyanobacteria;c__Synechococcophycideae;o__Synechococcales;f__Synechococcaceae;g__Synechococcus	2
+k__Bacteria;p__Deferribacteres;c__Deferribacteres;o__Deferribacterales;f__Deferribacteraceae;g__Deferribacter	2
+k__Bacteria;p__Dictyoglomi;c__Dictyoglomia;o__Dictyoglomales;f__Dictyoglomaceae;g__Dictyoglomus	2
+k__Bacteria;p__Fibrobacteres;c__Fibrobacteres;o__Fibrobacterales;f__Fibrobacteraceae;g__Fibrobacter	3
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Bacillales;f__Bacillaceae;g__Bacillus	10.1666666667
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Bacillales;f__Bacillaceae;g__Geobacillus	10
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Bacillales;f__Listeriaceae;g__Listeria	5.8
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Bacillales;f__Paenibacillaceae;g__Paenibacillus	12
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Bacillales;f__Staphylococcaceae;g__Macrococcus	4
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Bacillales;f__Staphylococcaceae;g__Staphylococcus	5.4444444444
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Exiguobacterales;f__Exiguobacteraceae;g__Exiguobacterium	9
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Enterococcaceae;g__Enterococcus	4
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Lactobacillaceae;g__Lactobacillus	5.375
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Lactobacillaceae;g__Pediococcus	5
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Leuconostocaceae;g__Oenococcus	2
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Streptococcaceae;g__Lactococcus	6.3333333333
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Streptococcaceae;g__Streptococcus	4.9841269841
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Clostridiaceae;g__Alkaliphilus	8
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Clostridiaceae;g__Clostridium	8.2916666667
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__ClostridialesFamilyXI.IncertaeSedis;g__Anaerococcus	4
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__ClostridialesFamilyXI.IncertaeSedis;g__Finegoldia	4
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Heliobacteriaceae;g__Heliobacterium	10
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Peptococcaceae;g__Desulfitobacterium	5.5
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Peptococcaceae;g__Desulfotomaculum	10
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Peptococcaceae;g__Pelotomaculum	2
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Ruminococcaceae;g__Ethanoligenens	3
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Symbiobacteriaceae;g__Symbiobacterium	6
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Syntrophomonadaceae;g__Syntrophomonas	3
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__ThermoanaerobacteralesFamilyIII.IncertaeSedis;g__Thermoanaerobacterium	5
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Veillonellaceae;g__Acidaminococcus	6
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Veillonellaceae;g__Veillonella	4
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Halanaerobiales;f__Halanaerobiaceae;g__Halothermothrix	4
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Halanaerobiales;f__Halobacteroidaceae;g__Acetohalobium	5
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Natranaerobiales;f__Natranaerobiaceae;g__Natranaerobius	4
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Thermoanaerobacterales;f__Caldicellulosiruptoraceae;g__Caldicellulosiruptor	3
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Thermoanaerobacterales;f__Thermoanaerobacteraceae;g__Caldanaerobacter	4
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Thermoanaerobacterales;f__Thermoanaerobacteraceae;g__Carboxydothermus	4
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Thermoanaerobacterales;f__Thermoanaerobacteraceae;g__Thermoanaerobacter	4
+k__Bacteria;p__Fusobacteria;c__Fusobacteria;o__Fusobacteriales;f__Fusobacteriaceae;g__Leptotrichia	5
+k__Bacteria;p__Fusobacteria;c__Fusobacteria;o__Fusobacteriales;f__Fusobacteriaceae;g__Sebaldella	4
+k__Bacteria;p__Nitrospirae;c__Nitrospira;o__Nitrospirales;f__Thermodesulfovibrionaceae;g__Thermodesulfovibrio	1
+k__Bacteria;p__Planctomycetes;c__Planctomycea;o__Pirellulales;f__Pirellulaceae;g__Pirellula	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Caulobacterales;f__Caulobacteraceae;g__Asticcacaulis	3
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Caulobacterales;f__Caulobacteraceae;g__Caulobacter	2
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Bartonellaceae;g__Bartonella	2
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Beijerinckiaceae;g__Beijerinckia	3
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Beijerinckiaceae;g__Methylocella	2
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Bradyrhizobiaceae;g__Blastobacter	2
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Bradyrhizobiaceae;g__Nitrobacter	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Methylobacteriaceae;g__Methylobacterium	6.3333333333
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Phyllobacteriaceae;g__Chelativorans	2
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Phyllobacteriaceae;g__Mesorhizobium	2
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Rhizobiaceae;g__Agrobacterium	4
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Rhizobiaceae;g__CandidatusLiberibacter	3
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Rhizobiaceae;g__Rhizobium	3
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Xanthobacteraceae;g__Azorhizobium	3
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Xanthobacteraceae;g__Xanthobacter	2
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodobacterales;f__Hyphomonadaceae;g__Hirschia	2
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodobacterales;f__Hyphomonadaceae;g__Hyphomonas	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodobacterales;f__Rhodobacteraceae;g__Dinoroseobacter	2
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodobacterales;f__Rhodobacteraceae;g__Paracoccus	3
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodobacterales;f__Rhodobacteraceae;g__Rhodobacter	3.8333333333
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodobacterales;f__Rhodobacteraceae;g__Roseobacter	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodobacterales;f__Rhodobacteraceae;g__Ruegeria	4
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodospirillales;f__Acetobacteraceae;g__Acidiphilium	2
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodospirillales;f__Acetobacteraceae;g__Gluconacetobacter	4
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodospirillales;f__Acetobacteraceae;g__Gluconobacter	4
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodospirillales;f__Rhodospirillaceae;g__Azospirillum	9
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodospirillales;f__Rhodospirillaceae;g__Magnetospirillum	2
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodospirillales;f__Rhodospirillaceae;g__Rhodospirillum	4
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rickettsiales;f__Anaplasmataceae;g__Anaplasma	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rickettsiales;f__Anaplasmataceae;g__Ehrlichia	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rickettsiales;f__Anaplasmataceae;g__Neorickettsia	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rickettsiales;f__Rickettsiaceae;g__Orientia	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rickettsiales;f__Rickettsiaceae;g__Rickettsia	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rickettsiales;f__Rickettsiaceae;g__Wolbachia	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Sphingomonadales;f__Sphingomonadaceae;g__Novosphingobium	3
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Sphingomonadales;f__Sphingomonadaceae;g__Sphingomonas	2
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Sphingomonadales;f__Sphingomonadaceae;g__Sphingopyxis	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Sphingomonadales;f__Sphingomonadaceae;g__Zymomonas	3
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Alcaligenaceae;g__Achromobacter	3
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Alcaligenaceae;g__Bordetella	3
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Burkholderiaceae;g__Burkholderia	5.45
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Burkholderiaceae;g__Cupriavidus	5.3333333333
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Burkholderiaceae;g__Ralstonia	4
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Comamonadaceae;g__Acidovorax	3
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Comamonadaceae;g__Polaromonas	1
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Comamonadaceae;g__Rhodoferax	2
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Comamonadaceae;g__Variovorax	2
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Comamonadaceae;g__Verminephrobacter	3
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Oxalobacteraceae;g__Collimonas	3
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Oxalobacteraceae;g__Janthinobacterium	2
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Hydrogenophilales;f__Hydrogenophilaceae;g__Thiobacillus	2
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Methylophilales;f__Methylophilaceae;g__Methylobacillus	2
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Neisseriales;f__Neisseriaceae;g__Neisseria	4
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Nitrosomonadales;f__Nitrosomonadaceae;g__Nitrosomonas	1
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Rhodocyclales;f__Rhodocyclaceae;g__Aromatoleum	4
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Rhodocyclales;f__Rhodocyclaceae;g__Thauera	4
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Bdellovibrionales;f__Bdellovibrionaceae;g__Bdellovibrio	2
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Desulfobacterales;f__Desulfobulbaceae;g__Desulfotalea	7
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Desulfovibrionales;f__Desulfovibrionaceae;g__Desulfovibrio	4.3333333333
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Desulfovibrionales;f__Desulfovibrionaceae;g__Lawsonia	2
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Desulfuromonadales;f__Geobacteraceae;g__Geobacter	3
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Desulfuromonadales;f__Pelobacteraceae;g__Pelobacter	2
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Myxococcales;f__Myxococcaceae;g__Anaeromyxobacter	2
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Myxococcales;f__Myxococcaceae;g__Myxococcus	3
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Myxococcales;f__Polyangiaceae;g__Sorangium	4
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Syntrophobacterales;f__Desulfobacteraceae;g__Desulfatibacillum	2
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Syntrophobacterales;f__Desulfobacteraceae;g__Desulfobacterium	6
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Syntrophobacterales;f__Desulfobacteraceae;g__Desulfococcus	1
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Syntrophobacterales;f__Syntrophobacteraceae;g__Syntrophobacter	2
+k__Bacteria;p__Proteobacteria;c__Epsilonproteobacteria;o__Campylobacterales;f__Campylobacteraceae;g__Arcobacter	4.5
+k__Bacteria;p__Proteobacteria;c__Epsilonproteobacteria;o__Campylobacterales;f__Campylobacteraceae;g__Campylobacter	3.25
+k__Bacteria;p__Proteobacteria;c__Epsilonproteobacteria;o__Campylobacterales;f__Helicobacteraceae;g__Helicobacter	2
+k__Bacteria;p__Proteobacteria;c__Epsilonproteobacteria;o__Campylobacterales;f__Helicobacteraceae;g__Sulfurimonas	4
+k__Bacteria;p__Proteobacteria;c__Epsilonproteobacteria;o__Campylobacterales;f__Helicobacteraceae;g__Wolinella	3
+k__Bacteria;p__Proteobacteria;c__Epsilonproteobacteria;o__Nautiliales;f__Nautiliaceae;g__Nautilia	4
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Acidithiobacillales;f__Acidithiobacillaceae;g__Acidithiobacillus	2
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Aeromonadales;f__Aeromonadaceae;g__Tolumonas	8
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Alteromonadales;f__Alteromonadaceae;g__Glaciecola	5
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Alteromonadales;f__Colwelliaceae;g__Colwellia	9
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Alteromonadales;f__Idiomarinaceae;g__Idiomarina	4
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Alteromonadales;f__Pseudoalteromonadaceae;g__Pseudoalteromonas	9
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Alteromonadales;f__Shewanellaceae;g__Shewanella	9.8333333333
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Cardiobacteriales;f__Cardiobacteriaceae;g__Dichelobacter	3
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Chromatiales;f__Chromatiaceae;g__Allochromatium	3
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Chromatiales;f__Chromatiaceae;g__Nitrosococcus	2
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Chromatiales;f__Ectothiorhodospiraceae;g__Alkalilimnicola	2
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Chromatiales;f__Ectothiorhodospiraceae;g__Halorhodospira	2
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Chromatiales;f__Ectothiorhodospiraceae;g__Thioalkalivibrio	1
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__CandidatusBlochmannia	1
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Dickeya	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Enterobacter	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Erwinia	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Escherichia	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Klebsiella	8
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Pectobacterium	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Proteus	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Salmonella	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Serratia	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Shigella	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Sodalis	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Trabulsiella	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Xenorhabdus	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Yersinia	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Legionellales;f__Coxiellaceae;g__Coxiella	1
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Legionellales;f__Legionellaceae;g__Legionella	3
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Oceanospirillales;f__Alcanivoracaceae;g__Alcanivorax	3
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Oceanospirillales;f__Alteromonadaceae;g__Cellvibrio	3
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Oceanospirillales;f__Alteromonadaceae;g__Marinobacter	3
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Oceanospirillales;f__Alteromonadaceae;g__Saccharophagus	2
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Oceanospirillales;f__Alteromonadaceae;g__Teredinibacter	3
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Oceanospirillales;f__Halomonadaceae;g__Chromohalobacter	5
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Oceanospirillales;f__Oceanospirillaceae;g__Marinomonas	8
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pasteurellales;f__Pasteurellaceae;g__Actinobacillus	5.5
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pasteurellales;f__Pasteurellaceae;g__Aggregatibacter	6
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pasteurellales;f__Pasteurellaceae;g__Basfia	6
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pasteurellales;f__Pasteurellaceae;g__Haemophilus	6
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pasteurellales;f__Pasteurellaceae;g__Histophilus	5
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pasteurellales;f__Pasteurellaceae;g__Pasteurella	6
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pseudomonadales;f__Moraxellaceae;g__Acinetobacter	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pseudomonadales;f__Moraxellaceae;g__Psychrobacter	5
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pseudomonadales;f__Pseudomonadaceae;g__Pseudomonas	5.1
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Thiotrichales;f__Francisellaceae;g__Francisella	3
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Vibrionales;f__Vibrionaceae;g__Aliivibrio	6.5
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Vibrionales;f__Vibrionaceae;g__Vibrio	7.6
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Xanthomonadales;f__Xanthomonadaceae;g__Xanthomonas	3
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Xanthomonadales;f__Xanthomonadaceae;g__Xylella	2
+k__Bacteria;p__Spirochaetes;c__Leptospirae;o__Leptospirales;f__Leptospiraceae;g__Leptospira	2
+k__Bacteria;p__Spirochaetes;c__Spirochaetes;o__Spirochaetales;f__Spirochaetaceae;g__Borrelia	1.25
+k__Bacteria;p__Spirochaetes;c__Spirochaetes;o__Spirochaetales;f__Spirochaetaceae;g__Treponema	2.25
+k__Bacteria;p__Synergistetes;c__Synergistia;o__Synergistales;f__Synergistaceae;g__Thermanaerovibrio	3
+k__Bacteria;p__Tenericutes;c__Mollicutes;o__Acholeplasmatales;f__Acholeplasmataceae;g__Acholeplasma	2
+k__Bacteria;p__Tenericutes;c__Mollicutes;o__Acholeplasmatales;f__Acholeplasmataceae;g__CandidatusPhytoplasma	2
+k__Bacteria;p__Tenericutes;c__Mollicutes;o__Mycoplasmatales;f__Mycoplasmataceae;g__Mycoplasma	1.3333333333
+k__Bacteria;p__Tenericutes;c__Mollicutes;o__Mycoplasmatales;f__Mycoplasmataceae;g__Ureaplasma	2
+k__Bacteria;p__Thermi;c__Deinococci;o__Deinococcales;f__Deinococcaceae;g__Deinococcus	4
+k__Bacteria;p__Thermi;c__Deinococci;o__Thermales;f__Thermaceae;g__Thermus	2
+k__Bacteria;p__Thermotogae;c__Thermotogae;o__Thermotogales;f__Thermotogaceae;g__Fervidobacterium	2
+k__Bacteria;p__Thermotogae;c__Thermotogae;o__Thermotogales;f__Thermotogaceae;g__Kosmotoga	2
+k__Bacteria;p__Thermotogae;c__Thermotogae;o__Thermotogales;f__Thermotogaceae;g__Petrotoga	2
+k__Bacteria;p__Thermotogae;c__Thermotogae;o__Thermotogales;f__Thermotogaceae;g__Thermosipho	3.5
+k__Bacteria;p__Thermotogae;c__Thermotogae;o__Thermotogales;f__Thermotogaceae;g__Thermotoga	1
+k__Bacteria;p__Verrucomicrobia;c__Opitutae;o__Opitutales;f__Opitutaceae;g__Opitutus	1
+k__Bacteria;p__Verrucomicrobia;c__Verrucomicrobiae;o__Verrucomicrobiales;f__Verrucomicrobiaceae;g__Akkermansia	3
+
+k__Archaea;p__Crenarchaeota;c__Thaumarchaeota;o__Cenarchaeales;f__Cenarchaeaceae;g__Cenarchaeum;s__Cenarchaeumsymbiosum	1
+k__Archaea;p__Crenarchaeota;c__Thaumarchaeota;o__Cenarchaeales;f__Cenarchaeaceae;g__Nitrosopumilus;s__Nitrosopumilusmaritimus	1
+k__Archaea;p__Crenarchaeota;c__Thermoprotei;o__Desulfurococcales;f__Desulfurococcaceae;g__Ignicoccus;s__Ignicoccushospitalis	1
+k__Archaea;p__Crenarchaeota;c__Thermoprotei;o__Sulfolobales;f__Sulfolobaceae;g__Metallosphaera;s__Metallosphaerasedula	1
+k__Archaea;p__Crenarchaeota;c__Thermoprotei;o__Sulfolobales;f__Sulfolobaceae;g__Sulfolobus;s__Sulfolobusacidocaldarius	1
+k__Archaea;p__Crenarchaeota;c__Thermoprotei;o__Sulfolobales;f__Sulfolobaceae;g__Sulfolobus;s__Sulfolobussolfataricus	1
+k__Archaea;p__Crenarchaeota;c__Thermoprotei;o__Sulfolobales;f__Sulfolobaceae;g__Sulfolobus;s__Sulfolobustokodaii	1
+k__Archaea;p__Crenarchaeota;c__Thermoprotei;o__Thermoproteales;f__Thermofilaceae;g__Thermofilum;s__Thermofilumpendens	1
+k__Archaea;p__Crenarchaeota;c__Thermoprotei;o__Thermoproteales;f__Thermoproteaceae;g__Pyrobaculum;s__Pyrobaculumcalidifontis	1
+k__Archaea;p__Crenarchaeota;c__Thermoprotei;o__Thermoproteales;f__Thermoproteaceae;g__Pyrobaculum;s__Pyrobaculumislandicum	1
+k__Archaea;p__Crenarchaeota;c__Thermoprotei;o__Thermoproteales;f__Thermoproteaceae;g__Vulcanisaeta;s__Vulcanisaetadistributa	1
+k__Archaea;p__Euryarchaeota;c__Archaeoglobi;o__Archaeoglobales;f__Archaeoglobaceae;g__Archaeoglobus;s__Archaeoglobusfulgidus	1
+k__Archaea;p__Euryarchaeota;c__Archaeoglobi;o__Archaeoglobales;f__Archaeoglobaceae;g__Archaeoglobus;s__Archaeoglobusprofundus	1
+k__Archaea;p__Euryarchaeota;c__Halobacteria;o__Halobacteriales;f__Halobacteriaceae;g__Halobacterium;s__Halobacteriumsalinarum	1
+k__Archaea;p__Euryarchaeota;c__Halobacteria;o__Halobacteriales;f__Halobacteriaceae;g__Halomicrobium;s__Halomicrobiummukohataei	3
+k__Archaea;p__Euryarchaeota;c__Halobacteria;o__Halobacteriales;f__Halobacteriaceae;g__Haloquadratum;s__Haloquadratumwalsbyi	2
+k__Archaea;p__Euryarchaeota;c__Halobacteria;o__Halobacteriales;f__Halobacteriaceae;g__Halorubrum;s__Halorubrumlacusprofundi	3
+k__Archaea;p__Euryarchaeota;c__Methanobacteria;o__Methanobacteriales;f__Methanobacteriaceae;g__Methanobrevibacter;s__Methanobrevibactersmithii	2
+k__Archaea;p__Euryarchaeota;c__Methanobacteria;o__Methanobacteriales;f__Methanobacteriaceae;g__Methanosphaera;s__Methanosphaerastadtmanae	4
+k__Archaea;p__Euryarchaeota;c__Methanobacteria;o__Methanobacteriales;f__Methanobacteriaceae;g__Methanothermobacter;s__Methanothermobacterthermautotrophicus	2
+k__Archaea;p__Euryarchaeota;c__Methanococci;o__Methanococcales;f__Methanococcaceae;g__Methanococcus;s__Methanococcusaeolicus	2
+k__Archaea;p__Euryarchaeota;c__Methanococci;o__Methanococcales;f__Methanococcaceae;g__Methanococcus;s__Methanococcusmaripaludis	3
+k__Archaea;p__Euryarchaeota;c__Methanococci;o__Methanococcales;f__Methanococcaceae;g__Methanococcus;s__Methanococcusvannielii	4
+k__Archaea;p__Euryarchaeota;c__Methanomicrobia;o__Methanocellales;f__Methanocellaceae;g__Methanocella;s__Methanocellapaludicola	2
+k__Archaea;p__Euryarchaeota;c__Methanomicrobia;o__Methanomicrobiales;f__Methanomicrobiaceae;g__Methanoculleus;s__Methanoculleusmarisnigri	1
+k__Archaea;p__Euryarchaeota;c__Methanomicrobia;o__Methanomicrobiales;f__Methanomicrobiaceae;g__Methanoplanus;s__Methanoplanuspetrolearius	2
+k__Archaea;p__Euryarchaeota;c__Methanomicrobia;o__Methanomicrobiales;f__Methanospirillaceae;g__Methanospirillum;s__Methanospirillumhungatei	4
+k__Archaea;p__Euryarchaeota;c__Methanomicrobia;o__Methanosarcinales;f__Methanosaetaceae;g__Methanosaeta;s__Methanosaetathermophila	2
+k__Archaea;p__Euryarchaeota;c__Methanomicrobia;o__Methanosarcinales;f__Methanosarcinaceae;g__Methanococcoides;s__Methanococcoidesburtonii	3
+k__Archaea;p__Euryarchaeota;c__Methanomicrobia;o__Methanosarcinales;f__Methanosarcinaceae;g__Methanosarcina;s__Methanosarcinabarkeri	3
+k__Archaea;p__Euryarchaeota;c__Methanomicrobia;o__Methanosarcinales;f__Methanosarcinaceae;g__Methanosarcina;s__Methanosarcinamazei	3
+k__Archaea;p__Euryarchaeota;c__Methanopyri;o__Methanopyrales;f__Methanopyraceae;g__Methanopyrus;s__Methanopyruskandleri	1
+k__Archaea;p__Euryarchaeota;c__Thermococci;o__Thermococcales;f__Thermococcaceae;g__Pyrococcus;s__Pyrococcusfuriosus	1
+k__Archaea;p__Euryarchaeota;c__Thermococci;o__Thermococcales;f__Thermococcaceae;g__Thermococcus;s__Thermococcuskodakarensis	1
+k__Archaea;p__Euryarchaeota;c__Thermoplasmata;o__Thermoplasmatales;f__Thermoplasmataceae;g__Thermoplasma;s__Thermoplasmavolcanium	1
+k__Bacteria;p__Acidobacteria;c__Solibacteres;o__Solibacterales;f__Solibacteraceae;g__CandidatusSolibacter;s__CandidatusSolibacterusitatus	2
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Acidimicrobiales;f__Acidimicrobiaceae;g__Acidimicrobium;s__Acidimicrobiumferrooxidans	2
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Actinomycetaceae;g__Arcanobacterium;s__Arcanobacteriumhaemolyticum	4
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Actinomycetaceae;g__Mobiluncus;s__Mobiluncuscurtisii	2
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Corynebacteriaceae;g__Corynebacterium;s__Corynebacteriumdiphtheriae	5
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Corynebacteriaceae;g__Corynebacterium;s__Corynebacteriumjeikeium	2
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Corynebacteriaceae;g__Corynebacterium;s__Corynebacteriumkroppenstedtii	3
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Corynebacteriaceae;g__Corynebacterium;s__Corynebacteriumpseudotuberculosis	4
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Corynebacteriaceae;g__Corynebacterium;s__Corynebacteriumurealyticum	3
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Frankiaceae;g__Frankia;s__Frankiasp.CcI3	2
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Frankiaceae;g__Frankia;s__Frankiasp.EAN1pec	3
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Jonesiaceae;g__Jonesia;s__Jonesiadenitrificans	5
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Micrococcaceae;g__Arthrobacter;s__Arthrobacteraurescens	6
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Micrococcaceae;g__Arthrobacter;s__Arthrobacterchlorophenolicus	5
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Micrococcaceae;g__Arthrobacter;s__Arthrobacterpsychrolactophilus	7
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Micrococcaceae;g__Arthrobacter;s__Arthrobactersp.FB24	5
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Micromonosporaceae;g__Micromonospora;s__Micromonosporaaurantiaca	3
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Micromonosporaceae;g__Salinispora;s__Salinisporaarenicola	3
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Micromonosporaceae;g__Salinispora;s__Salinisporatropica	3
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Mycobacteriaceae;g__Mycobacterium;s__Mycobacteriumabscessus	1
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Mycobacteriaceae;g__Mycobacterium;s__Mycobacteriumavium	1
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Mycobacteriaceae;g__Mycobacterium;s__Mycobacteriumbovis	1
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Mycobacteriaceae;g__Mycobacterium;s__Mycobacteriumgilvum	2
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Mycobacteriaceae;g__Mycobacterium;s__Mycobacteriumleprae	1
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Nocardiaceae;g__Rhodococcus;s__Rhodococcusjostii	4
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Nocardioidaceae;g__Nocardioides;s__Nocardioidessp.JS614	2
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Nocardiopsaceae;g__Thermobifida;s__Thermobifidafusca	4
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Propionibacteriaceae;g__Microlunatus;s__Microlunatusphosphovorus	1
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Propionibacteriaceae;g__Propionibacterium;s__Propionibacteriumacnes	3
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Pseudonocardiaceae;g__Pseudonocardia;s__Pseudonocardiasulfidoxydans	3
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Actinomycetales;f__Streptomycetaceae;g__Streptomyces;s__Streptomycesavermitilis	6
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Bifidobacteriales;f__Bifidobacteriaceae;g__Bifidobacterium;s__Bifidobacteriumadolescentis	5
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Bifidobacteriales;f__Bifidobacteriaceae;g__Bifidobacterium;s__Bifidobacteriumanimalis	2
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Bifidobacteriales;f__Bifidobacteriaceae;g__Bifidobacterium;s__Bifidobacteriumdentium	4
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Bifidobacteriales;f__Bifidobacteriaceae;g__Bifidobacterium;s__Bifidobacteriumlongum	4
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Bifidobacteriales;f__Bifidobacteriaceae;g__Gardnerella;s__Gardnerellavaginalis	2
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Coriobacteriales;f__Coriobacteriaceae;g__Olsenella;s__Olsenellauli	1
+k__Bacteria;p__Actinobacteria;c__Actinobacteria;o__Rubrobacterales;f__Rubrobacteraceae;g__Rubrobacter;s__Rubrobacterxylanophilus	1
+k__Bacteria;p__Aquificae;c__Aquificae;o__Aquificales;f__Aquificaceae;g__Aquifex;s__Aquifexaeolicus	2
+k__Bacteria;p__Aquificae;c__Aquificae;o__Aquificales;f__Aquificaceae;g__Thermocrinis;s__Thermocrinisalbus	1
+k__Bacteria;p__Aquificae;c__Aquificae;o__Aquificales;f__Hydrogenothermaceae;g__Sulfurihydrogenibium;s__Sulfurihydrogenibiumazorense	2
+k__Bacteria;p__Aquificae;c__Aquificae;o__Aquificales;f__Hydrogenothermaceae;g__Sulfurihydrogenibium;s__Sulfurihydrogenibiumsp.YO3AOP1	3
+k__Bacteria;p__Bacteroidetes;c__Bacteroidia;o__Bacteroidales;f__Bacteroidaceae;g__Bacteroides;s__Bacteroidesfragilis	6
+k__Bacteria;p__Bacteroidetes;c__Bacteroidia;o__Bacteroidales;f__Porphyromonadaceae;g__CandidatusAzobacteroides;s__CandidatusAzobacteroidespseudotrichonymphae	2
+k__Bacteria;p__Bacteroidetes;c__Bacteroidia;o__Bacteroidales;f__Porphyromonadaceae;g__Porphyromonas;s__Porphyromonasgingivalis	4
+k__Bacteria;p__Bacteroidetes;c__Bacteroidia;o__Bacteroidales;f__Prevotellaceae;g__Prevotella;s__Prevotellamelaninogenica	4
+k__Bacteria;p__Bacteroidetes;c__Flavobacteria;o__Flavobacteriales;f__Flavobacteriaceae;g__Croceibacter;s__Croceibacteratlanticus	2
+k__Bacteria;p__Bacteroidetes;c__Flavobacteria;o__Flavobacteriales;f__Flavobacteriaceae;g__Flavobacterium;s__Flavobacteriumpsychrophilum	6
+k__Bacteria;p__Bacteroidetes;c__Flavobacteria;o__Flavobacteriales;f__Flavobacteriaceae;g__Gramella;s__Gramellaforsetii	3
+k__Bacteria;p__Bacteroidetes;c__Flavobacteria;o__Flavobacteriales;f__Flavobacteriaceae;g__Robiginitalea;s__Robiginitaleabiformata	2
+k__Bacteria;p__Chlamydiae;c__Chlamydiae;o__Chlamydiales;f__Chlamydiaceae;g__Chlamydia;s__Chlamydiamuridarum	2
+k__Bacteria;p__Chlamydiae;c__Chlamydiae;o__Chlamydiales;f__Chlamydiaceae;g__Chlamydia;s__Chlamydiatrachomatis	2
+k__Bacteria;p__Chlamydiae;c__Chlamydiae;o__Chlamydiales;f__Chlamydiaceae;g__Chlamydophila;s__Chlamydophilafelis	1
+k__Bacteria;p__Chlamydiae;c__Chlamydiae;o__Chlamydiales;f__Chlamydiaceae;g__Chlamydophila;s__Chlamydophilapneumoniae	1
+k__Bacteria;p__Chlamydiae;c__Chlamydiae;o__Chlamydiales;f__Parachlamydiaceae;g__CandidatusProtochlamydia;s__CandidatusProtochlamydiaamoebophila	3
+k__Bacteria;p__Chlorobi;c__Chlorobia;o__Chlorobiales;f__Chlorobiaceae;g__Chlorobaculum;s__Chlorobaculumparvum	2
+k__Bacteria;p__Chlorobi;c__Chlorobia;o__Chlorobiales;f__Chlorobiaceae;g__Chlorobaculum;s__Chlorobaculumtepidum	2
+k__Bacteria;p__Chlorobi;c__Chlorobia;o__Chlorobiales;f__Chlorobiaceae;g__Chlorobium;s__Chlorobiumchlorochromatii	1
+k__Bacteria;p__Chlorobi;c__Chlorobia;o__Chlorobiales;f__Chlorobiaceae;g__Chlorobium;s__Chlorobiumphaeovibrioides	1
+k__Bacteria;p__Chlorobi;c__Chlorobia;o__Chlorobiales;f__Chlorobiaceae;g__Chloroherpeton;s__Chloroherpetonthalassium	1
+k__Bacteria;p__Chlorobi;c__Chlorobia;o__Chlorobiales;f__Chlorobiaceae;g__Pelodictyon;s__Pelodictyonluteolum	2
+k__Bacteria;p__Chlorobi;c__Chlorobia;o__Chlorobiales;f__Chlorobiaceae;g__Pelodictyon;s__Pelodictyonphaeoclathratiforme	3
+k__Bacteria;p__Chlorobi;c__Chlorobia;o__Chlorobiales;f__Chlorobiaceae;g__Prosthecochloris;s__Prosthecochlorisaestuarii	1
+k__Bacteria;p__Chloroflexi;c__Chloroflexi;o__Chloroflexales;f__Chloroflexaceae;g__Chloroflexus;s__Chloroflexusaggregans	3
+k__Bacteria;p__Chloroflexi;c__Chloroflexi;o__Chloroflexales;f__Chloroflexaceae;g__Chloroflexus;s__Chloroflexussp.Y-400-fl	3
+k__Bacteria;p__Chloroflexi;c__Chloroflexi;o__Roseiflexales;f__Roseiflexaceae;g__Roseiflexus;s__Roseiflexuscastenholzii	2
+k__Bacteria;p__Chloroflexi;c__Dehalococcoidetes;o__Dehalococcoidales;f__Dehalococcoidaceae;g__Dehalococcoides;s__Dehalococcoidessp.BAV1	1
+k__Bacteria;p__Chloroflexi;c__Dehalococcoidetes;o__Dehalococcoidales;f__Dehalococcoidaceae;g__Dehalococcoides;s__Dehalococcoidessp.VS	1
+k__Bacteria;p__Chloroflexi;c__Thermobacula;o__Thermobaculales;f__Thermobaculaceae;g__Thermobaculum;s__Thermobaculumterrenum	2
+k__Bacteria;p__Cyanobacteria;c__Gloeobacterophycideae;o__Gloeobacterales;f__Gloeobacteraceae;g__Gloeobacter;s__Gloeobacterviolaceus	1
+k__Bacteria;p__Cyanobacteria;c__Nostocophycideae;o__Nostocales;f__Nostocaceae;g__Anabaena;s__Anabaenavariabilis	4
+k__Bacteria;p__Cyanobacteria;c__Nostocophycideae;o__Nostocales;f__Nostocaceae;g__Anabaena;s__Nostocsp.PCC7120	4
+k__Bacteria;p__Cyanobacteria;c__Nostocophycideae;o__Nostocales;f__Nostocaceae;g__Nostoc;s__Nostocpunctiforme	4
+k__Bacteria;p__Cyanobacteria;c__Oscillatoriophycideae;o__Oscillatoriales;f__Phormidiaceae;g__Trichodesmium;s__Trichodesmiumerythraeum	2
+k__Bacteria;p__Cyanobacteria;c__Synechococcophycideae;o__Synechococcales;f__Synechococcaceae;g__Synechococcus;s__Synechococcuselongatus	2
+k__Bacteria;p__Cyanobacteria;c__Synechococcophycideae;o__Synechococcales;f__Synechococcaceae;g__Synechococcus;s__Synechococcussp.JA-3-3Ab	2
+k__Bacteria;p__Deferribacteres;c__Deferribacteres;o__Deferribacterales;f__Deferribacteraceae;g__Deferribacter;s__Deferribacterdesulfuricans	2
+k__Bacteria;p__Dictyoglomi;c__Dictyoglomia;o__Dictyoglomales;f__Dictyoglomaceae;g__Dictyoglomus;s__Dictyoglomusthermophilum	2
+k__Bacteria;p__Dictyoglomi;c__Dictyoglomia;o__Dictyoglomales;f__Dictyoglomaceae;g__Dictyoglomus;s__Dictyoglomusturgidum	2
+k__Bacteria;p__Fibrobacteres;c__Fibrobacteres;o__Fibrobacterales;f__Fibrobacteraceae;g__Fibrobacter;s__Fibrobactersuccinogenes	3
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Bacillales;f__Bacillaceae;g__Bacillus;s__Bacillusanthracis	13
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Bacillales;f__Bacillaceae;g__Bacillus;s__Bacillusclausii	7
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Bacillales;f__Bacillaceae;g__Bacillus;s__Bacillusflexus	12
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Bacillales;f__Bacillaceae;g__Bacillus;s__Bacillushalodurans	8
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Bacillales;f__Bacillaceae;g__Bacillus;s__Bacilluspseudofirmus	7
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Bacillales;f__Bacillaceae;g__Bacillus;s__Bacillusweihenstephanensis	14
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Bacillales;f__Bacillaceae;g__Geobacillus;s__Geobacillusthermodenitrificans	10
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Bacillales;f__Listeriaceae;g__Listeria;s__Listeriamonocytogenes	5.6
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Bacillales;f__Listeriaceae;g__Listeria;s__Listeriawelshimeri	6
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Bacillales;f__Paenibacillaceae;g__Paenibacillus;s__Paenibacillussp.JDR-2	12
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Bacillales;f__Staphylococcaceae;g__Macrococcus;s__Macrococcuscaseolyticus	4
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Bacillales;f__Staphylococcaceae;g__Staphylococcus;s__Staphylococcusaureus	5.3333333333
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Bacillales;f__Staphylococcaceae;g__Staphylococcus;s__Staphylococcusepidermidis	5
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Bacillales;f__Staphylococcaceae;g__Staphylococcus;s__Staphylococcuslugdunensis	6
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Exiguobacterales;f__Exiguobacteraceae;g__Exiguobacterium;s__Exiguobacteriumsibiricum	9
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Enterococcaceae;g__Enterococcus;s__Enterococcusfaecalis	4
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Lactobacillaceae;g__Lactobacillus;s__Lactobacillusacidophilus	4
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Lactobacillaceae;g__Lactobacillus;s__Lactobacillusbrevis	5
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Lactobacillaceae;g__Lactobacillus;s__Lactobacillusdelbrueckii	9
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Lactobacillaceae;g__Lactobacillus;s__Lactobacillusfermentum	5
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Lactobacillaceae;g__Lactobacillus;s__Lactobacillushelveticus	4
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Lactobacillaceae;g__Lactobacillus;s__Lactobacilluspentosus	5
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Lactobacillaceae;g__Lactobacillus;s__Lactobacillusreuteri	6
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Lactobacillaceae;g__Lactobacillus;s__Lactobacilluszeae	5
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Lactobacillaceae;g__Pediococcus;s__Pediococcuspentosaceus	5
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Leuconostocaceae;g__Oenococcus;s__Oenococcusoeni	2
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Streptococcaceae;g__Lactococcus;s__Lactococcuslactis	6.3333333333
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Streptococcaceae;g__Streptococcus;s__Streptococcusagalactiae	7
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Streptococcaceae;g__Streptococcus;s__Streptococcusequi	5
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Streptococcaceae;g__Streptococcus;s__Streptococcusgordonii	4
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Streptococcaceae;g__Streptococcus;s__Streptococcusmutans	5
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Streptococcaceae;g__Streptococcus;s__Streptococcuspneumoniae	4
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Streptococcaceae;g__Streptococcus;s__Streptococcuspyogenes	5.8571428571
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Streptococcaceae;g__Streptococcus;s__Streptococcussanguinis	4
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Streptococcaceae;g__Streptococcus;s__Streptococcussuis	4
+k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Streptococcaceae;g__Streptococcus;s__Streptococcusthermophilus	6
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Clostridiaceae;g__Alkaliphilus;s__Alkaliphilusoremlandii	8
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Clostridiaceae;g__Clostridium;s__Clostridiumacetobutylicum	11
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Clostridiaceae;g__Clostridium;s__Clostridiumcellulovorans	9
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Clostridiaceae;g__Clostridium;s__Clostridiumdifficile	10
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Clostridiaceae;g__Clostridium;s__Clostridiumkluyveri	7
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Clostridiaceae;g__Clostridium;s__Clostridiumnovyi	10
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Clostridiaceae;g__Clostridium;s__Clostridiumperfringens	9.3333333333
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Clostridiaceae;g__Clostridium;s__Clostridiumtetani	6
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Clostridiaceae;g__Clostridium;s__Clostridiumthermocellum	4
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__ClostridialesFamilyXI.IncertaeSedis;g__Anaerococcus;s__Anaerococcusprevotii	4
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__ClostridialesFamilyXI.IncertaeSedis;g__Finegoldia;s__Finegoldiamagna	4
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Heliobacteriaceae;g__Heliobacterium;s__Heliobacteriummodesticaldum	10
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Peptococcaceae;g__Desulfitobacterium;s__Desulfitobacteriumhafniense	5.5
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Peptococcaceae;g__Desulfotomaculum;s__Desulfotomaculumacetoxidans	10
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Peptococcaceae;g__Pelotomaculum;s__Pelotomaculumthermopropionicum	2
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Ruminococcaceae;g__Ethanoligenens;s__Ethanoligenensharbinense	3
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Symbiobacteriaceae;g__Symbiobacterium;s__Symbiobacteriumthermophilum	6
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Syntrophomonadaceae;g__Syntrophomonas;s__Syntrophomonaswolfei	3
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__ThermoanaerobacteralesFamilyIII.IncertaeSedis;g__Thermoanaerobacterium;s__Thermoanaerobacteriumsaccharolyticum	5
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Veillonellaceae;g__Acidaminococcus;s__Acidaminococcusfermentans	6
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Clostridiales;f__Veillonellaceae;g__Veillonella;s__Veillonellaparvula	4
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Halanaerobiales;f__Halanaerobiaceae;g__Halothermothrix;s__Halothermothrixorenii	4
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Halanaerobiales;f__Halobacteroidaceae;g__Acetohalobium;s__Acetohalobiumarabaticum	5
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Natranaerobiales;f__Natranaerobiaceae;g__Natranaerobius;s__Natranaerobiusthermophilus	4
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Thermoanaerobacterales;f__Caldicellulosiruptoraceae;g__Caldicellulosiruptor;s__Anaerocellumthermophilum	3
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Thermoanaerobacterales;f__Caldicellulosiruptoraceae;g__Caldicellulosiruptor;s__Caldicellulosiruptorsaccharolyticus	3
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Thermoanaerobacterales;f__Thermoanaerobacteraceae;g__Caldanaerobacter;s__Thermoanaerobactertengcongensis	4
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Thermoanaerobacterales;f__Thermoanaerobacteraceae;g__Carboxydothermus;s__Carboxydothermushydrogenoformans	4
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Thermoanaerobacterales;f__Thermoanaerobacteraceae;g__Thermoanaerobacter;s__Thermoanaerobactermathranii	4
+k__Bacteria;p__Firmicutes;c__Clostridia;o__Thermoanaerobacterales;f__Thermoanaerobacteraceae;g__Thermoanaerobacter;s__Thermoanaerobactersp.X514	4
+k__Bacteria;p__Fusobacteria;c__Fusobacteria;o__Fusobacteriales;f__Fusobacteriaceae;g__Leptotrichia;s__Leptotrichiabuccalis	5
+k__Bacteria;p__Fusobacteria;c__Fusobacteria;o__Fusobacteriales;f__Fusobacteriaceae;g__Sebaldella;s__Sebaldellatermitidis	4
+k__Bacteria;p__Nitrospirae;c__Nitrospira;o__Nitrospirales;f__Thermodesulfovibrionaceae;g__Thermodesulfovibrio;s__Thermodesulfovibrioyellowstonii	1
+k__Bacteria;p__Planctomycetes;c__Planctomycea;o__Pirellulales;f__Pirellulaceae;g__Pirellula;s__Pirellulastaleyi	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Caulobacterales;f__Caulobacteraceae;g__Asticcacaulis;s__Asticcacaulisexcentricus	3
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Caulobacterales;f__Caulobacteraceae;g__Caulobacter;s__Caulobactersp.K31	2
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Caulobacterales;f__Caulobacteraceae;g__Caulobacter;s__Caulobactervibrioides	2
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Bartonellaceae;g__Bartonella;s__Bartonellabacilliformis	2
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Bartonellaceae;g__Bartonella;s__Bartonellahenselae	2
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Bartonellaceae;g__Bartonella;s__Bartonellaquintana	2
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Beijerinckiaceae;g__Beijerinckia;s__Beijerinckiaindica	3
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Beijerinckiaceae;g__Methylocella;s__Methylocellasilvestris	2
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Bradyrhizobiaceae;g__Blastobacter;s__Bradyrhizobiumsp.BTAi1	2
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Bradyrhizobiaceae;g__Nitrobacter;s__Nitrobacterhamburgensis	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Methylobacteriaceae;g__Methylobacterium;s__Methylobacteriumnodulans	7
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Methylobacteriaceae;g__Methylobacterium;s__Methylobacteriumradiotolerans	6
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Methylobacteriaceae;g__Methylobacterium;s__Methylobacteriumsp.4-46	6
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Phyllobacteriaceae;g__Chelativorans;s__Chelativoransmultitrophicus	2
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Phyllobacteriaceae;g__Mesorhizobium;s__Mesorhizobiumciceri	2
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Rhizobiaceae;g__Agrobacterium;s__Agrobacteriumvitis	4
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Rhizobiaceae;g__CandidatusLiberibacter;s__CandidatusLiberibacterasiaticus	3
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Rhizobiaceae;g__Rhizobium;s__Rhizobiumetli	3
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Rhizobiaceae;g__Rhizobium;s__Rhizobiumleguminosarum	3
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Xanthobacteraceae;g__Azorhizobium;s__Azorhizobiumcaulinodans	3
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhizobiales;f__Xanthobacteraceae;g__Xanthobacter;s__Xanthobacterautotrophicus	2
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodobacterales;f__Hyphomonadaceae;g__Hirschia;s__Hirschiabaltica	2
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodobacterales;f__Hyphomonadaceae;g__Hyphomonas;s__Hyphomonasneptunium	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodobacterales;f__Rhodobacteraceae;g__Dinoroseobacter;s__Dinoroseobactershibae	2
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodobacterales;f__Rhodobacteraceae;g__Paracoccus;s__Paracoccusdenitrificans	3
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodobacterales;f__Rhodobacteraceae;g__Rhodobacter;s__Rhodobacterazotoformans	4
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodobacterales;f__Rhodobacteraceae;g__Rhodobacter;s__Rhodobactersphaeroides	3.6666666667
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodobacterales;f__Rhodobacteraceae;g__Roseobacter;s__Roseobacterdenitrificans	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodobacterales;f__Rhodobacteraceae;g__Ruegeria;s__Ruegeriapomeroyi	3
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodobacterales;f__Rhodobacteraceae;g__Ruegeria;s__Ruegeriasp.TM1040	5
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodospirillales;f__Acetobacteraceae;g__Acidiphilium;s__Acidiphiliumcryptum	2
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodospirillales;f__Acetobacteraceae;g__Gluconacetobacter;s__Gluconacetobacterdiazotrophicus	4
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodospirillales;f__Acetobacteraceae;g__Gluconobacter;s__Gluconobacteroxydans	4
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodospirillales;f__Rhodospirillaceae;g__Azospirillum;s__Azospirillumsp.B510	9
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodospirillales;f__Rhodospirillaceae;g__Magnetospirillum;s__Magnetospirillumsp.	2
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodospirillales;f__Rhodospirillaceae;g__Rhodospirillum;s__Rhodospirillumcentenum	4
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rhodospirillales;f__Rhodospirillaceae;g__Rhodospirillum;s__Rhodospirillumrubrum	4
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rickettsiales;f__Anaplasmataceae;g__Anaplasma;s__Anaplasmamarginale	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rickettsiales;f__Anaplasmataceae;g__Ehrlichia;s__Ehrlichiacanis	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rickettsiales;f__Anaplasmataceae;g__Ehrlichia;s__Ehrlichiachaffeensis	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rickettsiales;f__Anaplasmataceae;g__Ehrlichia;s__Ehrlichiaruminantium	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rickettsiales;f__Anaplasmataceae;g__Neorickettsia;s__Neorickettsiasennetsu	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rickettsiales;f__Rickettsiaceae;g__Orientia;s__Orientiatsutsugamushi	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rickettsiales;f__Rickettsiaceae;g__Rickettsia;s__Rickettsiaakari	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rickettsiales;f__Rickettsiaceae;g__Rickettsia;s__Rickettsiaconorii	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rickettsiales;f__Rickettsiaceae;g__Rickettsia;s__Rickettsiatyphi	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rickettsiales;f__Rickettsiaceae;g__Wolbachia;s__WolbachiaendosymbiontofBrugiamalayi	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rickettsiales;f__Rickettsiaceae;g__Wolbachia;s__WolbachiaendosymbiontofCulexquinquefasciatus	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Sphingomonadales;f__Sphingomonadaceae;g__Novosphingobium;s__Novosphingobiumaromaticivorans	3
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Sphingomonadales;f__Sphingomonadaceae;g__Sphingomonas;s__Sphingomonaswittichii	2
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Sphingomonadales;f__Sphingomonadaceae;g__Sphingopyxis;s__Sphingopyxisalaskensis	1
+k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Sphingomonadales;f__Sphingomonadaceae;g__Zymomonas;s__Zymomonasmobilis	3
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Alcaligenaceae;g__Achromobacter;s__Bordetellaavium	3
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Alcaligenaceae;g__Bordetella;s__Bordetellapertussis	3
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Burkholderiaceae;g__Burkholderia;s__Burkholderiamallei	4.25
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Burkholderiaceae;g__Burkholderia;s__Burkholderiamultivorans	5
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Burkholderiaceae;g__Burkholderia;s__Burkholderiaphytofirmans	6
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Burkholderiaceae;g__Burkholderia;s__Burkholderiavietnamiensis	6
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Burkholderiaceae;g__Burkholderia;s__Burkholderiaxenovorans	6
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Burkholderiaceae;g__Cupriavidus;s__Cupriavidusnecator	5
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Burkholderiaceae;g__Cupriavidus;s__Cupriaviduspinatubonensis	6
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Burkholderiaceae;g__Cupriavidus;s__Cupriavidustaiwanensis	5
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Burkholderiaceae;g__Ralstonia;s__Ralstoniasolanacearum	4
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Comamonadaceae;g__Acidovorax;s__Acidovoraxcitrulli	3
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Comamonadaceae;g__Polaromonas;s__Polaromonassp.JS666	1
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Comamonadaceae;g__Rhodoferax;s__Rhodoferaxferrireducens	2
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Comamonadaceae;g__Variovorax;s__Variovoraxparadoxus	2
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Comamonadaceae;g__Verminephrobacter;s__Verminephrobactereiseniae	3
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Oxalobacteraceae;g__Collimonas;s__Collimonasfungivorans	3
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Burkholderiales;f__Oxalobacteraceae;g__Janthinobacterium;s__Janthinobacteriumsp.Marseille	2
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Hydrogenophilales;f__Hydrogenophilaceae;g__Thiobacillus;s__Thiobacillusdenitrificans	2
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Methylophilales;f__Methylophilaceae;g__Methylobacillus;s__Methylobacillusflagellatus	2
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Neisseriales;f__Neisseriaceae;g__Neisseria;s__Neisseriagonorrhoeae	4
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Neisseriales;f__Neisseriaceae;g__Neisseria;s__Neisserialactamica	4
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Neisseriales;f__Neisseriaceae;g__Neisseria;s__Neisseriameningitidis	4
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Nitrosomonadales;f__Nitrosomonadaceae;g__Nitrosomonas;s__Nitrosomonaseutropha	1
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Rhodocyclales;f__Rhodocyclaceae;g__Aromatoleum;s__Aromatoleumaromaticum	4
+k__Bacteria;p__Proteobacteria;c__Betaproteobacteria;o__Rhodocyclales;f__Rhodocyclaceae;g__Thauera;s__Thauerasp.MZ1T	4
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Bdellovibrionales;f__Bdellovibrionaceae;g__Bdellovibrio;s__Bdellovibriobacteriovorus	2
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Desulfobacterales;f__Desulfobulbaceae;g__Desulfotalea;s__Desulfotaleapsychrophila	7
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Desulfovibrionales;f__Desulfovibrionaceae;g__Desulfovibrio;s__Desulfovibriomagneticus	3
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Desulfovibrionales;f__Desulfovibrionaceae;g__Desulfovibrio;s__Desulfovibriosalexigens	5
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Desulfovibrionales;f__Desulfovibrionaceae;g__Desulfovibrio;s__Desulfovibriovulgaris	5
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Desulfovibrionales;f__Desulfovibrionaceae;g__Lawsonia;s__Lawsoniaintracellularis	2
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Desulfuromonadales;f__Geobacteraceae;g__Geobacter;s__Geobacterbemidjiensis	4
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Desulfuromonadales;f__Geobacteraceae;g__Geobacter;s__Geobacterlovleyi	2
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Desulfuromonadales;f__Geobacteraceae;g__Geobacter;s__Geobactermetallireducens	3
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Desulfuromonadales;f__Geobacteraceae;g__Geobacter;s__Geobactersp.FRC-32	2
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Desulfuromonadales;f__Geobacteraceae;g__Geobacter;s__Geobactersp.M21	4
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Desulfuromonadales;f__Geobacteraceae;g__Geobacter;s__Geobactersulfurreducens	2
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Desulfuromonadales;f__Geobacteraceae;g__Geobacter;s__Pelobacterpropionicus	4
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Desulfuromonadales;f__Pelobacteraceae;g__Pelobacter;s__Pelobactercarbinolicus	2
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Myxococcales;f__Myxococcaceae;g__Anaeromyxobacter;s__Anaeromyxobactersp.Fw109-5	2
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Myxococcales;f__Myxococcaceae;g__Myxococcus;s__Corallococcusmacrosporus	3
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Myxococcales;f__Polyangiaceae;g__Sorangium;s__Sorangiumcellulosum	4
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Syntrophobacterales;f__Desulfobacteraceae;g__Desulfatibacillum;s__Desulfatibacillumalkenivorans	2
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Syntrophobacterales;f__Desulfobacteraceae;g__Desulfobacterium;s__Desulfobacteriumautotrophicum	6
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Syntrophobacterales;f__Desulfobacteraceae;g__Desulfococcus;s__Desulfococcusoleovorans	1
+k__Bacteria;p__Proteobacteria;c__Deltaproteobacteria;o__Syntrophobacterales;f__Syntrophobacteraceae;g__Syntrophobacter;s__Syntrophobacterfumaroxidans	2
+k__Bacteria;p__Proteobacteria;c__Epsilonproteobacteria;o__Campylobacterales;f__Campylobacteraceae;g__Arcobacter;s__Arcobacterbutzleri	5
+k__Bacteria;p__Proteobacteria;c__Epsilonproteobacteria;o__Campylobacterales;f__Campylobacteraceae;g__Arcobacter;s__Arcobacternitrofigilis	4
+k__Bacteria;p__Proteobacteria;c__Epsilonproteobacteria;o__Campylobacterales;f__Campylobacteraceae;g__Campylobacter;s__Campylobacterconcisus	3
+k__Bacteria;p__Proteobacteria;c__Epsilonproteobacteria;o__Campylobacterales;f__Campylobacteraceae;g__Campylobacter;s__Campylobactercurvus	4
+k__Bacteria;p__Proteobacteria;c__Epsilonproteobacteria;o__Campylobacterales;f__Campylobacteraceae;g__Campylobacter;s__Campylobacterfetus	3
+k__Bacteria;p__Proteobacteria;c__Epsilonproteobacteria;o__Campylobacterales;f__Campylobacteraceae;g__Campylobacter;s__Campylobacterhominis	3
+k__Bacteria;p__Proteobacteria;c__Epsilonproteobacteria;o__Campylobacterales;f__Helicobacteraceae;g__Helicobacter;s__Helicobactermustelae	2
+k__Bacteria;p__Proteobacteria;c__Epsilonproteobacteria;o__Campylobacterales;f__Helicobacteraceae;g__Helicobacter;s__Helicobacterpylori	2
+k__Bacteria;p__Proteobacteria;c__Epsilonproteobacteria;o__Campylobacterales;f__Helicobacteraceae;g__Sulfurimonas;s__Sulfurimonasautotrophica	4
+k__Bacteria;p__Proteobacteria;c__Epsilonproteobacteria;o__Campylobacterales;f__Helicobacteraceae;g__Sulfurimonas;s__Sulfurimonasdenitrificans	4
+k__Bacteria;p__Proteobacteria;c__Epsilonproteobacteria;o__Campylobacterales;f__Helicobacteraceae;g__Wolinella;s__Wolinellasuccinogenes	3
+k__Bacteria;p__Proteobacteria;c__Epsilonproteobacteria;o__Nautiliales;f__Nautiliaceae;g__Nautilia;s__Nautiliaprofundicola	4
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Acidithiobacillales;f__Acidithiobacillaceae;g__Acidithiobacillus;s__Acidithiobacillusferrooxidans	2
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Aeromonadales;f__Aeromonadaceae;g__Tolumonas;s__Tolumonasauensis	8
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Alteromonadales;f__Alteromonadaceae;g__Glaciecola;s__Pseudoalteromonasatlantica	5
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Alteromonadales;f__Colwelliaceae;g__Colwellia;s__Colwelliapsychrerythraea	9
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Alteromonadales;f__Idiomarinaceae;g__Idiomarina;s__Idiomarinaloihiensis	4
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Alteromonadales;f__Pseudoalteromonadaceae;g__Pseudoalteromonas;s__Pseudoalteromonashaloplanktis	9
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Alteromonadales;f__Shewanellaceae;g__Shewanella;s__Shewanellaamazonensis	8
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Alteromonadales;f__Shewanellaceae;g__Shewanella;s__Shewanellabaltica	10
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Alteromonadales;f__Shewanellaceae;g__Shewanella;s__Shewanellabenthica	11
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Alteromonadales;f__Shewanellaceae;g__Shewanella;s__Shewanellaloihica	8
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Alteromonadales;f__Shewanellaceae;g__Shewanella;s__Shewanellasediminis	12
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Alteromonadales;f__Shewanellaceae;g__Shewanella;s__Shewanellawoodyi	10
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Cardiobacteriales;f__Cardiobacteriaceae;g__Dichelobacter;s__Dichelobacternodosus	3
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Chromatiales;f__Chromatiaceae;g__Allochromatium;s__Allochromatiumvinosum	3
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Chromatiales;f__Chromatiaceae;g__Nitrosococcus;s__Nitrosococcusoceani	2
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Chromatiales;f__Ectothiorhodospiraceae;g__Alkalilimnicola;s__Alkalilimnicolaehrlichii	2
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Chromatiales;f__Ectothiorhodospiraceae;g__Halorhodospira;s__Halorhodospirahalophila	2
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Chromatiales;f__Ectothiorhodospiraceae;g__Thioalkalivibrio;s__Thioalkalivibriosp.HL-EbGR7	1
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__CandidatusBlochmannia;s__CandidatusBlochmanniafloridanus	1
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Dickeya;s__Dickeyadadantii	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Enterobacter;s__Enterobactersp.638	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Erwinia;s__Erwiniatasmaniensis	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Escherichia;s__Citrobacterkoseri	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Escherichia;s__Escherichiafergusonii	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Klebsiella;s__Klebsiellavariicola	8
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Pectobacterium;s__Pectobacteriumatrosepticum	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Pectobacterium;s__Pectobacteriumwasabiae	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Proteus;s__Proteusmirabilis	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Salmonella;s__Salmonellaenterica	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Serratia;s__Serratiaproteamaculans	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Shigella;s__Shigelladysenteriae	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Shigella;s__Shigellaflexneri	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Sodalis;s__Sodalisglossinidius	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Trabulsiella;s__Citrobacterrodentium	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Xenorhabdus;s__Xenorhabdusbovienii	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Enterobacteriales;f__Enterobacteriaceae;g__Yersinia;s__Yersiniaenterocolitica	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Legionellales;f__Coxiellaceae;g__Coxiella;s__Coxiellaburnetii	1
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Legionellales;f__Legionellaceae;g__Legionella;s__Legionellapneumophila	3
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Oceanospirillales;f__Alcanivoracaceae;g__Alcanivorax;s__Alcanivoraxborkumensis	3
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Oceanospirillales;f__Alteromonadaceae;g__Cellvibrio;s__Cellvibriojaponicus	3
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Oceanospirillales;f__Alteromonadaceae;g__Marinobacter;s__Marinobacterhydrocarbonoclasticus	3
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Oceanospirillales;f__Alteromonadaceae;g__Saccharophagus;s__Saccharophagusdegradans	2
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Oceanospirillales;f__Alteromonadaceae;g__Teredinibacter;s__Teredinibacterturnerae	3
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Oceanospirillales;f__Halomonadaceae;g__Chromohalobacter;s__Chromohalobactersalexigens	5
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Oceanospirillales;f__Oceanospirillaceae;g__Marinomonas;s__Marinomonassp.MWYL1	8
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pasteurellales;f__Pasteurellaceae;g__Actinobacillus;s__Actinobacilluspleuropneumoniae	5
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pasteurellales;f__Pasteurellaceae;g__Actinobacillus;s__Actinobacillussuccinogenes	6
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pasteurellales;f__Pasteurellaceae;g__Aggregatibacter;s__Aggregatibacteractinomycetemcomitans	6
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pasteurellales;f__Pasteurellaceae;g__Aggregatibacter;s__Aggregatibacteraphrophilus	6
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pasteurellales;f__Pasteurellaceae;g__Basfia;s__Mannheimiasucciniciproducens	6
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pasteurellales;f__Pasteurellaceae;g__Haemophilus;s__Haemophilusducreyi	6
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pasteurellales;f__Pasteurellaceae;g__Haemophilus;s__Haemophilusinfluenzae	6
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pasteurellales;f__Pasteurellaceae;g__Haemophilus;s__Haemophilusparainfluenzae	6
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pasteurellales;f__Pasteurellaceae;g__Histophilus;s__Histophilussomni	5
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pasteurellales;f__Pasteurellaceae;g__Pasteurella;s__Pasteurellamultocida	6
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pseudomonadales;f__Moraxellaceae;g__Acinetobacter;s__Acinetobacterbaylyi	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pseudomonadales;f__Moraxellaceae;g__Psychrobacter;s__Psychrobactersp.PRwf-1	5
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pseudomonadales;f__Pseudomonadaceae;g__Pseudomonas;s__Pseudomonasentomophila	7
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pseudomonadales;f__Pseudomonadaceae;g__Pseudomonas;s__Pseudomonasmendocina	4
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pseudomonadales;f__Pseudomonadaceae;g__Pseudomonas;s__Pseudomonassavastanoi	5
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pseudomonadales;f__Pseudomonadaceae;g__Pseudomonas;s__Pseudomonasstutzeri	4.5
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Pseudomonadales;f__Pseudomonadaceae;g__Pseudomonas;s__Pseudomonassyringaegroupgenomosp.3	5
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Thiotrichales;f__Francisellaceae;g__Francisella;s__Francisellanovicida	3
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Thiotrichales;f__Francisellaceae;g__Francisella;s__Francisellaphilomiragia	3
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Vibrionales;f__Vibrionaceae;g__Aliivibrio;s__Vibriofischeri	6.5
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Vibrionales;f__Vibrionaceae;g__Vibrio;s__Vibriocholerae	7.6
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Xanthomonadales;f__Xanthomonadaceae;g__Xanthomonas;s__Xanthomonasaxonopodis	4
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Xanthomonadales;f__Xanthomonadaceae;g__Xanthomonas;s__Xanthomonasoryzae	2
+k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Xanthomonadales;f__Xanthomonadaceae;g__Xylella;s__Xylellafastidiosa	2
+k__Bacteria;p__Spirochaetes;c__Leptospirae;o__Leptospirales;f__Leptospiraceae;g__Leptospira;s__Leptospirabiflexa	2
+k__Bacteria;p__Spirochaetes;c__Spirochaetes;o__Spirochaetales;f__Spirochaetaceae;g__Borrelia;s__Borreliaafzelii	2
+k__Bacteria;p__Spirochaetes;c__Spirochaetes;o__Spirochaetales;f__Spirochaetaceae;g__Borrelia;s__Borreliaduttonii	1
+k__Bacteria;p__Spirochaetes;c__Spirochaetes;o__Spirochaetales;f__Spirochaetaceae;g__Borrelia;s__Borreliahermsii	1
+k__Bacteria;p__Spirochaetes;c__Spirochaetes;o__Spirochaetales;f__Spirochaetaceae;g__Borrelia;s__Borreliarecurrentis	1
+k__Bacteria;p__Spirochaetes;c__Spirochaetes;o__Spirochaetales;f__Spirochaetaceae;g__Treponema;s__Treponemaazotonutricium	2
+k__Bacteria;p__Spirochaetes;c__Spirochaetes;o__Spirochaetales;f__Spirochaetaceae;g__Treponema;s__Treponemadenticola	2
+k__Bacteria;p__Spirochaetes;c__Spirochaetes;o__Spirochaetales;f__Spirochaetaceae;g__Treponema;s__Treponemapallidum	2
+k__Bacteria;p__Spirochaetes;c__Spirochaetes;o__Spirochaetales;f__Spirochaetaceae;g__Treponema;s__Treponemasocranskii	3
+k__Bacteria;p__Synergistetes;c__Synergistia;o__Synergistales;f__Synergistaceae;g__Thermanaerovibrio;s__Thermanaerovibrioacidaminovorans	3
+k__Bacteria;p__Tenericutes;c__Mollicutes;o__Acholeplasmatales;f__Acholeplasmataceae;g__Acholeplasma;s__Acholeplasmalaidlawii	2
+k__Bacteria;p__Tenericutes;c__Mollicutes;o__Acholeplasmatales;f__Acholeplasmataceae;g__CandidatusPhytoplasma;s__Asteryellowswitches-broomphytoplasma	2
+k__Bacteria;p__Tenericutes;c__Mollicutes;o__Acholeplasmatales;f__Acholeplasmataceae;g__CandidatusPhytoplasma;s__CandidatusPhytoplasmaaustraliense	2
+k__Bacteria;p__Tenericutes;c__Mollicutes;o__Acholeplasmatales;f__Acholeplasmataceae;g__CandidatusPhytoplasma;s__CandidatusPhytoplasmamali	2
+k__Bacteria;p__Tenericutes;c__Mollicutes;o__Acholeplasmatales;f__Acholeplasmataceae;g__CandidatusPhytoplasma;s__Onionyellowsphytoplasma	2
+k__Bacteria;p__Tenericutes;c__Mollicutes;o__Mycoplasmatales;f__Mycoplasmataceae;g__Mycoplasma;s__Mycoplasmaarthritidis	1
+k__Bacteria;p__Tenericutes;c__Mollicutes;o__Mycoplasmatales;f__Mycoplasmataceae;g__Mycoplasma;s__Mycoplasmagallisepticum	2
+k__Bacteria;p__Tenericutes;c__Mollicutes;o__Mycoplasmatales;f__Mycoplasmataceae;g__Mycoplasma;s__Mycoplasmagenitalium	1
+k__Bacteria;p__Tenericutes;c__Mollicutes;o__Mycoplasmatales;f__Mycoplasmataceae;g__Mycoplasma;s__Mycoplasmahominis	2
+k__Bacteria;p__Tenericutes;c__Mollicutes;o__Mycoplasmatales;f__Mycoplasmataceae;g__Mycoplasma;s__Mycoplasmamobile	1
+k__Bacteria;p__Tenericutes;c__Mollicutes;o__Mycoplasmatales;f__Mycoplasmataceae;g__Mycoplasma;s__Mycoplasmapenetrans	1
+k__Bacteria;p__Tenericutes;c__Mollicutes;o__Mycoplasmatales;f__Mycoplasmataceae;g__Mycoplasma;s__Mycoplasmapneumoniae	1
+k__Bacteria;p__Tenericutes;c__Mollicutes;o__Mycoplasmatales;f__Mycoplasmataceae;g__Mycoplasma;s__Mycoplasmapulmonis	1
+k__Bacteria;p__Tenericutes;c__Mollicutes;o__Mycoplasmatales;f__Mycoplasmataceae;g__Mycoplasma;s__Mycoplasmasynoviae	2
+k__Bacteria;p__Tenericutes;c__Mollicutes;o__Mycoplasmatales;f__Mycoplasmataceae;g__Ureaplasma;s__Ureaplasmaparvum	2
+k__Bacteria;p__Tenericutes;c__Mollicutes;o__Mycoplasmatales;f__Mycoplasmataceae;g__Ureaplasma;s__Ureaplasmaurealyticum	2
+k__Bacteria;p__Thermi;c__Deinococci;o__Deinococcales;f__Deinococcaceae;g__Deinococcus;s__Deinococcusdeserti	4
+k__Bacteria;p__Thermi;c__Deinococci;o__Deinococcales;f__Deinococcaceae;g__Deinococcus;s__Deinococcusgeothermalis	4
+k__Bacteria;p__Thermi;c__Deinococci;o__Thermales;f__Thermaceae;g__Thermus;s__Thermusthermophilus	2
+k__Bacteria;p__Thermotogae;c__Thermotogae;o__Thermotogales;f__Thermotogaceae;g__Fervidobacterium;s__Fervidobacteriumnodosum	2
+k__Bacteria;p__Thermotogae;c__Thermotogae;o__Thermotogales;f__Thermotogaceae;g__Kosmotoga;s__Kosmotogaolearia	2
+k__Bacteria;p__Thermotogae;c__Thermotogae;o__Thermotogales;f__Thermotogaceae;g__Petrotoga;s__Petrotogamobilis	2
+k__Bacteria;p__Thermotogae;c__Thermotogae;o__Thermotogales;f__Thermotogaceae;g__Thermosipho;s__Thermosiphoafricanus	3
+k__Bacteria;p__Thermotogae;c__Thermotogae;o__Thermotogales;f__Thermotogaceae;g__Thermosipho;s__Thermosiphomelanesiensis	4
+k__Bacteria;p__Thermotogae;c__Thermotogae;o__Thermotogales;f__Thermotogaceae;g__Thermotoga;s__Thermotogalettingae	1
+k__Bacteria;p__Thermotogae;c__Thermotogae;o__Thermotogales;f__Thermotogaceae;g__Thermotoga;s__Thermotoganeapolitana	1
+k__Bacteria;p__Thermotogae;c__Thermotogae;o__Thermotogales;f__Thermotogaceae;g__Thermotoga;s__Thermotogasp.RQ2	1
+k__Bacteria;p__Verrucomicrobia;c__Opitutae;o__Opitutales;f__Opitutaceae;g__Opitutus;s__Opitutusterrae	1
+k__Bacteria;p__Verrucomicrobia;c__Verrucomicrobiae;o__Verrucomicrobiales;f__Verrucomicrobiaceae;g__Akkermansia;s__Akkermansiamuciniphila	3
