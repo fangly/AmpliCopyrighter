@@ -1,8 +1,87 @@
-#!/usr/bin/perl
+#! /usr/bin/env perl
+
+# data_combiner
+# Copyright 2012 Adam Skarshewski
+# You may distribute this module under the terms of the GPLv3
+
+
+=head1 NAME
+
+data_combiner - Combine IDs and other data from different sources
+
+=head1 SYNOPSIS
+
+  data_combiner.pl -i img_metadata.tsv -g gg_tax.txt -c 16S_vs_prokMSA.list > output.txt
+
+=head1 DESCRIPTION
+
+The IMG metadata file can be obtained using the export function of IMG
+(http://img.jgi.doe.gov/). It should have 13 tab-delimited columns (in this order):
+    taxon_oid
+    Domain
+    Status
+    Genome Name
+    Phylum
+    Class
+    Order
+    Family
+    Genus
+    Species
+    Genome Size
+    Gene Count
+    16S rRNA Count
+
+The Greengenes taxonomy file (http://www.secondgenome.com/go/2011-greengenes-taxonomy/) is tab-delimited
+and has two columns:
+    prokMSA_ID
+    GG taxonomy string
+
+The tab-delimited correlation file contains these columns:
+    IMG ID (taxon_oid)
+    GG ID (prokMSA_ID)
+Some of these correspondances can be extracted from GOLD (http://www.genomesonline.org/).
+
+The output of this script is a tab-delimited file containing these columns:
+    IMG ID
+    IMG Name
+    IMG Tax
+    GG ID
+    GG Tax
+    16S Count
+    Genome Length
+    Gene Count
+
+=head1 AUTHOR
+
+Adam Skarshewski
+
+=head1 BUGS
+
+All complex software has bugs lurking in it, and this program is no exception.
+If you find a bug, please report it on the SourceForge Tracker:
+L<http://github.com/fangly/AmpliCopyrighter/issues>
+
+=head1 COPYRIGHT
+
+Copyright 2012 Adam Skarshewski
+
+Copyrighter is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+Copyrighter is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+You should have received a copy of the GNU General Public License
+along with Copyrighter.  If not, see <http://www.gnu.org/licenses/>.
+
+=cut
+
+
 use strict;
 use warnings;
 use threads;
-
 use Getopt::Long;
 use File::Basename;
 
@@ -22,30 +101,37 @@ if (! -e $options->{'i'}) {
 
 # Create GG taxonomies hash
 my %gg_taxonomies;
-open(my $fh, $options->{'g'}) or die;
+open(my $fh, $options->{'g'}) or die "Error: Could not read file\n$!\n";
 while (my $line = <$fh>) {
     chomp $line;
+    next if $line =~ m/^#/;
     my @splitline = split /\t/, $line;
     $gg_taxonomies{$splitline[0]} = $splitline[1];
 }
 close($fh);
+warn "Read ".scalar(keys(%gg_taxonomies))." entries from taxonomy file\n"; ###
 
 # Create IMG-GG correlation hash
 my %correlations;
-open($fh, $options->{'c'}) or die;
+open($fh, $options->{'c'}) or die "Error: Could not read file\n$!\n";
 while (my $line = <$fh>) {
     chomp $line;
+    next if $line =~ m/^#/;
     my @splitline = split /\t/, $line;
     $correlations{$splitline[0]} = $splitline[1];
 }
 close($fh);
+warn "Read ".scalar(keys(%correlations))." entries from correlation file\n"; ###
 
 # Substitutions
 print "#IMG ID\tIMG Name\tIMG Tax\tGG ID\tGG Tax\t16S Count\tGenome Length\tGene Count\n";
-open($fh, $options->{'i'}) or die;
+open($fh, $options->{'i'}) or die "Error: Could not read file\n$!\n";
 <$fh>; #burn headers
+my $num = 0;
 while (my $line = <$fh>) {
     chomp $line;
+    next if $line =~ m/^#/;
+    $num++;
     my @splitline = split /\t/, $line;
     my $domain = $splitline[1];
     my $status = $splitline[2];
@@ -81,6 +167,7 @@ while (my $line = <$fh>) {
 
 }
 close($fh);
+warn "Read $num entries from metadata file\n"; ###
 
 
 ################################################################################
@@ -100,30 +187,3 @@ sub check_params {
     return \%options;
 }
 
-__DATA__
-
-=head1 NAME
-
-    
-   
-=head1 DESCRIPTION
-
-The metadata file is expected to contain 13 columns (in this order):
-    taxon_oid
-    Domain
-    Status
-    Genome Name
-    Phylum
-    Class
-    Order
-    Family
-    Genus
-    Species
-    Genome Size
-    Gene Count
-    16S rRNA Count
-
-=head1 SYNOPSIS
-
-
-=cut

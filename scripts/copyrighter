@@ -1,9 +1,7 @@
 #! /usr/bin/env perl
 
 # CopyRighter
-#
-# Copyright Florent Angly <florent.angly@gmail.com>
-#
+# Copyright 2012 Florent Angly <florent.angly@gmail.com>
 # You may distribute this module under the terms of the GPLv3
 
 
@@ -79,9 +77,9 @@ Verbose mode. Display 16S copy number assignments.
 
 =back
 
-=head1 AUTHOR - Florent Angly
+=head1 AUTHOR
 
-Email florent.angly@gmail.com
+Florent Angly <florent.angly@gmail.com>
 
 =head1 BUGS
 
