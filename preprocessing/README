@@ -1,4 +1,9 @@
-
 The scripts and data in this folder are useful for producing a file suitable
-for Copyrighter input.
+for Copyrighter input
 
+Overview:
+1/ Use the script data_combiner.pl to merge traits from sources like IMG,
+Greengenes, GOLD into a single file.
+2/ Use the script trait_by_clade_avg (or trait_by_clade) to summarize the trait
+at different taxonomic levels.
+3/ Use the resulting file in copyrighter.
