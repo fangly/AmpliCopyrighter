@@ -1,13 +1,73 @@
 #!/usr/bin/env perl
+
+# data_combiner
+# Copyright 2012 Adam Skarshewski
+# You may distribute this module under the terms of the GPLv3
+
+
+=head1 NAME
+
+trait_by_clade_avg - Summarize a trait by clade average
+
+=head1 SYNOPSIS
+
+  trait_by_clade_avg -f XXX
+
+=head1 DESCRIPTION
+
+
+=head1 REQUIRED ARGUMENTS
+
+=over
+
+=item -i <file>
+
+=for Euclid:
+   file.type: readable
+
+=back
+
+=head1 OPTIONAL ARGUMENTS
+
+=over
+
+=back
+
+=head1 AUTHOR
+
+Adam Skarshewski
+
+=head1 BUGS
+
+All complex software has bugs lurking in it, and this program is no exception.
+If you find a bug, please report it on the SourceForge Tracker:
+L<http://github.com/fangly/AmpliCopyrighter/issues>
+
+=head1 COPYRIGHT
+
+Copyright 2012 Adam Skarshewski
+
+Copyrighter is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+Copyrighter is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+You should have received a copy of the GNU General Public License
+along with Copyrighter.  If not, see <http://www.gnu.org/licenses/>.
+
+=cut
+
+
 use strict;
 use warnings;
-use Getopt::Long;
-use Data::Dumper;
 use List::Util qw(sum);
+use Getopt::Euclid qw(:minimal_keys);
 
-my $options = check_params();
 
-open(my $fh, "<", $options->{'f'});
+open(my $fh, '<', $ARGV{'i'}) or die "Error: Could not read file\n$!\n";
 
 my @genomes;
 my %ranks;
@@ -62,8 +122,6 @@ for(my $i = 5; $i >= 0; $i--) {
     }
 }
 
-#print Dumper(\@dereplication);
-
 
 foreach my $rank_hash_ptr (@dereplication) {
     foreach my $tax_string (sort {$a cmp $b} keys %{$rank_hash_ptr}) {
@@ -81,20 +139,6 @@ foreach my $rank_hash_ptr (@dereplication) {
 
 
 close($fh);
+exit;
 
-################################################################################
-# Subroutine: check_params()
-# Handles command args via Getopt::Long and returns a reference to a hash of
-# options.
-################################################################################
-
-sub check_params {
-    my @standard_options = ( "help+", "man+");
-    my %options;
-    GetOptions( \%options, @standard_options, "f:s");
-    exec("pod2usage $0") if $options{'help'};
-    exec("perldoc $0")   if $options{'man'};
-    exec("pod2usage $0") if (!( $options{'f'}));
-    return \%options;
-}
 
