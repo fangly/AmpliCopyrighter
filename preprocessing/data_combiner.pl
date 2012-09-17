@@ -15,41 +15,60 @@ data_combiner - Combine IDs and other data from different sources
 
 =head1 DESCRIPTION
 
-The IMG metadata file can be obtained using the export function of IMG
-(http://img.jgi.doe.gov/). It should have 13 tab-delimited columns (in this order):
-    taxon_oid
-    Domain
-    Status
-    Genome Name
-    Phylum
-    Class
-    Order
-    Family
-    Genus
-    Species
-    Genome Size
-    Gene Count
-    16S rRNA Count
+Take an IMG metadata file, Greengenes taxonomy file, and IMG-GG correspondance
+file and combine them into one.
 
-The Greengenes taxonomy file (http://www.secondgenome.com/go/2011-greengenes-taxonomy/) is tab-delimited
-and has two columns:
-    prokMSA_ID
-    GG taxonomy string
+The output of this script is a tab-delimited file containing these columns: IMG
+ID, IMG Name, IMG Tax, GG ID, GG Tax, 16S Count, Genome Length, Gene Count.
 
-The tab-delimited correlation file contains these columns:
-    IMG ID (taxon_oid)
-    GG ID (prokMSA_ID)
-Some of these correspondances can be extracted from GOLD (http://www.genomesonline.org/).
+=head1 REQUIRED ARGUMENTS
 
-The output of this script is a tab-delimited file containing these columns:
-    IMG ID
-    IMG Name
-    IMG Tax
-    GG ID
-    GG Tax
-    16S Count
-    Genome Length
-    Gene Count
+=over
+
+=item -i <img_file>
+
+Input IMG metadata file. The IMG metadata file can be obtained using the export
+function of IMG (http://img.jgi.doe.gov/). It should have 13 tab-delimited
+columns (in this order): taxon_oid, Domain, Status, Genome Name, Phylum, Class,
+Order, Family, Genus, Species, Genome Size, Gene Count, 16S rRNA Count.
+
+=for Euclid:
+   img_file.type: readable
+
+=item -g <gg_file>
+
+Input Greengenes taxonomy file. The Greengenes taxonomy file
+(http://www.secondgenome.com/go/2011-greengenes-taxonomy/) is tab-delimited and
+has two columns: prokMSA_ID, GG taxonomy string.
+
+=for Euclid:
+   gg_file.type: readable
+
+=item -c <corr_file>
+
+IMG - Greengenes correspondance file. The tab-delimited correlation file
+contains these columns: IMG ID (taxon_oid), GG ID (prokMSA_ID). Some of these
+correspondances can be extracted from GOLD (http://www.genomesonline.org/).
+
+=for Euclid:
+   corr_file.type: readable
+
+=back
+
+=head1 OPTIONAL ARGUMENTS
+
+=over
+
+=item -f <finished>
+
+Include finished genomes only: 1 is yes, 0 is no (include draft genomes as well).
+Default: finished.default
+
+=for Euclid:
+   finished.type: integer, finished == 0 || finished == 1
+   finished.default: 1
+
+=back
 
 =head1 AUTHOR
 
@@ -81,27 +100,12 @@ along with Copyrighter.  If not, see <http://www.gnu.org/licenses/>.
 
 use strict;
 use warnings;
-use threads;
-use Getopt::Long;
-use File::Basename;
+use Getopt::Euclid qw(:minimal_keys);
 
-my $options = check_params();
-
-if (! -e $options->{'c'}) {
-    "Correlation file doesn't exist: " . $options->{'c'} . "\n";
-}
-
-if (! -e $options->{'g'}) {
-    "Greengenes taxonomy file doesn't exist: " . $options->{'g'} . "\n";
-}
-
-if (! -e $options->{'i'}) {
-    "IMG metadata file doesn't exist: " . $options->{'i'} . "\n";
-}
 
 # Create GG taxonomies hash
 my %gg_taxonomies;
-open(my $fh, $options->{'g'}) or die "Error: Could not read file\n$!\n";
+open(my $fh,  $ARGV{'g'}) or die "Error: Could not read file\n$!\n";
 while (my $line = <$fh>) {
     chomp $line;
     next if $line =~ m/^#/;
@@ -109,11 +113,12 @@ while (my $line = <$fh>) {
     $gg_taxonomies{$splitline[0]} = $splitline[1];
 }
 close($fh);
-warn "Read ".scalar(keys(%gg_taxonomies))." entries from taxonomy file\n"; ###
+warn "Read ".scalar(keys(%gg_taxonomies))." entries from taxonomy file\n";
+
 
 # Create IMG-GG correlation hash
 my %correlations;
-open($fh, $options->{'c'}) or die "Error: Could not read file\n$!\n";
+open($fh, $ARGV{'c'}) or die "Error: Could not read file\n$!\n";
 while (my $line = <$fh>) {
     chomp $line;
     next if $line =~ m/^#/;
@@ -121,12 +126,13 @@ while (my $line = <$fh>) {
     $correlations{$splitline[0]} = $splitline[1];
 }
 close($fh);
-warn "Read ".scalar(keys(%correlations))." entries from correlation file\n"; ###
+warn "Read ".scalar(keys(%correlations))." entries from correlation file\n";
+
 
 # Substitutions
 print "#IMG ID\tIMG Name\tIMG Tax\tGG ID\tGG Tax\t16S Count\tGenome Length\tGene Count\n";
-open($fh, $options->{'i'}) or die "Error: Could not read file\n$!\n";
-<$fh>; #burn headers
+open($fh, $ARGV{'i'}) or die "Error: Could not read file\n$!\n";
+<$fh>; # burn headers
 my $num = 0;
 while (my $line = <$fh>) {
     chomp $line;
@@ -139,7 +145,8 @@ while (my $line = <$fh>) {
     if (! (($domain eq 'Bacteria') || ($domain eq 'Archaea'))) {
         next;
     }
-    if ($options->{'finished'}) {
+
+    if ($ARGV{'f'}) {
         if (! ($status eq 'Finished')) {
             next;
         }
@@ -167,23 +174,6 @@ while (my $line = <$fh>) {
 
 }
 close($fh);
-warn "Read $num entries from metadata file\n"; ###
+warn "Read $num entries from metadata file\n";
 
-
-################################################################################
-# Subroutine: check_params()
-# Handles command args via Getopt::Long and returns a reference to a hash of
-# options.
-################################################################################
-
-
-sub check_params {
-    my @standard_options = ( "help+", "man+");
-    my %options;
-    GetOptions( \%options, @standard_options, "i:s", "c:s",  "g:s", "-finished");
-    exec("pod2usage $0") if $options{'help'};
-    exec("perldoc $0")   if $options{'man'};
-    exec("pod2usage $0") if (!( $options{'c'} && $options{'g'} && $options{'i'}));
-    return \%options;
-}
-
+exit;
