@@ -127,7 +127,7 @@ while (my $line = <$fh>) {
        next;
     } elsif (scalar @gg_splittax != 7) {
         # Skip entries with malformed taxonomy string
-        warn "Warning: Entry at line $. did not have 7 fields as expected. Skipping...\n";
+        warn "Warning: Taxonomy string at line $. did not have 7 fields as expected. Skipping...\n";
         next;
     }
     my $derep_str = join ';', @gg_splittax[0..5];
