@@ -90,6 +90,8 @@ use strict;
 use warnings;
 use List::Util qw(sum);
 use Getopt::Euclid qw(:minimal_keys);
+use Statistics::Basic qw(mean stddev);
+$Statistics::Basic::IPRES = 14;
 
 
 open(my $fh, '<', $ARGV{'i'}) or die "Error: Could not read file ".$ARGV{'i'}."\n$!\n";
@@ -114,7 +116,7 @@ warn "Info: Found trait in col ".($trait_idx+1)."\n";
 
 
 # Parse input file
-my @dereplication = ({},{},{},{},{},{},{});
+my @dereplication = ({}, {}, {}, {}, {}, {}, {});
 while (my $line = <$fh>) {
     chomp $line;
     my ($gg, $trait_val) = (split /\t/, $line)[4,$trait_idx];
@@ -128,31 +130,28 @@ while (my $line = <$fh>) {
         next;
     }
     my $derep_str = join ';', @gg_splittax[0..6];
-    $dereplication[6]->{$derep_str}->{$trait_name} += $trait_val;
-    $dereplication[6]->{$derep_str}->{__count}++;
+    push @{$dereplication[6]->{$derep_str}}, $trait_val;
 }
-close($fh);
+close $fh;
 
 
 # Calculate averages at all taxonomic levels
 for (my $i = 5; $i >= 0; $i--) {
     my $tlvl = $dereplication[$i];                                 # this level
-    while (my ($low_tax, $low_h) = each %{$dereplication[$i+1]}) { # lower level
+    while (my ($low_tax, $low_r) = each %{$dereplication[$i+1]}) { # lower level
         my @split_low_tax = split /;\s*/, $low_tax;
         my $this_tax = join ';', @split_low_tax[0..$#split_low_tax-1];
-        $tlvl->{$this_tax}->{$trait_name} += $low_h->{$trait_name} / $low_h->{__count};
-        $tlvl->{$this_tax}->{__count}++;
+        push @{$tlvl->{$this_tax}}, mean(@$low_r);
     }
 }
 
 
 # Writing results
-###print join("\t", "# Taxonomy", "Num", "Mean", "Stddev"), "\n";
-print join("\t", "# Taxonomy", "Num", "Mean"), "\n";
+print join("\t", '# Taxonomy', 'Num', 'Mean', 'Stddev')."\n";
 for my $rank_hash_ptr (@dereplication) {
     for my $tax (sort {$a cmp $b} keys %{$rank_hash_ptr}) {
-        my $l = $rank_hash_ptr->{$tax};
-        print join("\t", $tax, $l->{__count}, $l->{$trait_name}/$l->{__count})."\n";
+        my @vals = @{$rank_hash_ptr->{$tax}};
+        print join("\t", $tax, scalar(@vals), mean(@vals), stddev(@vals))."\n";
     }
     print "\n";
 }
