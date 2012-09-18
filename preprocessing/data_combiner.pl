@@ -252,7 +252,7 @@ sub fix_gg_tax {
  
                 # Fix genus if it is known
                 if ( (not $genus eq '') && ($tax_genus eq 'g__') ) {
-                    $names->[-2] = 'g__'.$genus;
+                    $names->[-2] = 'g__'.($candidatus?'Candidatus'.$spp_space:'').$genus;
                     $fixed = 1;
                 }
 
