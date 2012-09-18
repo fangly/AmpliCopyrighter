@@ -117,9 +117,8 @@ warn "Info: Found trait in col ".($trait_idx+1)."\n";
 my @dereplication = ({},{},{},{},{},{},{});
 while (my $line = <$fh>) {
     chomp $line;
-    my @splitline    = split /\t/  , $line;
-    my @img_splittax = split /;\s*/, $splitline[2];
-    my @gg_splittax  = split /;\s*/, $splitline[4];
+    my ($gg, $trait_val) = (split /\t/, $line)[4,$trait_idx];
+    my @gg_splittax  = split /;\s*/, $gg;
     if (scalar @gg_splittax != 7) {
         # Skip entries with missing or malformed taxonomy string
         next;
@@ -129,7 +128,7 @@ while (my $line = <$fh>) {
         next;
     }
     my $derep_str = join ';', @gg_splittax[0..6];
-    $dereplication[6]->{$derep_str}->{$trait_name} += $splitline[$trait_idx];
+    $dereplication[6]->{$derep_str}->{$trait_name} += $trait_val;
     $dereplication[6]->{$derep_str}->{__count}++;
 }
 close($fh);
@@ -137,20 +136,19 @@ close($fh);
 
 # Calculate averages at all taxonomic levels
 for (my $i = 5; $i >= 0; $i--) {
-    my $tlvl = $dereplication[$i];   # this level
-    my $olvl = $dereplication[$i+1]; # other level
-    for my $lower_tax (keys %{$olvl}) {
-        my @split_lower_tax = split /;\s*/, $lower_tax;
-        my $this_tax = join ';', @split_lower_tax[0..$#split_lower_tax-1];
-        $tlvl->{$this_tax}->{$trait_name} += $olvl->{$lower_tax}->{$trait_name} / $olvl->{$lower_tax}->{__count};
+    my $tlvl = $dereplication[$i];                                 # this level
+    while (my ($low_tax, $low_h) = each %{$dereplication[$i+1]}) { # lower level
+        my @split_low_tax = split /;\s*/, $low_tax;
+        my $this_tax = join ';', @split_low_tax[0..$#split_low_tax-1];
+        $tlvl->{$this_tax}->{$trait_name} += $low_h->{$trait_name} / $low_h->{__count};
         $tlvl->{$this_tax}->{__count}++;
     }
 }
 
 
 # Writing results
-###print join("\t", ("# Taxonomy", "Num", "Mean", "Stddev")), "\n";
-print join("\t", ("# Taxonomy", "Num", "Mean")), "\n";
+###print join("\t", "# Taxonomy", "Num", "Mean", "Stddev"), "\n";
+print join("\t", "# Taxonomy", "Num", "Mean"), "\n";
 for my $rank_hash_ptr (@dereplication) {
     for my $tax (sort {$a cmp $b} keys %{$rank_hash_ptr}) {
         my $l = $rank_hash_ptr->{$tax};

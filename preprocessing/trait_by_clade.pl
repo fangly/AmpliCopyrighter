@@ -109,26 +109,24 @@ my %ranks;
 my %dereplication;
 while (my $line = <$fh>) {
     chomp $line;
-    my @splitline    = split /\t/  , $line;
-    my @img_splittax = split /;\s*/, $splitline[2];
-    my @gg_splittax  = split /;\s*/, $splitline[4];
+    my ($gg, $trait_val) = (split /\t/, $line)[4,$trait_idx];
+    my @gg_splittax  = split /;\s*/, $gg;
     if (scalar @gg_splittax != 7) {
         # Skip entries with missing or malformed taxonomy string
         next;
     }
     my $derep_str = join ';', @gg_splittax[0..5];
     $dereplication{$derep_str}->{__count}++;
-    $dereplication{$derep_str}->{$trait_name} += $splitline[$trait_idx];
+    $dereplication{$derep_str}->{$trait_name} += $trait_val;
     $dereplication{$derep_str}->{tax}          = \@gg_splittax;
 }
 close($fh);
 
 
 # Calculate averages at all taxonomic levels
-for my $derep_str (keys %dereplication) {
-    my $count       =   $dereplication{$derep_str}->{__count};
-    my $trait_val   =   $dereplication{$derep_str}->{$trait_name} / $count;
-    my @gg_splittax = @{$dereplication{$derep_str}->{tax}};
+while (my ($derep_str, $elem) = each %dereplication) {
+    my $trait_val   =   $elem->{$trait_name} / $elem->{__count};
+    my @gg_splittax = @{$elem->{tax}};
     for (my $i = 1; $i <= 6; $i++) {
         my @rank_tax;
         for (my $j = 1; $j <= $i; $j++) {
@@ -145,7 +143,7 @@ for my $derep_str (keys %dereplication) {
 
 
 # Writing results
-print join("\t", ("# Taxonomy", "Num", "Mean", "Stddev")), "\n";
+print join("\t", "# Taxonomy", "Num", "Mean", "Stddev"), "\n";
 for my $rank (sort {$a <=> $b} keys %ranks) {
     for my $tax_string (sort {$a cmp $b} keys %{$ranks{$rank}}) {
         my @trait_vals;
