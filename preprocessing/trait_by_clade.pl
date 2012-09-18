@@ -15,9 +15,9 @@ trait_by_clade - Summarize a trait by clade average
 
 =head1 DESCRIPTION
 
-This script takes the traits of different species and makes an average at
+This script takes a trait in different species and calculates its average at
 all taxonomic levels. The output if a tab-delimited file with 5 columns:
-Taxonomy, NumGenera, Mean, StdDev.
+Taxonomy, Num, Mean, Stddev.
 
 =head1 REQUIRED ARGUMENTS
 
@@ -85,7 +85,8 @@ use Statistics::Basic qw(mean stddev);
 
 open(my $fh, '<', $ARGV{'i'}) or die "Error: Could not read file ".$ARGV{'i'}."\n$!\n";
 
-# Find in which column is the desired trait
+
+# Find in which column the desired trait is
 my $trait_idx = -1;
 my $trait_name = $ARGV{'t'};
 my $header = <$fh>;
@@ -104,7 +105,6 @@ warn "Info: Found trait in col ".($trait_idx+1)."\n";
 
 
 # Parse input file
-my @genomes;
 my %ranks;
 my %dereplication;
 while (my $line = <$fh>) {
@@ -113,27 +113,22 @@ while (my $line = <$fh>) {
     my @img_splittax = split /;\s*/, $splitline[2];
     my @gg_splittax  = split /;\s*/, $splitline[4];
     if (scalar @gg_splittax != 7) {
+        # Skip entries with missing or malformed taxonomy string
         next;
     }
     my $derep_str = join ';', @gg_splittax[0..5];
-    if (defined($dereplication{$derep_str})) {
-        $dereplication{$derep_str}->{$trait_name} += $splitline[$trait_idx];
-        $dereplication{$derep_str}->{count}++;
-    } else {
-        $dereplication{$derep_str} = { tax         => \@gg_splittax,
-                                       $trait_name => $splitline[$trait_idx],
-                                       count       => 1,                      };
-    }
+    $dereplication{$derep_str}->{__count}++;
+    $dereplication{$derep_str}->{$trait_name} += $splitline[$trait_idx];
+    $dereplication{$derep_str}->{tax}          = \@gg_splittax;
 }
 close($fh);
 
 
 # Calculate averages at all taxonomic levels
 for my $derep_str (keys %dereplication) {
+    my $count       =   $dereplication{$derep_str}->{__count};
+    my $trait_val   =   $dereplication{$derep_str}->{$trait_name} / $count;
     my @gg_splittax = @{$dereplication{$derep_str}->{tax}};
-    my $count = $dereplication{$derep_str}->{count};
-    my $trait_val = $dereplication{$derep_str}->{$trait_name} / $count;
-
     for (my $i = 1; $i <= 6; $i++) {
         my @rank_tax;
         for (my $j = 1; $j <= $i; $j++) {
@@ -161,7 +156,7 @@ for my $rank (sort {$a <=> $b} keys %ranks) {
         for my $stats (@{$ranks{$rank}->{$tax_string}}) {
             push @trait_vals, $stats->{$trait_name};
         }
-        print join("\t", ($tax_string, scalar @trait_vals, mean(@trait_vals), stddev(@trait_vals)))."\n";
+        print join("\t", $tax_string, scalar(@trait_vals), mean(@trait_vals), stddev(@trait_vals))."\n";
     }
     print "\n";
 }
