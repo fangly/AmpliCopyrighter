@@ -16,8 +16,7 @@ trait_by_clade - Summarize a trait by clade average
 =head1 DESCRIPTION
 
 This script takes a trait in different species and calculates its average at
-all taxonomic levels. The output if a tab-delimited file with 5 columns:
-Taxonomy, Num, Mean, Stddev.
+all taxonomic levels.
 
 =head1 REQUIRED ARGUMENTS
 
@@ -46,6 +45,17 @@ the name of the trait as found in the input file. Default: trait.default
 =for Euclid:
    trait.type: string
    trait.default: '16S Count'
+
+=item -a <advanced>
+
+Use advanced output: 1 is yes, 0 is no. The basic output is a tab-delimited file
+with two columns, suitable for use in Copyrighter: Taxonomy, Mean. The advanced
+output contains additional information distributed over four columns: Taxonomy,
+Num, Mean, Stddev. Default: advanced.default
+
+=for Euclid:
+   advanced.type: integer, advanced == 0 || advanced == 1
+   advanced.default: 0
 
 =back
 
@@ -144,7 +154,13 @@ while (my ($derep_str, $elem) = each %dereplication) {
 
 
 # Writing results
-print join("\t", '# Taxonomy', 'Num', 'Mean', 'Stddev')."\n";
+my $advanced = $ARGV{'a'};
+if ($advanced) {
+    @fields = ('# Taxonomy', 'Num', 'Mean', 'Stddev');
+} else {
+    @fields = ('# Taxonomy', 'Mean');
+}
+print join("\t", @fields)."\n";
 for my $rank (sort {$a <=> $b} keys %ranks) {
     for my $tax (sort {$a cmp $b} keys %{$ranks{$rank}}) {
         #if (scalar @{$ranks{$rank}->{$tax_string}} < 4) {
@@ -155,7 +171,13 @@ for my $rank (sort {$a <=> $b} keys %ranks) {
         for my $stats (@{$ranks{$rank}->{$tax}}) {
             push @vals, $stats->{$trait_name};
         }
-        print join("\t", $tax, scalar(@vals), mean(@vals), stddev(@vals))."\n";
+        my @stats;
+        if ($advanced) {
+            @stats = ($tax, scalar(@vals), mean(@vals), stddev(@vals));
+        } else {
+            @stats = ($tax, mean(@vals));
+        }
+        print join("\t", @stats)."\n";
     }
     print "\n";
 }

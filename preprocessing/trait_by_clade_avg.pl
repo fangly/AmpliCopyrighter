@@ -23,11 +23,6 @@ clade is given the same weight, regardless of how many sequenced genomes the
 trait was estimated from. This is to prevent clade with many sequenced
 representative to get a large importance than clades for which there are few.
 
-###XXX
-###The output if a tab-delimited file with 5 columns:
-###Taxonomy, Num, Mean, Stddev.
-###XXX
-
 =head1 REQUIRED ARGUMENTS
 
 =over
@@ -55,6 +50,17 @@ the name of the trait as found in the input file. Default: trait.default
 =for Euclid:
    trait.type: string
    trait.default: '16S Count'
+
+=item -a <advanced>
+
+Use advanced output: 1 is yes, 0 is no. The basic output is a tab-delimited file
+with two columns, suitable for use in Copyrighter: Taxonomy, Mean. The advanced
+output contains additional information distributed over four columns: Taxonomy,
+Num, Mean, Stddev. Default: advanced.default
+
+=for Euclid:
+   advanced.type: integer, advanced == 0 || advanced == 1
+   advanced.default: 0
 
 =back
 
@@ -147,11 +153,23 @@ for (my $i = 5; $i >= 0; $i--) {
 
 
 # Writing results
-print join("\t", '# Taxonomy', 'Num', 'Mean', 'Stddev')."\n";
+my $advanced = $ARGV{'a'};
+if ($advanced) {
+    @fields = ('# Taxonomy', 'Num', 'Mean', 'Stddev');
+} else {
+    @fields = ('# Taxonomy', 'Mean');
+}
+print join("\t", @fields)."\n";
 for my $rank_hash_ptr (@dereplication) {
     for my $tax (sort {$a cmp $b} keys %{$rank_hash_ptr}) {
         my @vals = @{$rank_hash_ptr->{$tax}};
-        print join("\t", $tax, scalar(@vals), mean(@vals), stddev(@vals))."\n";
+        my @stats;
+        if ($advanced) {
+            @stats = ($tax, scalar(@vals), mean(@vals), stddev(@vals));
+        } else {
+            @stats = ($tax, mean(@vals));
+        }
+        print join("\t", @stats)."\n";
     }
     print "\n";
 }
