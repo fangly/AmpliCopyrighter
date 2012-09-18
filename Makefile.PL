@@ -19,8 +19,8 @@ build_requires  'Test::More';
 requires        'Getopt::Euclid'             => '0.3.4';
 requires        'Method::Signatures'         =>  0;
 requires        'Bio::DB::Taxonomy'          =>  0; # dev version of bioperl
-requires        'Bio::Community'             =>  0; 
-requires        'Statistics::Basic'          =>  0; # ./preprocessing/16S_counts_by_clade.pl
+requires        'Bio::Community'             =>  0;
+requires        'Statistics::Basic'          =>  0;
 
 
 # Dependencies for authors
