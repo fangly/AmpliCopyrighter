@@ -122,8 +122,12 @@ while (my $line = <$fh>) {
     chomp $line;
     my ($gg, $trait_val) = (split /\t/, $line)[4,$trait_idx];
     my @gg_splittax  = split /;\s*/, $gg;
-    if (scalar @gg_splittax != 7) {
-        # Skip entries with missing or malformed taxonomy string
+    if ( (scalar @gg_splittax == 1) && ($gg_splittax[0] =~ m/^-?$/) ) {
+       # Skip entry with missing taxonomy string
+       next;
+    } elsif (scalar @gg_splittax != 7) {
+        # Skip entries with malformed taxonomy string
+        warn "Warning: Entry at line $. did not have 7 fields as expected. Skipping...\n";
         next;
     }
     my $derep_str = join ';', @gg_splittax[0..5];
