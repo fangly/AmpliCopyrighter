@@ -131,7 +131,7 @@ while (my $line = <$fh>) {
     }
 }
 close($fh);
-warn "Read ".scalar(keys(%gg_taxonomies))." entries from taxonomy file\n";
+warn "Info: Read ".scalar(keys(%gg_taxonomies))." entries from taxonomy file\n";
 
 
 # Create IMG-GG correlation hash
@@ -144,7 +144,7 @@ while (my $line = <$fh>) {
     $correlations{$img_id} = $gg_id;
 }
 close($fh);
-warn "Read ".scalar(keys(%correlations))." entries from correlation file\n";
+warn "Info: Read ".scalar(keys(%correlations))." entries from correlation file\n";
 
 
 # Substitutions
@@ -201,8 +201,8 @@ while (my $line = <$fh>) {
 
 }
 close($fh);
-warn "Read $num entries from metadata file\n";
-warn "Fixed $num_fixed GG taxonomy strings\n";
+warn "Info: Read $num entries from metadata file\n";
+warn "Info: Fixed $num_fixed GG taxonomy strings\n";
 
 exit;
 

@@ -98,9 +98,11 @@ while (my $line = <$fh>) {
                                            count => 1};
     }
 }
+close($fh);
 
-for(my $i = 5; $i >= 0; $i--) {
-    foreach my $lower_tax (keys %{$dereplication[$i+1]}) {
+
+for (my $i = 5; $i >= 0; $i--) {
+    for my $lower_tax (keys %{$dereplication[$i+1]}) {
         my @split_lower_tax = split(/;\s*/, $lower_tax);
         my $this_tax = join(';', @split_lower_tax[0..$#split_lower_tax-1]);
         if (defined($dereplication[$i]->{$this_tax})) {
@@ -125,8 +127,8 @@ for(my $i = 5; $i >= 0; $i--) {
 }
 
 
-foreach my $rank_hash_ptr (@dereplication) {
-    foreach my $tax_string (sort {$a cmp $b} keys %{$rank_hash_ptr}) {
+for my $rank_hash_ptr (@dereplication) {
+    for my $tax_string (sort {$a cmp $b} keys %{$rank_hash_ptr}) {
         print(join("\t", ($tax_string,
                           $rank_hash_ptr->{$tax_string}->{count},
                           $rank_hash_ptr->{$tax_string}->{"16S_count"} /
@@ -140,7 +142,6 @@ foreach my $rank_hash_ptr (@dereplication) {
 }
 
 
-close($fh);
 exit;
 
 
