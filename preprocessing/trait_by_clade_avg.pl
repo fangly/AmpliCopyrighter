@@ -18,10 +18,10 @@ trait_by_clade_avg - Summarize a trait by weighted clade average
 This script takes a trait in different species and calculates its weighted average
 at all taxonomic levels.
 
-By weighted, we mean that the trait value for each
-clade is given the same weight, regardless of how many sequenced genomes the
-trait was estimated from. This is to prevent clade with many sequenced
-representative to get a large importance than clades for which there are few.
+By weighted, we mean that the trait value for each clade is given the same
+weight, regardless of how many sequenced genomes the trait was estimated for.
+This is to prevent clade with many sequenced representative to get a
+disproportionately large importance compared to clades that have few.
 
 =head1 REQUIRED ARGUMENTS
 
