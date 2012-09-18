@@ -81,6 +81,7 @@ use strict;
 use warnings;
 use Getopt::Euclid qw(:minimal_keys);
 use Statistics::Basic qw(mean stddev);
+$Statistics::Basic::IPRES = 14;
 
 
 open(my $fh, '<', $ARGV{'i'}) or die "Error: Could not read file ".$ARGV{'i'}."\n$!\n";
@@ -120,7 +121,7 @@ while (my $line = <$fh>) {
     $dereplication{$derep_str}->{$trait_name} += $trait_val;
     $dereplication{$derep_str}->{tax}          = \@gg_splittax;
 }
-close($fh);
+close $fh;
 
 
 # Calculate averages at all taxonomic levels
@@ -136,25 +137,25 @@ while (my ($derep_str, $elem) = each %dereplication) {
         if ($rank_tax[-1] =~ /^[kpcofgs]__$/) {
             next;
         }
-        my $tax_string = join(";", @rank_tax);
+        my $tax_string = join(';', @rank_tax);
         push @{$ranks{$i}->{$tax_string}}, { $trait_name => $trait_val };
     }   
 }
 
 
 # Writing results
-print join("\t", "# Taxonomy", "Num", "Mean", "Stddev"), "\n";
+print join("\t", '# Taxonomy', 'Num', 'Mean', 'Stddev')."\n";
 for my $rank (sort {$a <=> $b} keys %ranks) {
-    for my $tax_string (sort {$a cmp $b} keys %{$ranks{$rank}}) {
-        my @trait_vals;
+    for my $tax (sort {$a cmp $b} keys %{$ranks{$rank}}) {
         #if (scalar @{$ranks{$rank}->{$tax_string}} < 4) {
         #    # Skip clades containing with less than 4 genomes
         #    next;
         #}
-        for my $stats (@{$ranks{$rank}->{$tax_string}}) {
-            push @trait_vals, $stats->{$trait_name};
+        my @vals;
+        for my $stats (@{$ranks{$rank}->{$tax}}) {
+            push @vals, $stats->{$trait_name};
         }
-        print join("\t", $tax_string, scalar(@trait_vals), mean(@trait_vals), stddev(@trait_vals))."\n";
+        print join("\t", $tax, scalar(@vals), mean(@vals), stddev(@vals))."\n";
     }
     print "\n";
 }
