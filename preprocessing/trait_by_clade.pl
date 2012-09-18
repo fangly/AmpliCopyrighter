@@ -16,7 +16,8 @@ trait_by_clade - Summarize a trait by clade average
 =head1 DESCRIPTION
 
 This script takes the traits of different species and makes an average at
-different taxonomic level.
+all taxonomic levels. The output if a tab-delimited file with 5 columns:
+Taxonomy, NumGenera, Mean, StdDev.
 
 =head1 REQUIRED ARGUMENTS
 
@@ -29,6 +30,22 @@ data_combiner.
 
 =for Euclid:
    input.type: readable
+
+=back
+
+=head1 OPTIONAL ARGUMENTS
+
+=over
+
+=item -t <trait>
+
+If the input file contains several trait, select the name of the trait to use
+(case-insensitive), e.g. '16S count' or 'genome length'. Make sure this matches
+the name of the trait as found in the input file. Default: trait.default
+
+=for Euclid:
+   trait.type: string
+   trait.default: '16S Count'
 
 =back
 
@@ -68,39 +85,56 @@ use Statistics::Basic qw(mean stddev);
 
 open(my $fh, '<', $ARGV{'i'}) or die "Error: Could not read file ".$ARGV{'i'}."\n$!\n";
 
+# Find in which column is the desired trait
+my $trait_idx = -1;
+my $trait_name = $ARGV{'t'};
+my $header = <$fh>;
+chomp $header;
+my @fields = split /\t/, $header;
+for ($trait_idx = 0; $trait_idx < scalar @fields; $trait_idx++) {
+    my $field = $fields[$trait_idx];
+    if ($field =~ m/^$trait_name$/i) {
+        last;
+    }
+    if ($trait_idx == scalar @fields - 1) {
+        die "Error: Could not find trait '$trait_name' in given file\n";
+    }
+}
+warn "Info: Found trait in col ".($trait_idx+1)."\n";
+
+
+# Parse input file
 my @genomes;
 my %ranks;
-
 my %dereplication;
 while (my $line = <$fh>) {
     chomp $line;
-    my @splitline = split /\t/, $line;
+    my @splitline    = split /\t/  , $line;
     my @img_splittax = split /;\s*/, $splitline[2];
-    my @gg_splittax = split /;\s*/, $splitline[4];
+    my @gg_splittax  = split /;\s*/, $splitline[4];
     if (scalar @gg_splittax != 7) {
         next;
     }
     my $derep_str = join ';', @gg_splittax[0..5];
-    #my $dereplication_string = join ';', @img_splittax[0..5];
     if (defined($dereplication{$derep_str})) {
-        $dereplication{$derep_str}->{"16S_count"} += $splitline[5];
-        $dereplication{$derep_str}->{genome_size} += $splitline[6];
+        $dereplication{$derep_str}->{$trait_name} += $splitline[$trait_idx];
         $dereplication{$derep_str}->{count}++;
     } else {
-        $dereplication{$derep_str} = {tax => \@gg_splittax,
-                                                 "16S_count" => $splitline[5],
-                                                 genome_size => $splitline[6],
-                                                 count => 1};
+        $dereplication{$derep_str} = { tax         => \@gg_splittax,
+                                       $trait_name => $splitline[$trait_idx],
+                                       count       => 1,                      };
     }
 }
+close($fh);
 
 
-foreach my $derep_str (keys %dereplication) {
+# Calculate averages at all taxonomic levels
+for my $derep_str (keys %dereplication) {
     my @gg_splittax = @{$dereplication{$derep_str}->{tax}};
     my $count = $dereplication{$derep_str}->{count};
-    my $rRNA_count = $dereplication{$derep_str}->{"16S_count"} / $count;
-    my $genome_size = $dereplication{$derep_str}->{genome_size} / $count;
-    for(my $i = 1; $i <= 6; $i++) {
+    my $trait_val = $dereplication{$derep_str}->{$trait_name} / $count;
+
+    for (my $i = 1; $i <= 6; $i++) {
         my @rank_tax;
         for (my $j = 1; $j <= $i; $j++) {
             push @rank_tax, $gg_splittax[$j-1];
@@ -110,30 +144,26 @@ foreach my $derep_str (keys %dereplication) {
             next;
         }
         my $tax_string = join(";", @rank_tax);
-        push @{$ranks{$i}->{$tax_string}}, {genome_size => $genome_size,
-                                            "16S_count" => $rRNA_count}
+        push @{$ranks{$i}->{$tax_string}}, { $trait_name => $trait_val };
     }   
 }
 
-print join("\t", ("Taxonomy", "NumGenera", "Mean", "StdDev")), "\n";
-foreach my $rank (sort {$a <=> $b} keys %ranks) {
-    foreach my $tax_string (sort {$a cmp $b} keys %{$ranks{$rank}}) {
-        my @genome_lengths;
-        my @rRNA_counts;
+
+# Writing results
+print join("\t", ("# Taxonomy", "Num", "Mean", "Stddev")), "\n";
+for my $rank (sort {$a <=> $b} keys %ranks) {
+    for my $tax_string (sort {$a cmp $b} keys %{$ranks{$rank}}) {
+        my @trait_vals;
         #if (scalar @{$ranks{$rank}->{$tax_string}} < 4) {
+        #    # Skip clades containing with less than 4 genomes
         #    next;
         #}
-        foreach my $stats (@{$ranks{$rank}->{$tax_string}}) {
-            push @genome_lengths, $stats->{genome_size};
-            push @rRNA_counts, $stats->{"16S_count"};
+        for my $stats (@{$ranks{$rank}->{$tax_string}}) {
+            push @trait_vals, $stats->{$trait_name};
         }
-        print join("\t", ($tax_string, scalar @rRNA_counts, mean(@rRNA_counts), stddev(@rRNA_counts)
-                          #mean(@genome_lengths), median(@genome_lengths), stddev(@genome_lengths)
-                          )), "\n";
+        print join("\t", ($tax_string, scalar @trait_vals, mean(@trait_vals), stddev(@trait_vals)))."\n";
     }
     print "\n";
 }
-
-close($fh);
 
 exit;
