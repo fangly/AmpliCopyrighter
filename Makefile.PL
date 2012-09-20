@@ -71,14 +71,14 @@ sub auto_doc {
    # Generate scripts/copyrighter.pod
    my @args = ($^X, '-Ilib', 'scripts/copyrighter', '--podfile');
    system(@args) == 0 or die "System call to '@args' failed:\n$?\n";
-   my $grinder = 'script/copyrighter.pod';
+   my $pod = 'scripts/copyrighter.pod';
    my $man_dir = 'man';
    if (not -d $man_dir) {
       mkdir $man_dir or die "Could not write folder $man_dir:\n$!\n";
    }
    my $clean   = 1;
-   readme_from $grinder, $clean, 'txt', 'README';
-   readme_from $grinder, $clean, 'htm', 'README.htm';
-   readme_from $grinder, $clean, 'man', "$man_dir/copyrighter.1";
+   readme_from $pod, $clean, 'txt', 'README';
+   readme_from $pod, $clean, 'htm', 'README.htm';
+   readme_from $pod, $clean, 'man', "$man_dir/copyrighter.1";
    return 1;
 }
