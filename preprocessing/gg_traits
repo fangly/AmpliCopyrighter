@@ -1,0 +1,132 @@
+#! /usr/bin/env perl
+
+# gg_traits
+# Copyright 2012 Florent Angly
+# You may distribute this module under the terms of the GPLv3
+
+
+=head1 NAME
+
+gg_traits - Extract and average traits for each Greengenes ID
+
+=head1 SYNOPSIS
+
+  gg_traits -i combine_metadata.txt > output.txt
+
+=head1 DESCRIPTION
+
+Take a combined metadata file and extract the Greengeenes ID and the following
+traits: 16S Count, Genome Length and Gene Count. When there are several
+occurrence of the same Greengenes ID, average the trait values.
+
+=head1 REQUIRED ARGUMENTS
+
+=over
+
+=item -i <input>
+
+Input combined metadata file (as produced by the data_combiner script. The
+combined metadata file should have 8 tab-delimited columns (in this order):
+IMG ID, IMG Name, IMG Tax, GG ID, GG Tax, 16S Count, Genome Length, Gene Count
+
+=for Euclid:
+   input.type: readable
+
+=back
+
+=head1 OPTIONAL ARGUMENTS
+
+=over
+
+=item -w <warn>
+
+Warn if duplicate Greengenes ID have a different 16S count and pick the minimum
+standard deviation at which to trigger it. Default: warn.default
+
+=for Euclid:
+   warn.type: 0+integer
+   warn.default: 0.001
+
+=back
+
+=head1 AUTHOR
+
+Florent Angly <florent.angly@gmail.com>
+
+=head1 BUGS
+
+All complex software has bugs lurking in it, and this program is no exception.
+If you find a bug, please report it on the bug tracker:
+L<http://github.com/fangly/AmpliCopyrighter/issues>
+
+=head1 COPYRIGHT
+
+Copyright 2012 Florent Angly
+
+Copyrighter is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+Copyrighter is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+You should have received a copy of the GNU General Public License
+along with Copyrighter.  If not, see <http://www.gnu.org/licenses/>.
+
+=cut
+
+
+use strict;
+use warnings;
+use Method::Signatures;
+use Getopt::Euclid qw(:minimal_keys);
+use Statistics::Basic qw(mean stddev);
+$Statistics::Basic::IPRES = 8;
+
+gg_traits( $ARGV{'i'}, $ARGV{'w'} );
+exit;
+
+
+func gg_traits ( $input, $warn ) {
+ 
+   # Read all traits for all IDs
+   my %all_traits; # arrayref of traits indexed by ID
+   open my $fh, '<', $input or die "Error: Could not read file $input\n$!\n";
+   while (my $line = <$fh>) {
+      chomp $line;
+      next if $line =~ m/^#/;
+      my ($img_id, $gg_id, @traits) = (split /\t/, $line)[0,3,5,6,7];
+      next if $gg_id =~ m/^-?$/; # skip entries with no ID
+      push @{$all_traits{$gg_id}{'img_id'}}, $img_id;
+      for (my $i = 0; $i < scalar @traits; $i++) {
+         push @{$all_traits{$gg_id}{$i}}, $traits[$i];
+      }
+   }
+   close $fh;
+
+   # Calculate and print averages
+   print join("\t", '# GG ID', '16S Count', 'Genome Length', 'Gene Count')."\n";
+   while (my ($gg_id, $traits) = each %all_traits) {
+      my @vals;
+      while (my ($i, $dup_traits) = each %$traits) {
+         next if $i eq 'img_id';
+         my $avg = mean @$dup_traits;
+         $vals[$i] = $avg;
+         if ($warn && ($i == 0)) {
+            # If requested, warn if 16S counts disagree
+            my $stddev = stddev @$dup_traits;
+            if ($stddev > 0) {
+               my @img_ids = @{$all_traits{$gg_id}{'img_id'}};
+               warn "Warning: Greengenes ID $gg_id has inconsistent 16S counts (stddev $stddev)\n";
+               for (my $j = 0; $j < scalar @img_ids; $j++) {
+                  warn "   ".$img_ids[$j]."\t".$dup_traits->[$j]."\n";
+               }
+            }
+         }
+      }
+      print join("\t", $gg_id, @vals)."\n";
+   }
+
+   return 1;
+}
