@@ -1,17 +1,17 @@
 #!/usr/bin/env perl
 
-# trait_by_clade_avg
+# trait_by_clade_weighted
 # Copyright 2012 Adam Skarshewski
 # You may distribute this module under the terms of the GPLv3
 
 
 =head1 NAME
 
-trait_by_clade_avg - Summarize a trait by weighted clade average
+trait_by_clade_weighted - Summarize a trait by weighted clade average
 
 =head1 SYNOPSIS
 
-  trait_by_clade_avg -f trait.txt > trait_summary.txt
+  trait_by_clade_weighted -f trait.txt > trait_summary.txt
 
 =head1 DESCRIPTION
 

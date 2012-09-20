@@ -11,7 +11,7 @@ data_combiner - Combine IDs and other data from different sources
 
 =head1 SYNOPSIS
 
-  data_combiner.pl -i img_metadata.tsv -g gg_tax.txt -c 16S_vs_prokMSA.list > output.txt
+  data_combiner -i img_metadata.txt -g gg_tax.txt -c img_vs_prokmsa.txt > output.txt
 
 =head1 DESCRIPTION
 
