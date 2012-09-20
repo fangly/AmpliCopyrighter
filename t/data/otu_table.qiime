@@ -1,0 +1,7 @@
+# QIIME v1.3.0 OTU table
+#OTU ID	sampleA	sampleB	Consensus Lineage
+0	123	30	k__Bacteria;p__Cyanobacteria;c__Oscillatoriophycideae;o__Oscillatoriales;f__Phormidiaceae;g__Trichodesmium;s__Trichodesmiumerythraeum
+1	85	91	k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Oceanospirillales;f__ZA3412c;g__;s__
+2	16	1	No blast hit
+3	0	9	k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Oceanospirillales;f__Litincolaceae;g__;s__
+
