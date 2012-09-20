@@ -7,8 +7,7 @@
 
 =head1 NAME
 
-copyrighter - Estimate community composition from an OTU table, accounting for
-16S copy number bias
+copyrighter - Microbial community composition corrected for 16S copy number bias
 
 =head1 SYNOPSIS
 
@@ -33,8 +32,6 @@ identified by their Greengenes (2011) taxonomy string, e.g.:
 
   k__Bacteria;p__Proteobacteria;c__Alphaproteobacteria;o__Rickettsiales;f__;g__Candidatus Pelagibacter
 
-The output is a copy-corrected OTU table, with relative abundances (in percent).
-
 =head1 REQUIRED ARGUMENTS
 
 =over
@@ -51,6 +48,21 @@ Input OTU table (QIIME or generic site-by-species table).
 =head1 OPTIONAL ARGUMENTS
 
 =over
+
+=item -d <data>
+
+Instead of using the builtin 16S copy number data (based on IMG genomes mapped
+onto the Greengenes taxonomy of QIIME), provide the data file to use. The data
+file should be tab-delimited and have two column, as illustrated in this example:
+
+  k__Bacteria	2.4605138496
+  k__Bacteria;p__Verrucomicrobia	2
+  k__Bacteria;p__Verrucomicrobia;c__Verrucomicrobiae	3
+  ...
+  k__Bacteria;p__Verrucomicrobia;c__Verrucomicrobiae;[...]g__Akkermansia;s__Akkermansiamuciniphila	3
+
+=for Euclid:
+   data.type: readable
 
 =item -o <output>
 
@@ -104,11 +116,14 @@ use Bio::Community::Tools::Summarizer;
 use Method::Signatures;
 use Getopt::Euclid qw(:minimal_keys);
 
-copyrighter( $ARGV{'i'}, $ARGV{'o'}, $ARGV{'v'} );
+copyrighter( $ARGV{'i'}, $ARGV{'o'}, $ARGV{'d'}, $ARGV{'v'} );
 exit;
 
 
-func copyrighter ($input, $output, $verbose = 0) {
+func copyrighter ($input, $output, $data, $verbose = 0) {
+
+   # Use embedded data if no data file provided
+   $data = \*DATA if not defined $data;
 
    # Read input communities and do weight assignment
    my $meta = Bio::Community::Meta->new;
@@ -117,7 +132,7 @@ func copyrighter ($input, $output, $verbose = 0) {
       -file          => $input,
       -weight_assign => 'ancestor',
       -taxonomy      => Bio::DB::Taxonomy->new( -source => 'list' ), # on-the-fly taxonomy
-      -weight_files  => [ \*DATA ], # weights are the 16S rRNA copy number
+      -weight_files  => [ $data ], # weights are the 16S rRNA copy number
    );
    $in->verbose($verbose);
    my $format = $in->format;
