@@ -15,7 +15,7 @@ resources
 
 # Dependencies for everyone
 
-build_requires  'Test::More';
+build_requires  'Test::More'                 =>  0;
 requires        'Getopt::Euclid'             => '0.3.4';
 requires        'Method::Signatures'         =>  0;
 requires        'Bio::DB::Taxonomy'          =>  0; # dev version of bioperl
@@ -23,7 +23,7 @@ requires        'Bio::Community'             =>  0;
 requires        'Statistics::Basic'          =>  0;
 
 
-# Dependencies for authors
+# Dependencies for developpers only
 
 author_requires 'Module::Install';
 author_requires 'Module::Install::AuthorRequires';
@@ -69,7 +69,7 @@ auto_doc();
 sub auto_doc {
    print "*** Building doc...\n";
    # Generate scripts/copyrighter.pod
-   my @args = ($^X, '-Ilib', 'script/copyrighter', '--podfile');
+   my @args = ($^X, '-Ilib', 'scripts/copyrighter', '--podfile');
    system(@args) == 0 or die "System call to '@args' failed:\n$?\n";
    my $grinder = 'script/copyrighter.pod';
    my $man_dir = 'man';
