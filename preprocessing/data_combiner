@@ -48,7 +48,8 @@ has two columns: prokMSA_ID, GG taxonomy string.
 
 IMG - Greengenes correspondance file. The tab-delimited correlation file
 contains these columns: IMG ID (taxon_oid), GG ID (prokMSA_ID). Some of these
-correspondances can be extracted from GOLD (http://www.genomesonline.org/).
+correspondances can be extracted from IMG (http://img.jgi.doe.gov/) and GOLD
+(http://www.genomesonline.org/).
 
 =for Euclid:
    corr_file.type: readable
@@ -175,7 +176,7 @@ while (my $line = <$fh>) {
     
     my $img_id      = $splitline[0];
     my $img_name    = $splitline[3];
-    my $img_tax     = join(";", @splitline[4..9]);
+    my $img_tax     = join(';', @splitline[4..9]);
     my $gg_id       = $correlations{$img_id};
     my $gg_tax      = (defined($gg_id) && exists($gg_taxonomies{$gg_id})) ? $gg_taxonomies{$gg_id} : '-';
     my $rRNA_count  = $splitline[12];
