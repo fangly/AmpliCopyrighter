@@ -1,17 +1,17 @@
 #!/usr/bin/env perl
 
-# 16S_from_IMG
+# extract_img_16S
 # Copyright 2012 Adam Skarshewski
 # You may distribute this module under the terms of the GPLv3
 
 
 =head1 NAME
 
-16S_from_IMG - Extract 16S from IMG genomes
+extract_img_16S - Extract 16S from IMG genomes
 
 =head1 SYNOPSIS
 
-  16S_from_IMG.pl -i <folder_containing_taxon_subfolders>
+  extract_img_16S -i <folder_containing_taxon_subfolders>
 
 =head1 DESCRIPTION
 
