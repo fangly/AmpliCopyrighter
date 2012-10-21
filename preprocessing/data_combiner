@@ -11,7 +11,7 @@ data_combiner - Combine IDs and other data from different sources
 
 =head1 SYNOPSIS
 
-  data_combiner -i img_metadata.txt -g gg_tax.txt -c img_vs_prokmsa.txt > output.txt
+  data_combiner -i img_metadata.txt -g gg_tax.txt -c img_to_gg.txt > output.txt
 
 =head1 DESCRIPTION
 
@@ -39,7 +39,7 @@ Order, Family, Genus, Species, Genome Size, Gene Count, 16S rRNA Count.
 
 Input Greengenes taxonomy file. The Greengenes taxonomy file
 (http://www.secondgenome.com/go/2011-greengenes-taxonomy/) is tab-delimited and
-has two columns: prokMSA_ID, GG taxonomy string.
+has two columns: GG ID, GG taxonomy string.
 
 =for Euclid:
    gg_file.type: readable
@@ -47,7 +47,7 @@ has two columns: prokMSA_ID, GG taxonomy string.
 =item -c <corr_file>
 
 IMG - Greengenes correspondance file. The tab-delimited correlation file
-contains these columns: IMG ID (taxon_oid), GG ID (prokMSA_ID). Some of these
+contains these columns: IMG ID (taxon_oid), GG ID. Some of these
 correspondances can be extracted from IMG (http://img.jgi.doe.gov/) and GOLD
 (http://www.genomesonline.org/).
 
@@ -67,7 +67,7 @@ Default: finished.default
 
 =for Euclid:
    finished.type: integer, finished == 0 || finished == 1
-   finished.default: 1
+   finished.default: 0
 
 =item -s <species>
 
