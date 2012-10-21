@@ -65,23 +65,26 @@ use Getopt::Euclid qw(:minimal_keys);
 use Bio::SeqIO;
 use File::Spec;
 
-my %genes;
+
+my %genomes;
+my %seen;
 my $input_dir = $ARGV{'i'};
 my $out_fh = Bio::SeqIO->new(-format => 'fasta');
 opendir my $dh, $input_dir or die "Error: Could not read folder $input_dir\n$!\n";
-while (my $entry = readdir($dh)) {
+while (my $entry = readdir $dh) {
    my $gff_file = File::Spec->catfile($input_dir, $entry, "$entry.gff");
    if (-e $gff_file) {
       open my $fh, '<', $gff_file or die "Error: Could not read file $gff_file\n$!\n";
       while (my $line = <$fh>) {
          chomp $line;
          my @splitline = split /\t/, $line;
-         if (scalar(@splitline) < 9) {
+         if (scalar @splitline < 9) {
             next;
          }
          if ($splitline[2] eq 'rRNA') {
             if ($splitline[8] =~ /16S/i && $splitline[8] =~ /ID=(\d+)/) {
-               $genes{$1} = $entry;
+               my $gene_id = $1;
+               $genomes{$gene_id} = $entry;
             }
          }
       }
@@ -90,9 +93,17 @@ while (my $entry = readdir($dh)) {
          my $in_fh = Bio::SeqIO->new(-format => 'fasta',
                                      -file   => $fasta_file);
          while (my $seq_obj = $in_fh->next_seq()) {
-            if (exists($genes{$seq_obj->id()})) {
+            my $gene_id   = $seq_obj->id();
+            my $genome_id = $genomes{$gene_id};
+            if (defined $genome_id) {
                # Rename read as <genomeid>_<geneid>
-               my $new_id = $genes{$seq_obj->id()} . '_' . $seq_obj->id();
+               my $new_id = $genome_id.'_'.$gene_id;
+               # Make sure we do not write duplicates
+               if (exists $seen{$new_id}) {
+                  next;
+               } else {
+                  $seen{$new_id} = undef;
+               }
                $seq_obj->id($new_id);
                $out_fh->write_seq($seq_obj)
             }
