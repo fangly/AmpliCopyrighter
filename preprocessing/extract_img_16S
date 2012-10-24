@@ -11,20 +11,20 @@ extract_img_16S - Extract 16S from IMG genomes
 
 =head1 SYNOPSIS
 
-  extract_img_16S -i <folder_containing_taxon_subfolders>
+  extract_img_16S -i <folder_of_IMG_genomes>...
 
 =head1 DESCRIPTION
 
-Get 16S sequences from folders of IMG taxon ids (with gffs and gene fasta files).
-The results are written in FASTA format on stdout.
+Get 16S sequences from folders containing IMG genome folders (with GFF and gene
+FASTA files). The results are written in FASTA format on stdout.
 
 =head1 REQUIRED ARGUMENTS
 
 =over
 
-=item -i <input_dir>
+=item -i <input_dir>...
 
-Input directory, containing folders of IMG taxon IDs.
+Input directories, containing folders of IMG genome folders.
 
 =for Euclid:
    input_dir.type: readable
@@ -68,50 +68,53 @@ use File::Spec;
 
 my %genomes;
 my %seen;
-my $input_dir = $ARGV{'i'};
+
 my $out_fh = Bio::SeqIO->new(-format => 'fasta');
-opendir my $dh, $input_dir or die "Error: Could not read folder $input_dir\n$!\n";
-while (my $entry = readdir $dh) {
-   my $gff_file = File::Spec->catfile($input_dir, $entry, "$entry.gff");
-   if (-e $gff_file) {
-      open my $fh, '<', $gff_file or die "Error: Could not read file $gff_file\n$!\n";
-      while (my $line = <$fh>) {
-         chomp $line;
-         my @splitline = split /\t/, $line;
-         if (scalar @splitline < 9) {
-            next;
-         }
-         if ($splitline[2] eq 'rRNA') {
-            if ($splitline[8] =~ /16S/i && $splitline[8] =~ /ID=(\d+)/) {
-               my $gene_id = $1;
-               $genomes{$gene_id} = $entry;
+my $input_dirs = $ARGV{'i'};
+for my $input_dir (@$input_dirs) {
+   opendir my $dh, $input_dir or die "Error: Could not read folder $input_dir\n$!\n";
+   while (my $entry = readdir $dh) {
+      my $gff_file = File::Spec->catfile($input_dir, $entry, "$entry.gff");
+      if (-e $gff_file) {
+         open my $fh, '<', $gff_file or die "Error: Could not read file $gff_file\n$!\n";
+         while (my $line = <$fh>) {
+            chomp $line;
+            my @splitline = split /\t/, $line;
+            if (scalar @splitline < 9) {
+               next;
             }
-         }
-      }
-      my $fasta_file = File::Spec->catfile($input_dir, $entry, "$entry.genes.fna");
-      if (-e $fasta_file) {
-         my $in_fh = Bio::SeqIO->new(-format => 'fasta',
-                                     -file   => $fasta_file);
-         while (my $seq_obj = $in_fh->next_seq()) {
-            my $gene_id   = $seq_obj->id();
-            my $genome_id = $genomes{$gene_id};
-            if (defined $genome_id) {
-               # Rename read as <genomeid>_<geneid>
-               my $new_id = $genome_id.'_'.$gene_id;
-               # Make sure we do not write duplicates
-               if (exists $seen{$new_id}) {
-                  next;
-               } else {
-                  $seen{$new_id} = undef;
+            if ($splitline[2] eq 'rRNA') {
+               if ($splitline[8] =~ /16S/i && $splitline[8] =~ /ID=(\d+)/) {
+                  my $gene_id = $1;
+                 $genomes{$gene_id} = $entry;
                }
-               $seq_obj->id($new_id);
-               $out_fh->write_seq($seq_obj)
             }
          }
-      }
+         my $fasta_file = File::Spec->catfile($input_dir, $entry, "$entry.genes.fna");
+         if (-e $fasta_file) {
+            my $in_fh = Bio::SeqIO->new(-format => 'fasta',
+                                        -file   => $fasta_file);
+            while (my $seq_obj = $in_fh->next_seq()) {
+               my $gene_id   = $seq_obj->id();
+               my $genome_id = $genomes{$gene_id};
+               if (defined $genome_id) {
+                  # Rename read as <genomeid>_<geneid>
+                  my $new_id = $genome_id.'_'.$gene_id;
+                  # Make sure we do not write duplicates
+                  if (exists $seen{$new_id}) {
+                     next;
+                  } else {
+                     $seen{$new_id} = undef;
+                  }
+                  $seq_obj->id($new_id);
+                  $out_fh->write_seq($seq_obj)
+               }
+            }
+         }
+     }
    }
+   closedir $dh;
 }
-closedir $dh;
 $out_fh->close;
 
 exit;
