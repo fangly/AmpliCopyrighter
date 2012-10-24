@@ -1,0 +1,585 @@
+#! /usr/bin/env perl
+
+# img_gg_matcher
+# Copyright 2012 Florent Angly
+# You may distribute this module under the terms of the GPLv3
+
+
+=head1 NAME
+
+img_gg_matcher - Find the Greengenes ID for IMG IDs that miss it
+
+=head1 SYNOPSIS
+
+  img_gg_matcher -i img_gg_correspondances.txt -d gg_sequences.fa > updated_correspondances.txt
+
+=head1 DESCRIPTION
+
+Given a file of correspondances between IMG IDs and Greengenes ID, remove
+eukaryotic IDs and try to find some of the missing Greengenes IDs using two
+methods:
+
+=over
+
+=item 1/
+
+By matching names. See <names> option.
+
+=item 2/
+
+By matching sequences first exactly (then approximately using BLAST or other
+software). See <rrna> option.
+
+=back
+
+=head1 REQUIRED ARGUMENTS
+
+=over
+
+=item -c <corr_file>
+
+Specify the IMG-Greengenes correspondance file. The tab-delimited correlation file
+contains these columns: IMG ID (taxon_oid), GG ID. Some of these
+correspondances can be extracted from IMG (http://img.jgi.doe.gov/) and GOLD
+(http://www.genomesonline.org/).
+
+=for Euclid:
+   corr_file.type: readable
+
+=item -i <img_file>
+
+Provide an IMG metadata file can be obtained using the export function of IMG
+(http://img.jgi.doe.gov/). It should have 13 tab-delimited columns (in this
+order): taxon_oid, Domain, Status, Genome Name, Phylum, Class, Order, Family,
+Genus, Species, Genome Size, Gene Count, 16S rRNA Count.
+
+=for Euclid:
+   img_file.type: readable
+
+=item -s <seq_file>
+
+FASTA file of Greengenes 16S rRNA sequences, such as the one that can be
+downloaded from the SecondGenome website at L<ftp://greengenes.microbio.me/greengenes_release/gg_12_10/gg_12_10.fasta.gz>.
+
+=for Euclid:
+   seq_file.type: readable
+
+=back
+
+=head1 OPTIONAL ARGUMENTS
+
+=over
+
+=item -n <names>
+
+Look up names of species in the FASTA file and if an organism similar enough (at
+least at species level, but maybe not quite at subspecies or strain level),
+take its Greengenes ID. Yes: 1, no: 0. The sequence headers should look like
+this:
+
+  >20 AF025822.1 Methanococcus infernus k__Archaea; p__Euryarchaeota; c__Methanococci; o__Methanococcales; f__Methanocaldococcaceae; g__Methanocaldococcus; otu_139
+
+Default: names.default
+
+=for Euclid:
+   names.type: integer, names == 0 || names == 1
+   names.default: 1
+
+=item -r <rrna>
+
+Match the IMG 16S rRNA sequences in the provided file and compare them to
+sequences in the Greengenes database (<seq_file> option). Take the Greengenes ID
+of the first highly similar sequence. Note that in addition to standard FASTA
+headers, this file can have a more specific header that includes an IMG genome
+ID, an underscore and an IMG gene ID, e.g.:
+
+  >640753060_640862969
+
+=for Euclid:
+   rrna.type: string
+
+=back
+
+=head1 AUTHOR
+
+Florent Angly <florent.angly@gmail.com>
+
+=head1 BUGS
+
+All complex software has bugs lurking in it, and this program is no exception.
+If you find a bug, please report it on the bug tracker:
+L<http://github.com/fangly/AmpliCopyrighter/issues>
+
+=head1 COPYRIGHT
+
+Copyright 2012 Florent Angly
+
+Copyrighter is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+Copyrighter is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+You should have received a copy of the GNU General Public License
+along with Copyrighter.  If not, see <http://www.gnu.org/licenses/>.
+
+=cut
+
+
+use strict;
+use warnings;
+use Method::Signatures;
+use Getopt::Euclid qw(:minimal_keys);
+use Bio::DB::Fasta;
+
+
+img_gg_matcher( $ARGV{'c'}, $ARGV{'i'}, $ARGV{'s'}, $ARGV{'n'}, $ARGV{'r'} );
+exit;
+
+
+func img_gg_matcher ( Str $corr_file, Str $img_file, Str $seq_file,
+   Str $search_names, Str $search_seqs ) {
+
+   # Parse correspondance file, identify some missing IDs
+   my ($correlations, $missing) = read_correspondances($corr_file);
+
+   # Parse metadata, update list of missing IDs
+   (my $names, $correlations, $missing) = read_metadata($img_file, $correlations,
+      $missing);
+
+   warn "Info: There are ".(scalar keys %$missing)." IMG IDs with missing GG ID.\n";
+
+   # Exclude anything that is not a bacteria or archaea
+   if ( (scalar keys %$missing > 0) && ($search_names || $search_seqs) ) {
+
+      # Index FASTA file and sort genome names by taxa
+      my ($db, $ids) = index_fasta($seq_file);
+      my $gg_taxa    = gg_id_by_taxa($db);
+
+      # Find a matching name
+      if ($search_names) {
+         ($correlations, $missing) = match_names($names, $correlations, $missing,
+            $gg_taxa);
+         warn "Info: There are still ".scalar(keys(%$missing))." missing IDs\n";
+      }
+
+      # Find a perfectly matching sequence
+      if ($search_seqs) {
+         ($correlations, $missing) = match_sequences($correlations, $missing,
+             $search_seqs, $seq_file);
+         warn "Info: There are still ".scalar(keys(%$missing))." missing IDs\n";
+      }
+
+      ####
+      use Data::Dumper;
+      warn "MISSING: ".Dumper($missing);
+      ####
+
+   }
+
+   ####
+   # print updated correspondances
+   ####
+
+   return 1;
+}
+
+
+func match_sequences ($correlations, $missing, $img_fasta, $gg_fasta) {
+   # Run BLAT and only get very stringent similarities (no more than a couple bp
+   # different)
+   #   query : Greengenes 16S sequences
+   #   target: IMG 16S sequences
+
+   my $min_identity = 99.8;
+   my $min_coverage = 99.8;
+
+   my $out_file = 'match_sequences.blat';
+   my $matches;
+   if (-e $out_file) { 
+      warn "Info: Not re-running BLAT. Using existing BLAT results $out_file\n";
+      ($matches, undef) = read_correspondances($out_file);
+   } else {
+      warn "Info: Running BLAT...\n";
+      my $report  = run_blat($img_fasta, $gg_fasta, $min_identity);
+      $matches = parse_results($report, $min_identity, $min_coverage, $out_file);
+      warn "Info: Done running BLAT...\n";
+   }
+
+   my $num_matches = 0;
+   while ( (my $img_id, undef) = each %{$missing} ) {
+      if (exists $matches->{$img_id}) {
+         $correlations->{$img_id} = $matches->{$img_id};
+         delete $missing->{$img_id};
+         $num_matches++;
+      }
+   }
+
+   warn "Info: Found sequence match for $num_matches IMG IDs ".($num_matches > 0 ? ':D' : ':(((')."\n";
+   return $correlations, $missing;
+}
+
+
+func run_blat ($query_fasta, $db_fasta, $min_identity) {
+
+   ####
+   # query and db seem inverted...
+   ####
+
+   eval { require Bio::Tools::Run::Alignment::Blat; };
+   if ($@) {
+      die "Error: Could not find module required for BLAT search, ".
+         "Bio::Tools::Run::Alignment::Blat. You need to install bioperl-run!\n";
+   }
+   my $factory = Bio::Tools::Run::Alignment::Blat->new(
+      -db          => $db_fasta,
+      -minIdentity => $min_identity,
+      #-fastMap    => 1, # not so good to find matches with a few errors
+   );
+   my $report = $factory->run($query_fasta);
+   return $report;
+}
+
+
+func parse_results ( $report, $min_identity, $min_coverage, $out_file ) {
+   # Parse BLAT results and save correspondances
+   my %matches;
+   open my $out, '>', $out_file or die "Error: Could not write results in file $out_file\n$!\n";
+   QUERY: while (my $result = $report->next_result) {
+ 
+      my $query_id     = extract_gg_id( $result->query_name );
+      my $query_length = $result->query_length;
+      #print "Query $query_id: $query_length bp\n";
+
+      # Go through hits by decreasing bit score
+      HIT: for my $hit ( sort { $b->raw_score <=> $a->raw_score } $result->hits ) {
+         my $target_length = $hit->length;
+         #print "   Target ".$hit->name." (bitscore: ".$hit->raw_score ."): $target_length bp\n";
+
+         while ( my $hsp = $hit->next_hsp ) {
+
+            my $hsp_num_ident  = $hsp->num_identical;
+            my $hsp_perc_ident = $hsp_num_ident / min($query_length, $target_length) * 100;
+            #print "      NumIdentical=$hsp_num_ident  PercentId=$hsp_perc_ident\n";
+            next if $hsp_perc_ident < $min_coverage;
+
+            my $hsp_length     = min($hsp->length('query'), $hsp->length('hit'));
+            my $hsp_coverage   = $hsp_length / $query_length * 100;
+            #print "      Length=$hsp_length  Coverage=$hsp_coverage\n";
+            next if $hsp_coverage < $min_coverage;
+
+            if ( ($hsp_coverage >= $min_coverage) && ($hsp_perc_ident >= $min_identity) ) {
+               # Store hit
+               #print "      KEEP ME\n";
+               my $target_id = $hit->name;
+               $matches{$query_id} = $target_id;
+               print $out "$query_id\t$target_id\n";
+               last HIT;
+            }
+
+            if ( ($hsp_coverage < $min_coverage) && ($hsp_perc_ident < $min_identity) ) {
+               # All hits after this one will have a smaller bitscore.
+               # So, we're done. This query sequence has no satisfactory hit.
+               last HIT;
+            }
+
+         }  
+      }
+      #print "\n";
+   }
+   close $out;
+   return \%matches;
+}
+
+
+func index_fasta (Str $fasta_file, $temp = 0, $makeid?) {
+   # Index the FASTA file for random access
+   my $args = $temp ? {-reindex => 1, -clean => 1} : {-reindex => 0, -clean => 0};
+   if (defined $makeid) {
+      $args->{-makeid} = $makeid;
+   }
+   my $db = Bio::DB::Fasta->new( $fasta_file, $args );
+   my @ids = $db->get_all_primary_ids;
+   my $num = scalar @ids;
+   warn "Info: Read $num sequences from file $fasta_file.\n";
+   return $db, \@ids;
+}
+
+
+func parse_name ( Str $name ) {
+   my $tmp_name = $name;
+   my ($candidatus, $genus, $species, $strain) = ('', '', '', '');
+   if ($name =~ m/^[A-Z]/) {
+      # Proper scientific name is always capitalized.
+      # Other names are not, e.g. 'contaminated aquifer clone WCHD3-33'
+
+      # Remove trailing spaces (if any)
+      $tmp_name   =~ s/\s*$//;
+      $tmp_name   =~ s/^\s*//;
+
+      # Fix missing spaces, as in 'Rhodobacterales sp.HTCC2255' or 'Halobacterium sp.Ch2'
+      $tmp_name   =~ s/\b((?:genomo)?(?:sp|spp|species|cf)\.)([a-z0-9])/species $2/gi;
+
+      # Expand some acronyms
+      $tmp_name   =~ s/\b(?:genomo)?(?:sp|spp|species|cf)\.?\s/species /gi;
+      $tmp_name   =~ s/\b(?:sub|ssp|subsp|subspecies)\.?\s/subspecies /gi;
+      $tmp_name   =~ s/\b(?:str|st|strain)\.?\s/strain /gi;
+      $tmp_name   =~ s/\b(?:var)\.?\s/var /gi;
+      $tmp_name   =~ s/\b(?:sv|serovar)\.?\s/serovar /gi;
+      $tmp_name   =~ s/\b(?:bv|biovar)\.?\s/biovar /gi;
+      $tmp_name   =~ s/\b(?:pv|pathovar)\.?\s/pathovar /gi;
+      $tmp_name   =~ s/\b(?:cv|cultivar)\.?\s/cultivar /gi;
+      $tmp_name   =~ s/\b(?:gv|genomovar)\.?\s/genomovar /gi;
+      $tmp_name   =~ s/\b(?:mv|morphovar)\.?\s/morphovar /gi;
+
+      # Replace 'ATCC1234' or 'ATCC_1234'by 'ATCC 1234', etc
+      our $catalogs = 'ACM|AJ|ATCC|BCRC|BKME|CBMAI|CCEB|CCM|CCMP|CCRC|CCRI|CCT|CCTM|'.
+         'CCUG|CDBB|CECT|CFBP|CGMCC|CIP|CNCTC|DSM|DSMZ|GIFU|GISK|GTC|HAMBI|HSCC|HTCC|IAM|'.
+         'ICMP|ICS|IFO|IMAU|IMCC|IMET|JCM|KACC|KCTC|KS|LMD|LMG|MIT|NBRC|NCAIM|NCCB|NCDO|NCFB|NCIB|'.
+         'NCIM|NCIMB|NCTC|NRRL|NRRL NRSNRS|PCC|PCM|PZH|RCC|RH|TSNRS|USCC|USDA|VTT E';
+      $tmp_name   =~ s/\b($catalogs)(?:-|_|\.|)(\d+)/$1__$2/gi;  #  Add the separator, remove it later, after massage
+
+      # Candidatus
+      $tmp_name   =~ s/^(Candidatus)\s+//gi;
+      $candidatus = $1 || '';
+
+      # Genus
+      $tmp_name   =~ s/^(\S+)\s*//gi;
+      $genus      = $1 || '';
+
+      # Species
+      if ($tmp_name  =~ m/^\s*(?:subspecies|strain|var|serovar|biovar|pathovar|cultivar|genomovar|morphovar)\s*/gi) {
+         $species    = ''
+      } else {
+         $tmp_name   =~ s/^(\S+)\s*//gi;
+         $species    = $1 || '';
+         $species    =~ s/^\s*species\s*$//gi;
+      }
+
+      # Strain (in a broad sense)
+      $strain     = $tmp_name || '';
+
+   }
+   return $candidatus, $genus, $species, $strain;
+}
+
+
+func massage_strain ( Str $strain ) {
+   # Remove some common strings from strain name
+   $strain =~ s/\b(?:strain|subspecies|var|serovar|biovar|pathovar|cultivar|genomovar|morphovar)\s*//gi;
+   our $catalogs = 'ACM|AJ|ATCC|BCRC|BKME|CBMAI|CCEB|CCM|CCMP|CCRC|CCRI|CCT|CCTM|'.
+      'CCUG|CDBB|CECT|CFBP|CGMCC|CIP|CNCTC|DSM|DSMZ|GIFU|GISK|GTC|HAMBI|HSCC|HTCC|IAM|'.
+      'ICMP|ICS|IFO|IMAU|IMCC|IMET|JCM|KACC|KCTC|KS|LMD|LMG|MIT|NBRC|NCAIM|NCCB|NCDO|NCFB|NCIB|'.
+      'NCIM|NCIMB|NCTC|NRRL|NRRL NRSNRS|PCC|PCM|PZH|RCC|RH|TSNRS|USCC|USDA|VTT E';
+   $strain =~ s/\b(?:$catalogs)\s//gi;
+   # Remove some non-text characters
+   $strain =~ s/(?:,|;) / /gi;
+
+   $strain =~ s/\s+/ /gi;
+
+   #      replace / ( ) = by ''  
+   #       split on ,
+   #       then split on ' '
+
+   return $strain;
+}
+
+
+func match_name ( Str $img_name, $genera ) {
+   my ($msg, $good_id, $good_scientific);
+
+   my ($candidatus, $genus, $species, $strain) = parse_name($img_name);
+   my $strain_clean = massage_strain( $strain );
+   warn "                                                    ".
+        "| $genus | $species | $strain | $strain_clean |\n"; #####
+
+   # Look for perfect genus, species and strain match
+   while ( my ($gg_id, $gg_names) = each %{$genera->{$genus}->{$species}->{$strain}} ) {
+      my ($gg_scientific, $gg_strain_clean) = @$gg_names;
+      $good_id = $gg_id;
+      $good_scientific = $gg_scientific;
+      $msg = sprintf "Info: Found perfect name match,     GG ID %12s ... %s\n", $good_id, $good_scientific;
+      last;
+   }
+
+
+   # Look for perfect genus and species match, but approximate strain match
+   if (not defined $good_id) {
+      LOOKUP: while ( my ($gg_strain, $gg_hash) = each %{$genera->{$genus}->{$species}} ) {
+         while ( my ($gg_id, $gg_names) = each %{$gg_hash} ) {
+            my ($gg_scientific, $gg_strain_clean) = @$gg_names;
+            # Try matching massaged strain name
+            # Example: Lactobacillus casei LC2W
+            #          Lactobacillus casei str. LC2W 
+            if ($strain_clean eq $gg_strain_clean) {
+               $good_id = $gg_id;
+               $good_scientific = $gg_scientific;
+               $msg = sprintf "Info: Found   great name match,     GG ID %12s ... %s\n", $good_id, $good_scientific;
+               last LOOKUP;
+            }
+
+            warn "                                                    ".
+                 "+ $genus + $species + $gg_strain + $gg_strain_clean +\n"; #####
+
+            # Match one part of the strain name only
+            # Example: Prochlorococcus marinus MIT9202
+            #          Prochlorococcus marinus MIT 9202 str. MIT9202 str.
+            for my $gg_elem ( split ' ', $gg_strain_clean ) {
+               next if length $gg_elem < 4; # Skip short elements
+               for my $elem ( split ' ', $strain_clean ) {
+                  next if length $elem < 4;
+                  if ($gg_elem eq $elem) {
+                     $good_id = $gg_id;
+                     $good_scientific = $gg_scientific;
+                     $msg = sprintf "Info: Found    good name match,     GG ID %12s ... %s\n", $good_id, $good_scientific;
+                     last LOOKUP;
+                  }
+               }
+            }
+
+            # Match one part of the strain name only, this time without ATCC and co
+            for my $gg_elem ( split ' ', $gg_strain_clean ) {
+               $gg_elem =~ s/\S+__//g;
+               next if length $gg_elem < 4; # Skip short elements
+               for my $elem ( split ' ', $strain_clean ) {
+                  $elem =~ s/\S+__//g;
+                  next if length $elem < 4;
+                  if ($gg_elem eq $elem) {
+                     $good_id = $gg_id;
+                     $good_scientific = $gg_scientific;
+                     $msg = sprintf "Info: Found    good name match,     GG ID %12s ... %s\n", $good_id, $good_scientific;
+                     last LOOKUP;
+                  }
+               }
+            }
+
+         }
+      }
+   }
+   warn $msg if $msg;
+   return $good_id, $good_scientific;
+}
+
+
+func extract_gg_name ( Str $desc ) {
+   # Extract species name from a Greengenes FASTA description, that looks like:
+   #    M36507.1 Methanococcus vannielii k__Archaea; [...] ; s__Methanococcus vannielii; otu_144
+   # 1/ Remove accession number (first field)
+   $desc = (split ' ', $desc, 2)[-1] || '';
+   # 2/ Remove taxonomy string (starts with k__)
+   $desc =~ s/k__.*$//i;
+   return $desc;
+}
+
+
+func extract_gg_id ( Str $header ) {
+   # Given a FASTA ID, extract the IMG genome ID. In addition to standard FASTA 
+   # ID, the ID can be more specific and include an IMG genome ID, an underscore
+   # and an IMG gene ID, e.g.: >640753060_640862969
+   $header =~ s/_.*$//gi;
+   return $header;
+}
+
+
+func gg_id_by_taxa ($gg_db) {
+   # Parse all Greengenes genome names and sort them by taxa.
+   my $gg_taxa;
+   my $stream = $gg_db->get_PrimarySeq_stream;
+   while (my $gg_seq = $stream->next_seq) {
+      my $gg_id = $gg_seq->id;
+      my $gg_scientific = extract_gg_name($gg_seq->desc || '');
+      my ($gg_candidatus, $gg_genus, $gg_species, $gg_strain) = parse_name($gg_scientific);
+      next if not $gg_genus; # Organisms without genus are useless for us
+      my $gg_strain_clean = massage_strain( $gg_strain );
+      $gg_taxa->{$gg_genus}->{$gg_species}->{$gg_strain}->{$gg_id} = [$gg_scientific, $gg_strain_clean];
+   }
+   return $gg_taxa;
+}
+
+
+func match_names ( $names, $correlations, $missing, $gg_genera ) {
+   # Find matching names
+   my $num_matches = 0;
+   while ( (my $img_id, undef) = each %$missing ) {
+      my $img_name = $names->{$img_id};
+      next if not defined $img_name;
+      warn "\n"; ####
+      warn sprintf( "Info: Searching for name match for IMG_ID %12s ... %s\n", $img_id, $img_name);
+      my ($gg_id, $gg_name) = match_name($img_name, $gg_genera);
+      if ($gg_id) {
+         # Found a matching GG ID
+         delete $missing->{$img_id};
+         $correlations->{$img_id} = $gg_id;
+         $num_matches++;
+      }
+   }
+   warn "Info: Found name match for $num_matches IMG IDs ".($num_matches > 0 ? ':D' : ':(((')."\n";
+   return $correlations, $missing;
+}
+
+
+func read_metadata ( Str $file, $correlations, $missing ) {
+   # Read IMG metadata file
+   my %metadata;
+   open my $fh, '<', $file or die "Error: Could not read file $file\n$!\n";
+   <$fh>; # burn headers
+   my $num = 0;
+   while (my $line = <$fh>) {
+      chomp $line;
+      next if $line =~ m/^#/;
+      $num++;
+      my @splitline = split /\t/, $line;
+      my $domain = $splitline[1];
+      my $img_id = $splitline[0];
+      if ( $domain !~ m/^(?:bacteria|archaea)$/i ) {
+         # Keep only bacteria and archaea. Skip eukaryotes, etc.
+         delete $correlations->{$img_id};
+         delete $missing->{$img_id};
+         next;
+      }
+      #my $status = $splitline[2];
+      #if ($ARGV{'f'}) {
+      #   # Keep only finished genomes. Skip draft genomes, etc.
+      #   if (! ($status eq 'Finished')) {
+      #      next;
+      #   }
+      #}
+      my $img_name    = $splitline[3];
+      #my $img_tax     = join(';', @splitline[4..9]);
+      #my $gg_id       = $correlations{$img_id};
+      #my $gg_tax      = (defined($gg_id) && exists($gg_taxonomies{$gg_id})) ? $gg_taxonomies{$gg_id} : '-';
+      #my $rRNA_count  = $splitline[12];
+      #my $genome_size = $splitline[10];
+      #my $gene_count  = $splitline[11];
+      $metadata{$img_id} = $img_name;
+      if (not exists $correlations->{$img_id}) {
+         $missing->{$img_id} = $img_name;
+      }
+   }
+   close $fh;
+   warn "Info: Read $num entries from metadata file $file.\n";
+   return \%metadata, $correlations, $missing;
+}
+
+
+func read_correspondances ( Str $file ) {
+   # Create IMG-GG correlation hash. Get IMG IDs that do not have a
+   # corresponding GG ID.
+   my %correlations;
+   my %missing;
+   open my $fh, '<', $file or die "Error: Could not read file $file\n$!\n";
+   while (my $line = <$fh>) {
+      chomp $line;
+      next if $line =~ m/^#/;
+      my ($img_id, $gg_id) = split /\t/, $line;
+      $correlations{$img_id} = $gg_id;
+      if ( (not defined $gg_id) || ($gg_id =~ m/^\s*$/) ) {
+         $missing{$img_id} = undef;
+      }
+   }
+   close $fh;
+   warn "Info: Read ".scalar(keys(%correlations))." entries from file $file.\n";
+   return \%correlations, \%missing;
+}
