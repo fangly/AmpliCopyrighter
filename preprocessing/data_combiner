@@ -201,7 +201,7 @@ while (my $line = <$fh>) {
     }
 
 }
-close($fh);
+close $fh;
 warn "Info: Read $num entries from metadata file\n";
 warn "Info: Fixed $num_fixed GG taxonomy strings\n";
 

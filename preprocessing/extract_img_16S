@@ -1,4 +1,4 @@
-#!/usr/bin/env perl
+#! /usr/bin/env perl
 
 # extract_img_16S
 # Copyright 2012 Adam Skarshewski
@@ -111,7 +111,7 @@ for my $input_dir (@$input_dirs) {
                }
             }
          }
-     }
+      }
    }
    closedir $dh;
 }
