@@ -1,17 +1,17 @@
 #! /usr/bin/env perl
 
-# gg_traits
+# trait_by_genome
 # Copyright 2012 Florent Angly
 # You may distribute this module under the terms of the GPLv3
 
 
 =head1 NAME
 
-gg_traits - Extract and average traits for each Greengenes ID
+trait_by_genome - Extract and average traits for each Greengenes ID
 
 =head1 SYNOPSIS
 
-  gg_traits -i combine_metadata.txt > output.txt
+  trait_by_genome -i combined_metadata.txt > output.txt
 
 =head1 DESCRIPTION
 
@@ -40,8 +40,8 @@ IMG ID, IMG Name, IMG Tax, GG ID, GG Tax, 16S Count, Genome Length, Gene Count
 
 =item -w <warn>
 
-Warn if duplicate Greengenes ID have a different 16S count and pick the minimum
-standard deviation at which to trigger it. Default: warn.default
+Warn if duplicate Greengenes ID have 16S counts that are more different that
+the specified standard deviation. Default: warn.default
 
 =for Euclid:
    warn.type: 0+integer
@@ -84,11 +84,11 @@ use Getopt::Euclid qw(:minimal_keys);
 use Statistics::Basic qw(mean stddev);
 $Statistics::Basic::IPRES = 8;
 
-gg_traits( $ARGV{'i'}, $ARGV{'w'} );
+trait_by_genome( $ARGV{'i'}, $ARGV{'w'} );
 exit;
 
 
-func gg_traits ( $input, $warn ) {
+func trait_by_genome ( $input, $warn ) {
  
    # Read all traits for all IDs
    my %all_traits; # arrayref of traits indexed by ID
