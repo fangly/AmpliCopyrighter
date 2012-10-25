@@ -126,7 +126,7 @@ func count_seqs ($fasta) {
       $num++;
    }
    $in->close;
-   return 
+   return $num;
 }
 
 
