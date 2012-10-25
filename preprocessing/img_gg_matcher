@@ -221,10 +221,11 @@ func match_sequences ($correlations, $missing, $img_fasta, $gg_fasta) {
    while ( (my $img_id, undef) = each %{$missing} ) {
       warn sprintf( "Info: Searching for sequence match for IMG ID %12s ... %s\n", $img_id, '');
       if (exists $matches->{$img_id}) {
-         $correlations->{$img_id} = $matches->{$img_id};
+         my $gg_id = $matches->{$img_id};
+         $correlations->{$img_id} = $gg_id;
          delete $missing->{$img_id};
          $num_matches++;
-         warn sprintf("Info: Found   great sequence match,     GG ID %12s ... %s\n", $img_id, '');
+         warn sprintf("Info: Found   great sequence match,     GG ID %12s ... %s\n", $gg_id, '');
       }
    }
 
