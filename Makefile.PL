@@ -15,12 +15,15 @@ resources
 
 # Dependencies for everyone
 
-build_requires  'Test::More'                 =>  0;
-requires        'Getopt::Euclid'             => '0.3.4';
-requires        'Method::Signatures'         =>  0;
-requires        'Bio::DB::Taxonomy'          =>  0; # dev version of bioperl
-requires        'Bio::Community'             =>  0;
-requires        'Statistics::Basic'          =>  0;
+build_requires  'Test::More'                       =>  0;
+requires        'Getopt::Euclid'                   => '0.3.4';
+requires        'Method::Signatures'               =>  0;
+requires        'Bio::SeqIO'                       =>  0;
+requires        'Bio::DB::Fasta'                   =>  0; # from bioperl-live
+requires        'Bio::DB::Taxonomy'                =>  0; # dev version of bioperl-live
+requiresd       'Bio::Tools::Run::Alignment::Blat' =>  0; # from bioperl-run
+requires        'Bio::Community'                   =>  0; # from Bio-Community
+requires        'Statistics::Basic'                =>  0;
 
 
 # Dependencies for developpers only
