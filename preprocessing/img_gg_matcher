@@ -100,7 +100,8 @@ Use the output file as input for this option.
 
 Match the IMG 16S rRNA sequences in the provided file and compare them to
 sequences in the Greengenes database (<seq_file> option). Take the Greengenes ID
-of the first highly similar sequence. Note that in addition to standard FASTA
+of the first highly similar sequence. Using this option can increase runtime
+significantly.... be patient. Note that in addition to standard FASTA
 headers, this file can have a more specific header that includes an IMG genome
 ID, an underscore and an IMG gene ID, e.g.:
 
@@ -271,15 +272,24 @@ func run_blat ($query_fasta, $db_fasta, $min_identity) {
 func parse_blat_results ( $report, $min_identity, $min_coverage, $out_file ) {
    # Parse BLAT results and save correspondances
    my %matches;
+   my ($genome_id, $genome_best_score, $genome_best_target);
    open my $out, '>', $out_file or die "Error: Could not write results in file $out_file\n$!\n";
    QUERY: while (my $result = $report->next_result) {
  
       my $query_id     = extract_img_id( $result->query_name );
       my $query_length = $result->query_length;
 
+      # Save results and reset some variables if we are looking at a new genome
+      if ( (not defined $genome_id) or (not $genome_id eq $query_id) ) {
+         $matches{$genome_id} = $genome_best_target;
+         print $out "$genome_id\t$genome_best_target\n";
+         ($genome_id, $genome_best_score, $genome_best_target) = ($query_id, undef, undef);
+      }
+
       # Go through hits by decreasing bit score
       HIT: for my $hit ( sort { $b->raw_score <=> $a->raw_score } $result->hits ) {
          my $target_length = $hit->length;
+         my $target_score  = $hit->raw_score;
          #print "   Target ".$hit->name." (bitscore: ".$hit->raw_score ."): $target_length bp\n";
 
          while ( my $hsp = $hit->next_hsp ) {
@@ -297,9 +307,9 @@ func parse_blat_results ( $report, $min_identity, $min_coverage, $out_file ) {
             if ( ($hsp_coverage >= $min_coverage) && ($hsp_perc_ident >= $min_identity) ) {
                # Store hit
                #print "      KEEP ME\n";
-               my $target_id = $hit->name;
-               $matches{$query_id} = $target_id;
-               print $out "$query_id\t$target_id\n";
+               if ($target_score > $genome_best_score) {
+                  ($genome_best_target, $genome_best_score) = ($hit->name, $target_score);
+               }
                last HIT;
             }
 
@@ -313,6 +323,11 @@ func parse_blat_results ( $report, $min_identity, $min_coverage, $out_file ) {
       }
       #print "\n";
    }
+
+   # Save results for last genome
+   $matches{$genome_id} = $genome_best_target;
+   print $out "$genome_id\t$genome_best_target\n";
+
    close $out;
    return \%matches;
 }
