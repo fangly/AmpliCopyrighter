@@ -41,7 +41,8 @@ IMG ID, IMG Name, IMG Tax, GG ID, GG Tax, 16S Count, Genome Length, Gene Count
 =item -w <warn>
 
 Warn if duplicate Greengenes ID have 16S counts that are more different that
-the specified standard deviation. Default: warn.default
+the specified standard deviation. Also warn if the 16S number is less than 1 or
+more than 15. Default: warn.default
 
 =for Euclid:
    warn.type: 0+integer
@@ -120,7 +121,13 @@ func trait_by_genome ( $input, $warn ) {
                my @img_ids = @{$all_traits{$gg_id}{'img_id'}};
                warn "Warning: Greengenes ID $gg_id has inconsistent 16S counts (stddev $stddev)\n";
                for (my $j = 0; $j < scalar @img_ids; $j++) {
-                  warn "   ".$img_ids[$j]."\t".$dup_traits->[$j]."\n";
+                  warn "   IMG ".$img_ids[$j]."\tx".$dup_traits->[$j]."\n";
+               }
+            }
+            # Warn if 16S count is above or below authorized values
+            for my $val (@$dup_traits) {
+               if ( ($val < 1) || ($val > 15) ) {
+                  warn "Warning: Greengenes ID $gg_id has suspiciously high or low 16S count: $val\n";
                }
             }
          }
