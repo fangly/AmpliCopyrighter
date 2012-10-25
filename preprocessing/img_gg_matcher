@@ -254,7 +254,6 @@ func filter_fasta ($in_fasta_file, $ids) {
 
 func run_blat ($query_fasta, $db_fasta, $min_identity) {
    # Run Blat
-   # TODO: All sequences are BLATed could maybe only do missing sequences.
    eval { require Bio::Tools::Run::Alignment::Blat; };
    if ($@) {
       die "Error: Could not find module required for BLAT search, ".
