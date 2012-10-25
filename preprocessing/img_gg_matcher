@@ -11,7 +11,7 @@ img_gg_matcher - Find the Greengenes ID for IMG IDs that miss it
 
 =head1 SYNOPSIS
 
-  img_gg_matcher -i img_gg_correspondances.txt -d gg_sequences.fa > updated_correspondances.txt
+  img_gg_matcher -c img_to_gg.txt -i img_metadata.txt -s gg_12_10.fasta > updated_correspondances.txt
 
 =head1 DESCRIPTION
 
@@ -23,11 +23,11 @@ methods:
 
 =item 1/
 
-By matching names. See <desc> and <names> option.
+By matching names. See the <desc> and <names> options.
 
 =item 2/
 
-By matching sequences very stringently (using BLAT). See <rrna> option.
+By matching sequences very stringently (using BLAT). See the <rrna> option.
 
 =back
 
@@ -144,6 +144,7 @@ use warnings;
 use Method::Signatures;
 use Getopt::Euclid qw(:minimal_keys);
 use Bio::DB::Fasta;
+use Bio::SeqIO;
 
 
 img_gg_matcher( $ARGV{'c'}, $ARGV{'i'}, $ARGV{'s'}, $ARGV{'d'}, $ARGV{'n'}, $ARGV{'r'} );
@@ -202,12 +203,15 @@ func match_sequences ($correlations, $missing, $img_fasta, $gg_fasta) {
 
    my $out_file = 'match_sequences.blat';
    my $matches;
-   if (-e $out_file) { 
+   if (-e $out_file) {
       warn "Info: Not re-running BLAT. Using existing BLAT results $out_file\n";
       ($matches, undef) = read_correspondances($out_file);
    } else {
       warn "Info: Running BLAT...\n";
-      my $report = run_blat($img_fasta, $gg_fasta, $min_identity);
+      my $db_fasta = $gg_fasta;
+      my $query_fasta = filter_fasta($img_fasta, $missing);
+      my $report = run_blat($query_fasta, $db_fasta, $min_identity);
+      unlink $query_fasta;
       $matches = parse_blat_results($report, $min_identity, $min_coverage, $out_file);
       warn "Info: Done running BLAT...\n";
    }
@@ -228,8 +232,27 @@ func match_sequences ($correlations, $missing, $img_fasta, $gg_fasta) {
 }
 
 
+func filter_fasta ($in_fasta_file, $ids) {
+   # Write a new FASTA file with only the sequence from the specified IDs in.
+   my $out_fasta_file = $in_fasta_file.'.temp';
+   my $in  = Bio::SeqIO->new( -file => '<'.$in_fasta_file , -format => 'fasta' );
+   my $out = Bio::SeqIO->new( -file => '>'.$out_fasta_file, -format => 'fasta' );
+   while (my $seq = $in->next_seq) {
+      my $id = extract_img_id( $seq->id );
+      if (exists $ids->{$id}) {
+         # Write this sequence
+         $out->write_seq($seq);
+      }
+   }
+   $in->close;
+   $out->close;
+   return $out_fasta_file;
+}
+
+
 func run_blat ($query_fasta, $db_fasta, $min_identity) {
    # Run Blat
+   # TODO: All sequences are BLATed could maybe only do missing sequences.
    eval { require Bio::Tools::Run::Alignment::Blat; };
    if ($@) {
       die "Error: Could not find module required for BLAT search, ".
@@ -251,7 +274,7 @@ func parse_blat_results ( $report, $min_identity, $min_coverage, $out_file ) {
    open my $out, '>', $out_file or die "Error: Could not write results in file $out_file\n$!\n";
    QUERY: while (my $result = $report->next_result) {
  
-      my $query_id     = extract_gg_id( $result->query_name );
+      my $query_id     = extract_img_id( $result->query_name );
       my $query_length = $result->query_length;
 
       # Go through hits by decreasing bit score
@@ -377,7 +400,6 @@ func massage_strain ( Str $strain ) {
    $strain =~ s/\b(?:$catalogs)\s//gi;
    # Remove some non-text characters
    $strain =~ s/(?:,|;) / /gi;
-
    $strain =~ s/\s+/ /gi;
 
    #      replace / ( ) = by ''  
@@ -475,7 +497,7 @@ func extract_gg_name ( Str $desc ) {
 }
 
 
-func extract_gg_id ( Str $header ) {
+func extract_img_id ( Str $header ) {
    # Given a FASTA ID, extract the IMG genome ID. In addition to standard FASTA 
    # ID, the ID can be more specific and include an IMG genome ID, an underscore
    # and an IMG gene ID, e.g.: >640753060_640862969
