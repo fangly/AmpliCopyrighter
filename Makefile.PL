@@ -24,6 +24,7 @@ requires        'Bio::DB::Taxonomy'                =>  0; # dev version of biope
 requiresd       'Bio::Tools::Run::Alignment::Blat' =>  0; # from bioperl-run
 requires        'Bio::Community'                   =>  0; # from Bio-Community
 requires        'Statistics::Basic'                =>  0;
+requires        'IPC::Run'                         =>  0;
 
 
 # Dependencies for developpers only

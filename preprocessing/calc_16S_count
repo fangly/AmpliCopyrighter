@@ -1,0 +1,166 @@
+#! /usr/bin/env perl
+
+# calc_16S_count
+# Copyright 2012 Florent Angly
+# You may distribute this module under the terms of the GPLv3
+
+
+=head1 NAME
+
+calc_16S_count - Calculate the number of 16S gene copies in full genomes
+
+=head1 SYNOPSIS
+
+  calc_16S_count -i <folder_of_IMG_genomes>...
+
+=head1 DESCRIPTION
+
+Run RNAmmer to identify 16S sequences in genomes and calculate the number of
+copies per genome. The input is folders containing IMG genome folders (with GFF
+and gene FASTA files). The results are written in FASTA format on stdout. The
+results are written on stdout, in tab-delimited text format.
+
+=head1 REQUIRED ARGUMENTS
+
+=over
+
+=item -d <dir>...
+
+Input directories, containing folders of IMG genome folders.
+
+=for Euclid:
+   dir.type: readable
+
+=item -i <img_file>
+
+Input IMG metadata file to determine the kingdom to which each genome belongs.
+The IMG metadata file can be obtained using the export function of IMG
+(http://img.jgi.doe.gov/). It should have 13 tab-delimited columns (in this
+order): taxon_oid, Domain, Status, Genome Name, Phylum, Class, Order, Family,
+Genus, Species, Genome Size, Gene Count, 16S rRNA Count.
+
+=for Euclid:
+   img_file.type: readable
+
+=back
+
+=head1 AUTHOR
+
+Florent Angly <florent.angly@gmail.com>
+
+=head1 BUGS
+
+All complex software has bugs lurking in it, and this program is no exception.
+If you find a bug, please report it on the bug tracker:
+L<http://github.com/fangly/AmpliCopyrighter/issues>
+
+=head1 COPYRIGHT
+
+Copyright 2012 Florent Angly
+
+Copyrighter is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+Copyrighter is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+You should have received a copy of the GNU General Public License
+along with Copyrighter.  If not, see <http://www.gnu.org/licenses/>.
+
+=cut
+
+
+use strict;
+use warnings;
+use Getopt::Euclid qw(:minimal_keys);
+use Bio::SeqIO;
+use File::Spec;
+use Method::Signatures;
+use IPC::Run qw( run );
+
+calc_16S_count($ARGV{'d'}, $ARGV{'i'});
+exit;
+
+
+func calc_16S_count ($dirs, $img_metadata) {
+   my $kingdoms = read_kingdom($img_metadata);
+   my %seen;
+   for my $input_dir (@$dirs) {
+      opendir my $dh, $input_dir or die "Error: Could not read folder $input_dir\n$!\n";
+      while (my $img_id = readdir $dh) {
+         my $in_fasta  = File::Spec->catfile($input_dir, $img_id, $img_id.'.fna');
+         next if not -e $in_fasta; # was not an IMG genome folder
+         warn "Info: Scanning genome $img_id ($in_fasta)\n";
+         next if exists $seen{$img_id};
+
+         # Run RNAmmer on genome
+         my $out_fasta = $img_id.'_ssu.fa';
+         my $kingdom   = $kingdoms->{$img_id};
+         if (not defined $kingdom) {
+            warn "Warn: No kingdom found for IMG genome '$img_id'. Assuming Bacteria...\n";
+            $kingdom = 'bac';
+         }
+         run_rnammer($kingdom, $in_fasta, $out_fasta);
+
+         # Count number of 16S sequences
+         my $num = count_seqs($out_fasta);
+         warn "Info: Got $num 16S copies for genome $img_id\n";
+         print "$img_id\t$num\n";
+
+         $seen{$img_id} = undef;
+         unlink $out_fasta;
+     }
+     closedir $dh;
+   }
+   return 1;
+}
+
+
+func count_seqs ($fasta) {
+   # Count the number of sequences in a FASTA file
+   my $num = 0;
+   my $in = Bio::SeqIO->new( -file => $fasta, -format => 'fasta' );
+   while (my $seq = $in->next_seq) {
+      $num++;
+   }
+   $in->close;
+   return 
+}
+
+
+func run_rnammer ($kingdom, $in_fasta, $out_fasta) {
+   # Run RNAmmer on a genome
+   my $cmd = ['rnammer', '-multi', '-m', 'ssu', '-S', $kingdom, '-f', $out_fasta, $in_fasta];
+   run $cmd or die "Error: RNAmmer failed\n$?\n";
+   return 1;
+}
+
+
+func read_kingdom ($img_metadata) {
+   # Read IMG metadata file and record kingdom for each IMG genome
+   my %kingdoms;
+   open my $fh, '<', $img_metadata or die "Error: Could not read file $img_metadata\n$!\n";
+   <$fh>; # burn headers
+   while (my $line = <$fh>) {
+      chomp $line;
+      next if $line =~ m/^#/;
+      my @splitline = split /\t/, $line;
+      my $img_id = $splitline[0];
+      my $domain = $splitline[1];
+      if ( $domain eq 'Bacteria' ) {
+         $domain = 'bac';
+      } elsif ( $domain eq 'Archaea' ) {
+         $domain = 'arc';
+      } elsif ( $domain eq 'Eukaryota' ) {
+         $domain = 'euk';
+      } else {
+         die "Error: '$domain' is not a recognized kingdom\n";
+      }
+      $kingdoms{$img_id} = $domain;
+   }
+   close $fh;
+   return \%kingdoms;
+}
+
