@@ -23,12 +23,11 @@ methods:
 
 =item 1/
 
-By matching names. See <names> option.
+By matching names. See <desc> and <names> option.
 
 =item 2/
 
-By matching sequences first exactly (then approximately using BLAST or other
-software). See <rrna> option.
+By matching sequences very stringently (using BLAT). See <rrna> option.
 
 =back
 
@@ -70,20 +69,32 @@ downloaded from the SecondGenome website at L<ftp://greengenes.microbio.me/green
 
 =over
 
-=item -n <names>
+=item -d <desc>
 
-Look up names of species in the FASTA file and if an organism similar enough (at
-least at species level, but maybe not quite at subspecies or strain level),
-take its Greengenes ID. Yes: 1, no: 0. The sequence headers should look like
-this:
+Look up names of species in the Greengenes FASTA file (sequence description
+field) and if an organism similar enough (at least at species level, but maybe
+not quite at subspecies or strain level), take its Greengenes ID. The sequence
+headers should look like this:
 
   >20 AF025822.1 Methanococcus infernus k__Archaea; p__Euryarchaeota; c__Methanococci; o__Methanococcales; f__Methanocaldococcaceae; g__Methanocaldococcus; otu_139
 
-Default: names.default
+This method will work with Greengenes 2011 and before. Values: 1 for yes, 0 for
+no. Default: desc.default
 
 =for Euclid:
-   names.type: integer, names == 0 || names == 1
-   names.default: 1
+   desc.type: integer, desc == 0 || desc == 1
+   desc.default: 0
+
+=item -n <names>
+
+Similar to <desc> but provide a file that has the names of the Greengenes
+isolates. This is suitable for Greengenes 2012 and later. Get the GG SQL file, 
+convert it to Sqlite using mysql2sqlite.pl from L<http://stackoverflow.com/a/9857906/1050730>.
+Then run: sqlite -header gg_12_10.sqlite "select gg_id, organism, strain from greengenes where decision='named_isolate';" > gg_named_isolates.txt
+Use the output file as input for this option.
+
+=for Euclid:
+   names.type: readable
 
 =item -r <rrna>
 
@@ -135,12 +146,12 @@ use Getopt::Euclid qw(:minimal_keys);
 use Bio::DB::Fasta;
 
 
-img_gg_matcher( $ARGV{'c'}, $ARGV{'i'}, $ARGV{'s'}, $ARGV{'n'}, $ARGV{'r'} );
+img_gg_matcher( $ARGV{'c'}, $ARGV{'i'}, $ARGV{'s'}, $ARGV{'d'}, $ARGV{'n'}, $ARGV{'r'} );
 exit;
 
 
 func img_gg_matcher ( Str $corr_file, Str $img_file, Str $seq_file,
-   Str $search_names, Str $search_seqs ) {
+   $search_desc, $search_names, $search_seqs ) {
 
    # Parse correspondance file, identify some missing IDs
    my ($correlations, $missing) = read_correspondances($corr_file);
@@ -152,14 +163,14 @@ func img_gg_matcher ( Str $corr_file, Str $img_file, Str $seq_file,
    warn "Info: There are ".(scalar keys %$missing)." IMG IDs with missing GG ID.\n";
 
    # Exclude anything that is not a bacteria or archaea
-   if ( (scalar keys %$missing > 0) && ($search_names || $search_seqs) ) {
+   if ( (scalar keys %$missing > 0) && ($search_desc || $search_names || $search_seqs) ) {
 
       # Index FASTA file and sort genome names by taxa
       my ($db, $ids) = index_fasta($seq_file);
-      my $gg_taxa    = gg_id_by_taxa($db);
+      my $gg_taxa    = gg_id_by_taxa($db, $search_desc, $search_names);
 
       # Find a matching name
-      if ($search_names) {
+      if ($search_desc || $search_names) {
          ($correlations, $missing) = match_names($names, $correlations, $missing,
             $gg_taxa);
          warn "Info: There are still ".scalar(keys(%$missing))." missing IDs\n";
@@ -172,16 +183,9 @@ func img_gg_matcher ( Str $corr_file, Str $img_file, Str $seq_file,
          warn "Info: There are still ".scalar(keys(%$missing))." missing IDs\n";
       }
 
-      ####
-      use Data::Dumper;
-      warn "MISSING: ".Dumper($missing);
-      ####
-
    }
 
-   ####
-   # print updated correspondances
-   ####
+   write_correspondances($correlations);
 
    return 1;
 }
@@ -203,17 +207,19 @@ func match_sequences ($correlations, $missing, $img_fasta, $gg_fasta) {
       ($matches, undef) = read_correspondances($out_file);
    } else {
       warn "Info: Running BLAT...\n";
-      my $report  = run_blat($img_fasta, $gg_fasta, $min_identity);
-      $matches = parse_results($report, $min_identity, $min_coverage, $out_file);
+      my $report = run_blat($img_fasta, $gg_fasta, $min_identity);
+      $matches = parse_blat_results($report, $min_identity, $min_coverage, $out_file);
       warn "Info: Done running BLAT...\n";
    }
 
    my $num_matches = 0;
    while ( (my $img_id, undef) = each %{$missing} ) {
+      warn sprintf( "Info: Searching for sequence match for IMG ID %12s ... %s\n", $img_id, '');
       if (exists $matches->{$img_id}) {
          $correlations->{$img_id} = $matches->{$img_id};
          delete $missing->{$img_id};
          $num_matches++;
+         warn sprintf("Info: Found   great sequence match,     GG ID %12s ... %s\n", $img_id, '');
       }
    }
 
@@ -223,11 +229,7 @@ func match_sequences ($correlations, $missing, $img_fasta, $gg_fasta) {
 
 
 func run_blat ($query_fasta, $db_fasta, $min_identity) {
-
-   ####
-   # query and db seem inverted...
-   ####
-
+   # Run Blat
    eval { require Bio::Tools::Run::Alignment::Blat; };
    if ($@) {
       die "Error: Could not find module required for BLAT search, ".
@@ -243,7 +245,7 @@ func run_blat ($query_fasta, $db_fasta, $min_identity) {
 }
 
 
-func parse_results ( $report, $min_identity, $min_coverage, $out_file ) {
+func parse_blat_results ( $report, $min_identity, $min_coverage, $out_file ) {
    # Parse BLAT results and save correspondances
    my %matches;
    open my $out, '>', $out_file or die "Error: Could not write results in file $out_file\n$!\n";
@@ -251,7 +253,6 @@ func parse_results ( $report, $min_identity, $min_coverage, $out_file ) {
  
       my $query_id     = extract_gg_id( $result->query_name );
       my $query_length = $result->query_length;
-      #print "Query $query_id: $query_length bp\n";
 
       # Go through hits by decreasing bit score
       HIT: for my $hit ( sort { $b->raw_score <=> $a->raw_score } $result->hits ) {
@@ -392,8 +393,8 @@ func match_name ( Str $img_name, $genera ) {
 
    my ($candidatus, $genus, $species, $strain) = parse_name($img_name);
    my $strain_clean = massage_strain( $strain );
-   warn "                                                    ".
-        "| $genus | $species | $strain | $strain_clean |\n"; #####
+   #warn "                                                    ".
+   #     "| $genus | $species | $strain | $strain_clean |\n";
 
    # Look for perfect genus, species and strain match
    while ( my ($gg_id, $gg_names) = each %{$genera->{$genus}->{$species}->{$strain}} ) {
@@ -420,8 +421,8 @@ func match_name ( Str $img_name, $genera ) {
                last LOOKUP;
             }
 
-            warn "                                                    ".
-                 "+ $genus + $species + $gg_strain + $gg_strain_clean +\n"; #####
+            #warn "                                                    ".
+            #     "+ $genus + $species + $gg_strain + $gg_strain_clean +\n";
 
             # Match one part of the strain name only
             # Example: Prochlorococcus marinus MIT9202
@@ -483,13 +484,25 @@ func extract_gg_id ( Str $header ) {
 }
 
 
-func gg_id_by_taxa ($gg_db) {
+func gg_id_by_taxa ($gg_db, $search_desc, $search_names) {
    # Parse all Greengenes genome names and sort them by taxa.
+
+   my $named_isolates;
+   if ($search_names) {
+      # Names are not in FASTA headers, but in separate file. Read them now.
+      $named_isolates = read_named_isolates($search_names);
+   }
+
    my $gg_taxa;
    my $stream = $gg_db->get_PrimarySeq_stream;
    while (my $gg_seq = $stream->next_seq) {
       my $gg_id = $gg_seq->id;
-      my $gg_scientific = extract_gg_name($gg_seq->desc || '');
+      my $gg_scientific;
+      if ($search_desc) {
+         $gg_scientific = extract_gg_name($gg_seq->desc || '');
+      } elsif ($search_names) {
+         $gg_scientific = $named_isolates->{$gg_id} || '';
+      }
       my ($gg_candidatus, $gg_genus, $gg_species, $gg_strain) = parse_name($gg_scientific);
       next if not $gg_genus; # Organisms without genus are useless for us
       my $gg_strain_clean = massage_strain( $gg_strain );
@@ -505,8 +518,8 @@ func match_names ( $names, $correlations, $missing, $gg_genera ) {
    while ( (my $img_id, undef) = each %$missing ) {
       my $img_name = $names->{$img_id};
       next if not defined $img_name;
-      warn "\n"; ####
-      warn sprintf( "Info: Searching for name match for IMG_ID %12s ... %s\n", $img_id, $img_name);
+      #warn "\n";
+      warn sprintf( "Info: Searching for name match for IMG ID %12s ... %s\n", $img_id, $img_name);
       my ($gg_id, $gg_name) = match_name($img_name, $gg_genera);
       if ($gg_id) {
          # Found a matching GG ID
@@ -517,6 +530,43 @@ func match_names ( $names, $correlations, $missing, $gg_genera ) {
    }
    warn "Info: Found name match for $num_matches IMG IDs ".($num_matches > 0 ? ':D' : ':(((')."\n";
    return $correlations, $missing;
+}
+
+
+func read_named_isolates ($file) {
+   # Read a file of named isolates (a SQLite dump) that looks like this:
+   #   gg_id|organism|strain
+   #   3|Methanocaldococcus jannaschii|
+   #   16|Methanocaldococcus fervens AG86|AG86; DSM4213
+   my %named_isolates;
+   open my $in, '<', $file or die "Error: Could not read file $file\n$!\n";
+   my $headers = <$in>;
+   while (my $line = <$in>) {
+      chomp $line;
+      my ($gg_id, $organism, $strain) = split /\|/, $line;
+      # Strain cleanup
+      $strain =~ s/(type )?strain//g;
+      # Merge species and strain to get a full name
+      my $full_name;
+      my $re = quotemeta($strain);
+      if ($organism =~ m/$re/i) {
+         $full_name = $organism;
+      } else {
+         $full_name = $organism.' '.$strain;
+      }
+      # Record full name
+      $named_isolates{$gg_id} = $full_name;
+   }
+   close $in;
+   return \%named_isolates;
+}
+
+
+func write_correspondances ($correlations) {
+   while ( my ($img_id, $gg_id) = each %$correlations ) {
+      print "$img_id\t$gg_id\n";
+   }
+   return 1;
 }
 
 
