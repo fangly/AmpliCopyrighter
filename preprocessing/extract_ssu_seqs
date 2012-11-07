@@ -1,0 +1,264 @@
+#! /usr/bin/env perl
+
+# extract_ssu_seqs
+# Copyright 2012 Florent Angly
+# You may distribute this module under the terms of the GPLv3
+
+
+=head1 NAME
+
+extract_ssu_seqs - Identify 16S rRNA genes in IMG genomes and extract their sequence
+
+=head1 SYNOPSIS
+
+  extract_ssu_seqs -i <folder_of_IMG_genomes>...
+
+=head1 DESCRIPTION
+
+Run RNAmmer or rfam_scan to identify 16S sequences in genomes and extract them.
+The input is folders containing IMG genome folders (with GFF and gene FASTA
+files). All identified 16S sequences are printed as FASTA-formatted stream on
+stdout and are given IDs of the form: >$imgid_$genenum
+
+=head1 REQUIRED ARGUMENTS
+
+=over
+
+=item -d <dir>...
+
+Input directories, containing folders of IMG genome folders.
+
+=for Euclid:
+   dir.type: readable
+
+=item -i <img_file>
+
+Input IMG metadata file to determine the kingdom to which each genome belongs.
+The IMG metadata file can be obtained using the export function of IMG
+(http://img.jgi.doe.gov/). It should have 13 tab-delimited columns (in this
+order): taxon_oid, Domain, Status, Genome Name, Phylum, Class, Order, Family,
+Genus, Species, Genome Size, Gene Count, 16S rRNA Count.
+
+=for Euclid:
+   img_file.type: readable
+
+=back
+
+=head1 OPTIONAL ARGUMENTS
+
+=over
+
+=item -c <rfam_cm>
+
+Path to the Rfam database covariance model file. If you provide this file, then
+a more sensitive rfam_scan search will be run instead of RNAmmer. To speed up
+this search, also provide <rfam_fasta>.
+
+=for Euclid:
+   rfam_cm.type: readable
+
+=item -f <rfam_fasta>
+
+Path to the Rfam database FASTA file.
+
+=for Euclid:
+   rfam_fasta.type: readable
+
+=back
+
+=head1 AUTHOR
+
+Florent Angly <florent.angly@gmail.com>
+
+=head1 BUGS
+
+All complex software has bugs lurking in it, and this program is no exception.
+If you find a bug, please report it on the bug tracker:
+L<http://github.com/fangly/AmpliCopyrighter/issues>
+
+=head1 COPYRIGHT
+
+Copyright 2012 Florent Angly
+
+Copyrighter is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+Copyrighter is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+You should have received a copy of the GNU General Public License
+along with Copyrighter.  If not, see <http://www.gnu.org/licenses/>.
+
+=cut
+
+
+use strict;
+use warnings;
+use Getopt::Euclid qw(:minimal_keys);
+use Bio::SeqIO;
+use Bio::PrimarySeq;
+use Bio::DB::Fasta;
+use File::Spec;
+use Method::Signatures;
+use IPC::Run qw( run );
+
+extract_ssu_seqs($ARGV{'d'}, $ARGV{'i'}, $ARGV{'c'}, $ARGV{'f'});
+exit;
+
+
+func extract_ssu_seqs ($dirs, $img_metadata, $rfam_cm, $rfam_fasta) {
+   my $method = defined $rfam_cm ? 'rfam_scan' : 'rnammer';
+   my $kingdoms = read_kingdom($img_metadata);
+   my %seen;
+   my $out = Bio::SeqIO->new(
+      -fh     => \*STDOUT,
+      -format => 'fasta',
+      -flush  => 0, # go as fast as possible
+   );
+   for my $input_dir (@$dirs) {
+      opendir my $dh, $input_dir or die "Error: Could not read folder $input_dir\n$!\n";
+      while (my $img_id = readdir $dh) {
+         my $in_fasta = File::Spec->catfile($input_dir, $img_id, $img_id.'.fna');
+         next if not -e $in_fasta; # not an IMG genome folder
+         next if exists $seen{$img_id};
+
+         warn "Info: Scanning genome $img_id ($in_fasta)\n";
+
+         # Find kingdom of this genome
+         my $kingdom = $kingdoms->{$img_id};
+         if (not defined $kingdom) {
+            warn "Warn: No kingdom found for IMG genome '$img_id'. Skipping it...\n";
+            next;
+         }
+
+         # Run RNAmmer or rfam_scan on genome
+         my $temp_fasta = "$$.fa";
+         if ($method eq 'rfam_scan') {
+            run_rfam_scan($kingdom, $in_fasta, $temp_fasta, $rfam_cm, $rfam_fasta);
+         } elsif ($method eq 'rnammer') {
+            run_rnammer($kingdom, $in_fasta, $temp_fasta);
+         } else {
+           die "Error: Unsupported method '$method'\n";
+         }
+
+         # Add sequences to existing FASTA stream on stdout
+         append_seqs($temp_fasta, $out);
+         unlink $temp_fasta;
+
+         $seen{$img_id} = undef;
+     }
+     closedir $dh;
+   }
+   $out->close;
+   return 1;
+}
+
+
+func append_seqs ($in_fasta, Bio::SeqIO $out_stream, $genome_id) {
+   # Append sequences to stdout. Also, rename them by genome.
+   my $in = Bio::PrimarySeq->new( -file => $in_fasta, -format => 'fasta' );
+   my $seq_count = 0;
+   while (my $seq = $in->next_seq) {
+      $seq_count++;
+      $seq->id( $genome_id.'_'.$seq_count );
+      $out_stream->write_seq($seq);
+   }
+   return 1;
+}
+
+
+func run_rnammer ($kingdom, $in_fasta, $out_fasta) {
+   # Run RNAmmer on a genome
+   # usage: rnammer -S arc/bac/euk (-multi) (-m tsu,lsu,ssu) (-f) (-k) (-gff [gff file]) (-xml [xml file]) (-f [fasta file]) (-h [HMM report]) [sequence]
+   #    -S     Specifies the super kingdom of the input sequence. Can be either 'arc', 'bac', or 'euk'.
+   #    -gff output gff file
+   #           Specifies filename for output in GFF version 2 output
+   #    -multi Runs all molecules and both strands in parallel
+   #    -f fasta
+   #           Specifies filename for output fasta file of predicted rRNA genes
+   #    -h hmmreport
+   #           Specifies filename for output HMM report.
+   #    -m     Molecule type can be 'tsu' for 5/8s rRNA, 'ssu' for 16/18s rRNA, 'lsu' for 23/28s rRNA or any combination seperated by comma.
+   my $cmd = ['rnammer', '-multi', '-m', 'ssu', '-S', $kingdom, '-f', $out_fasta, $in_fasta];
+   run $cmd or die "Error: RNAmmer failed\n$?\n";
+   return 1;
+}
+
+
+func run_rfam_scan ($kingdom, $in_fasta, $out_fasta, $rfam_cm, $rfam_fasta) {
+   # Get the Rfam SSU rRNA accession that correspond to each domain
+   my %king2acc = (
+      bac => 'RF00177',
+      arc => 'RF01959',
+      euk => 'RF01960',
+   );
+   $kingdom = $king2acc{$kingdom} or die "Error: No Rfam accession for kingdom $kingdom\n";
+   # Run rfam_scan
+   my $out_gff = "$out_fasta.gff";
+   my $cmd = ['rfam_scan', '--include', $kingdom, '-o', $out_gff, '--blastdb', $rfam_fasta, $rfam_cm, $in_fasta];
+   #./rfam_scan_fea --cpu 9 -v --include RF00177 -o out_1_1.txt --blastdb Rfam.fasta Rfam.cm.1_1 638341202.fna
+   # Parse GFF3 output of rfam_scan
+   extract_gff_feats($out_gff, $in_fasta, $out_fasta);
+   #unlink $gff_out;
+   run $cmd or die "Error: rfam_scan failed\n$?\n";
+   return 1;
+}
+
+
+func extract_gff_feats ($gff_in, $fasta_in, $fasta_out) {
+   # Given a FASTA file and its features in a GFF file. Extract the sequence of
+   # the GFF features and add then to an existing FASTA file
+   my $db = Bio::DB::Fasta->new($fasta_in, -clean => 1);
+   open my $in, '<', $gff_in or die "Error: Could not read file $gff_in\n$!\n";
+   my $out = Bio::SeqIO->new( -file => '>>'.$fasta_out, -format => 'fasta' );
+   my $gene_count = 0;
+   while ( my $line = <$in> ) {
+      chomp $line;
+      # Skip comment lines
+      next if $line =~ m/^#/;
+      # NZ_AJO51018	Rfam	similarity	19837	21385	1557.0	+	1	bias=16.0;evalue=0;...
+      my @fields = split /\t/, $line;
+      next if scalar @fields != 9;
+      my ($seqid, $source, $type, $start, $end, $score, $strand, $phase, $attr) = @fields;
+      # Get 16S sequence from genome
+      $gene_count++;
+      my $seq = Bio::PrimarySeq->new(
+         -id  => $seqid.':'.$start.','.$end.'/'.$strand,
+         -seq => $db->seq($seqid, $start, $end, $strand),
+      );
+      $out->write_seq( $seq );
+   }
+   close $in;
+   $out->close;
+   return 1;
+}
+
+
+func read_kingdom ($img_metadata) {
+   # Read IMG metadata file and record kingdom for each IMG genome
+   my %kingdoms;
+   open my $fh, '<', $img_metadata or die "Error: Could not read file $img_metadata\n$!\n";
+   <$fh>; # burn headers
+   while (my $line = <$fh>) {
+      chomp $line;
+      next if $line =~ m/^#/;
+      my @splitline = split /\t/, $line;
+      my $img_id = $splitline[0];
+      my $domain = $splitline[1];
+      if ( $domain eq 'Bacteria' ) {
+         $domain = 'bac';
+      } elsif ( $domain eq 'Archaea' ) {
+         $domain = 'arc';
+      } elsif ( $domain eq 'Eukaryota' ) {
+         $domain = 'euk';
+      } else {
+         die "Error: '$domain' is not a recognized kingdom\n";
+      }
+      $kingdoms{$img_id} = $domain;
+   }
+   close $fh;
+   return \%kingdoms;
+}
+
