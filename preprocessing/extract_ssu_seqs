@@ -36,9 +36,9 @@ Input directories, containing folders of IMG genomes.
 
 Input IMG metadata file to determine the kingdom to which each genome belongs.
 The IMG metadata file can be obtained using the export function of IMG
-(http://img.jgi.doe.gov/). It should have 13 tab-delimited columns (in this
-order): taxon_oid, Domain, Status, Genome Name, Phylum, Class, Order, Family,
-Genus, Species, Genome Size, Gene Count, 16S rRNA Count.
+(http://img.jgi.doe.gov/). The number and order of the columns is not important,
+but this script expects to find at least two columns, named 'taxon_oid' and
+'Domain'.
 
 =for Euclid:
    img_file.type: readable
@@ -233,19 +233,15 @@ func append_seqs ($in_fasta, Bio::SeqIO $out_stream, $genome_id) {
 }
 
 
-
 func run_rnammer ($kingdom, $in_fasta, $out_fasta) {
    # Run RNAmmer on a genome
-   # usage: rnammer -S arc/bac/euk (-multi) (-m tsu,lsu,ssu) (-f) (-k) (-gff [gff file]) (-xml [xml file]) (-f [fasta file]) (-h [HMM report]) [sequence]
-   #    -S     Specifies the super kingdom of the input sequence. Can be either 'arc', 'bac', or 'euk'.
-   #    -gff output gff file
-   #           Specifies filename for output in GFF version 2 output
-   #    -multi Runs all molecules and both strands in parallel
-   #    -f fasta
-   #           Specifies filename for output fasta file of predicted rRNA genes
-   #    -h hmmreport
-   #           Specifies filename for output HMM report.
-   #    -m     Molecule type can be 'tsu' for 5/8s rRNA, 'ssu' for 16/18s rRNA, 'lsu' for 23/28s rRNA or any combination seperated by comma.
+   # Usage: rnammer [options] <sequence>
+   #    -S         Super kingdom of the input sequence: 'arc', 'bac', or 'euk'
+   #    -gff file  Filename for GFF2-formatted output
+   #    -multi     Runs all molecules and both strands in parallel
+   #    -f fasta   Filename for FASTA-formatted output (rRNA sequences found)
+   #    -m         Molecule type: 'tsu' for 5/8s rRNA, 'ssu' for 16/18s rRNA,
+   #               'lsu' for 23/28s rRNA or any combination separated by comma.
    my $cmd = ['rnammer', '-multi', '-m', 'ssu', '-S', $kingdom, '-f', $out_fasta, $in_fasta];
    run $cmd or die "Error: RNAmmer failed\n$?\n";
    return 1;
@@ -305,13 +301,19 @@ func read_kingdom ($img_metadata) {
    # Read IMG metadata file and record kingdom for each IMG genome
    my %kingdoms;
    open my $fh, '<', $img_metadata or die "Error: Could not read file $img_metadata\n$!\n";
-   <$fh>; # burn headers
+
+   # Identify which column holds the domain
+   my $header = <$fh>;
+   chomp $header;
+   my ($idcol, $domcol) = find_column_for($header, 'taxon_oid', 'Domain');
+
+   # Parse file
    while (my $line = <$fh>) {
       chomp $line;
       next if $line =~ m/^#/;
       my @splitline = split /\t/, $line;
-      my $img_id = $splitline[0];
-      my $domain = $splitline[1];
+      my $img_id = $splitline[$idcol];
+      my $domain = $splitline[$domcol];
       if ( $domain eq 'Bacteria' ) {
          $domain = 'bac';
       } elsif ( $domain eq 'Archaea' ) {
@@ -325,5 +327,36 @@ func read_kingdom ($img_metadata) {
    }
    close $fh;
    return \%kingdoms;
+}
+
+
+func find_column_for ($header_line, @names) {
+   # Given a tab-separated header line, find which column matches the given name.
+   # Search is insensitive to case, spaces, underscores and dashes. Also, note
+   # that matches only need to be partial.
+   my @fields = split /\t/, $header_line;
+   # Make names and cols insensitive
+   for my $arr ( \@fields, \@names ) {
+      for my $i (0 .. scalar @$arr - 1) {
+         $arr->[$i] =~ s/[\s_-]//g;
+         $arr->[$i] = lc $arr->[$i];
+      }
+   }
+   # Look for names in column headers
+   my @col_nums;
+   for my $name (@names) {
+      my $col_num;
+      for ($col_num = 0; $col_num < scalar @fields; $col_num++) {
+         my $field = $fields[$col_num];
+         if ($field =~ m/$name/) {
+            push @col_nums, $col_num;
+            last;
+         }
+      }
+      if (not defined $col_num) {
+         die "Error: Could not find column holding '$name' data\n";
+      }
+   }
+   return @col_nums;
 }
 
