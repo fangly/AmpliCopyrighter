@@ -7,7 +7,7 @@
 
 =head1 NAME
 
-extract_ssu_seqs - Identify 16S rRNA genes in IMG genomes and extract their sequence
+extract_ssu_seqs - Identify 16S/18S rRNA genes in IMG genomes and extract their sequence
 
 =head1 SYNOPSIS
 
@@ -15,10 +15,10 @@ extract_ssu_seqs - Identify 16S rRNA genes in IMG genomes and extract their sequ
 
 =head1 DESCRIPTION
 
-Run RNAmmer or rfam_scan to identify 16S sequences in genomes and extract them.
-The input is folders containing IMG genome folders (with GFF and gene FASTA
-files). All identified 16S sequences are printed as FASTA-formatted stream on
-stdout and are given IDs of the form: >$imgid_$genenum
+Run RNAmmer or rfam_scan (>=1.1) to identify 16S/18S sequences in genomes and
+extract them. The input is folders containing IMG genome folders (with GFF and
+gene FASTA files). All identified 16S/18S sequences are printed as FASTA-
+formatted stream on stdout and are given IDs of the form: >$imgid_$genenum
 
 =head1 REQUIRED ARGUMENTS
 
