@@ -1,7 +1,7 @@
 #! /usr/bin/env perl
 
 # extract_ssu_seqs
-# Copyright 2012 Florent Angly
+# Copyright 2012 Florent Angly and Adam Skarshewski
 # You may distribute this module under the terms of the GPLv3
 
 
@@ -15,10 +15,11 @@ extract_ssu_seqs - Identify 16S/18S rRNA genes in IMG genomes and extract their 
 
 =head1 DESCRIPTION
 
-Run RNAmmer or rfam_scan (>=1.1) to identify 16S/18S sequences in genomes and
-extract them. The input is folders containing IMG genome folders (with GFF and
-gene FASTA files). All identified 16S/18S sequences are printed as FASTA-
-formatted stream on stdout and are given IDs of the form: >$imgid_$genenum
+Use IMG annotations, or RNAmmer and rfam_scan (>=1.1) searches to identify
+16S/18S rRNA gene sequences in genomes, and extract their sequence. The input is
+folders containing IMG genome folders (with GFF and gene FASTA files). All
+identified 16S/18S sequences are printed as FASTA-formatted stream on stdout and
+are given IDs of the form: >$imgid_$genenum
 
 =head1 REQUIRED ARGUMENTS
 
@@ -26,7 +27,7 @@ formatted stream on stdout and are given IDs of the form: >$imgid_$genenum
 
 =item -d <dir>...
 
-Input directories, containing folders of IMG genome folders.
+Input directories, containing folders of IMG genomes.
 
 =for Euclid:
    dir.type: readable
@@ -48,27 +49,39 @@ Genus, Species, Genome Size, Gene Count, 16S rRNA Count.
 
 =over
 
+=item -m <method>
+
+Method to use for the identification of 16S/18S genes: 'img' to trust the IMG
+annotations, 'rnammer' to identify SSU genes using RNAmmer, or 'rfam_scan' to
+identify them using a more sensitive RFAM search. Default: method.default
+
+=for Euclid:
+  method.type: /(img|rnammer|rfam_scan)/
+  method.default: 'img'
+
 =item -c <rfam_cm>
 
-Path to the Rfam database covariance model file. If you provide this file, then
-a more sensitive rfam_scan search will be run instead of RNAmmer. To speed up
-this search, also provide <rfam_fasta>.
+Path to the Rfam database covariance model file. If you use 'rfam_scan' as
+<method>, you need to provide this file.
 
 =for Euclid:
    rfam_cm.type: readable
 
 =item -f <rfam_fasta>
 
-Path to the Rfam database FASTA file.
+Path to the Rfam database FASTA file. Only valid with 'rfam_scan' as <method>. 
+Providing this file will speed up the rfam_search.
 
 =for Euclid:
    rfam_fasta.type: readable
 
 =back
 
-=head1 AUTHOR
+=head1 AUTHORS
 
 Florent Angly <florent.angly@gmail.com>
+
+Adam Skarshewski
 
 =head1 BUGS
 
@@ -78,7 +91,7 @@ L<http://github.com/fangly/AmpliCopyrighter/issues>
 
 =head1 COPYRIGHT
 
-Copyright 2012 Florent Angly
+Copyright 2012 Florent Angly and Adam Skarshewski
 
 Copyrighter is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -104,12 +117,11 @@ use File::Spec;
 use Method::Signatures;
 use IPC::Run qw( run );
 
-extract_ssu_seqs($ARGV{'d'}, $ARGV{'i'}, $ARGV{'c'}, $ARGV{'f'});
+extract_ssu_seqs($ARGV{'d'}, $ARGV{'i'}, $ARGV{'m'}, $ARGV{'c'}, $ARGV{'f'});
 exit;
 
 
-func extract_ssu_seqs ($dirs, $img_metadata, $rfam_cm, $rfam_fasta) {
-   my $method = defined $rfam_cm ? 'rfam_scan' : 'rnammer';
+func extract_ssu_seqs ($dirs, $img_metadata, $method, $rfam_cm, $rfam_fasta) {
    my $kingdoms = read_kingdom($img_metadata);
    my %seen;
    my $out = Bio::SeqIO->new(
@@ -135,12 +147,14 @@ func extract_ssu_seqs ($dirs, $img_metadata, $rfam_cm, $rfam_fasta) {
 
          # Run RNAmmer or rfam_scan on genome
          my $temp_fasta = "$$.fa";
-         if ($method eq 'rfam_scan') {
+         if ($method eq 'img') {
+            extract_from_img($kingdom, $input_dir, $temp_fasta);
+         } elsif ($method eq 'rfam_scan') {
             run_rfam_scan($kingdom, $in_fasta, $temp_fasta, $rfam_cm, $rfam_fasta);
          } elsif ($method eq 'rnammer') {
             run_rnammer($kingdom, $in_fasta, $temp_fasta);
          } else {
-           die "Error: Unsupported method '$method'\n";
+            die "Error: Unsupported method '$method'\n";
          }
 
          # Add sequences to existing FASTA stream on stdout
@@ -156,6 +170,56 @@ func extract_ssu_seqs ($dirs, $img_metadata, $rfam_cm, $rfam_fasta) {
 }
 
 
+func extract_from_img ($kingdom, $input_dir, $out_fasta) {
+   my %king2acc = (
+      bac => '16S',
+      arc => '16S',
+      euk => '18S',
+   );
+   $kingdom = $king2acc{$kingdom} or die "Error: No 16S/18S rRNA gene for kingdom $kingdom\n";
+   my %genomes;
+   my $out_fh = Bio::SeqIO->new( -file => '>'.$out_fasta, -format => 'fasta');
+   opendir my $dh, $input_dir or die "Error: Could not read folder $input_dir\n$!\n";
+   while (my $entry = readdir $dh) {
+      my $gff_file = File::Spec->catfile($input_dir, $entry, "$entry.gff");
+      if (-e $gff_file) {
+         open my $fh, '<', $gff_file or die "Error: Could not read file $gff_file\n$!\n";
+         while (my $line = <$fh>) {
+            chomp $line;
+            my @splitline = split /\t/, $line;
+            if (scalar @splitline < 9) {
+               next;
+            }
+            if ($splitline[2] eq 'rRNA') {
+               if ($splitline[8] =~ /$kingdom/i && $splitline[8] =~ /ID=(\d+)/) {
+                  my $gene_id = $1;
+                  $genomes{$gene_id} = $entry;
+               }
+            }
+         }
+         my $fasta_file = File::Spec->catfile($input_dir, $entry, "$entry.genes.fna");
+         if (-e $fasta_file) {
+            my $in_fh = Bio::SeqIO->new(-format => 'fasta',
+                                        -file   => $fasta_file);
+            while (my $seq_obj = $in_fh->next_seq()) {
+               my $gene_id   = $seq_obj->id();
+               my $genome_id = $genomes{$gene_id};
+               if (defined $genome_id) {
+                  # Rename read as <genomeid>_<geneid>
+                  my $new_id = $genome_id.'_'.$gene_id;
+                  $seq_obj->id($new_id);
+                  $out_fh->write_seq($seq_obj)
+               }
+            }
+         }
+      }
+   }
+   closedir $dh;
+   $out_fh->close;
+   return 1;
+}
+
+
 func append_seqs ($in_fasta, Bio::SeqIO $out_stream, $genome_id) {
    # Append sequences to stdout. Also, rename them by genome.
    my $in = Bio::PrimarySeq->new( -file => $in_fasta, -format => 'fasta' );
@@ -167,6 +231,7 @@ func append_seqs ($in_fasta, Bio::SeqIO $out_stream, $genome_id) {
    }
    return 1;
 }
+
 
 
 func run_rnammer ($kingdom, $in_fasta, $out_fasta) {
