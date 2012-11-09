@@ -121,7 +121,6 @@ extract_ssu_seqs($ARGV{'d'}, $ARGV{'i'}, $ARGV{'m'}, $ARGV{'c'}, $ARGV{'f'});
 exit;
 
 
-
 func extract_ssu_seqs ($dirs, $img_metadata, $method, $rfam_cm, $rfam_fasta) {
    my $kingdoms = read_kingdom($img_metadata);
    my ($rfam_cms, $rfam_fastas);
@@ -320,7 +319,7 @@ func extract_gff_feats ($gff_in, $fasta_in, $fasta_out) {
 func parse_infernal_table ($tbl_file, $in_fasta, $out_fasta) {
    # Parse INFERNAL output, <= 1.0.2 (legacy), or >= 1.1 (new)
    my $db = Bio::DB::Fasta->new($in_fasta, -clean => 1);
-   my $out = Bio::SeqIO->new(-file => $out_fasta, -format => 'fasta');
+   my $out = Bio::SeqIO->new(-file => '>'.$out_fasta, -format => 'fasta');
    open my $in, '<', $tbl_file or die "Error: Could not read file $tbl_file\n$!\n";
    my ($rfamid, $rfamname);
    my $legacy_re = qr/^\s*(\S*)\s+(\S+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(\d+)$/;
@@ -340,17 +339,12 @@ func parse_infernal_table ($tbl_file, $in_fasta, $out_fasta) {
          $match = 1;
       }
       if ($match) {
-         if (defined $strand) {
-            # Convert +/- strand to 1/-1
-            $strand = $strand eq '+' ? 1 : -1;
+         # Set strand based on start and end coordinates
+         if ($end < $start) {
+            ($start, $end) = ($end, $start);
+            $strand = -1;
          } else {
-            # Set strand based on start and end coordinates
-            if ($end < $start) {
-               ($start, $end) = ($end, $start);
-               $strand = -1;
-            } else {
-               $strand = 1;
-            }
+            $strand = 1;
          }
          # Extract the sequence
          my $seq = $db->get_Seq_by_id($seqid)->trunc($start, $end);
