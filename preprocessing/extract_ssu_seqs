@@ -151,7 +151,7 @@ func extract_ssu_seqs ($dirs, $img_metadata, $method, $rfam_cm, $rfam_fasta) {
             warn "Warn: No kingdom found for IMG genome $img_id. Skipping it...\n";
             next;
          }
-         # Run RNAmmer or rfam_scan on genome
+         # Run RNAmmer, INFERNAL or rfam_scan on genome, or trust IMG SSU annotations
          my $temp_fasta = $$.'_'.$img_id.'.fa';
          if ($method eq 'img') {
             extract_from_img($kingdom, $input_dir, $temp_fasta, $img_id);
@@ -264,10 +264,40 @@ func run_rfam_scan ($kingdom, $in_fasta, $out_fasta, $rfam_cms, $rfam_fastas) {
    # Run rfam_scan
    my $out_gff = "$out_fasta.gff";
    my $cmd = ['rfam_scan', '-o', $out_gff, '--blastdb', $rfam_fasta, $rfam_cm, $in_fasta];
-   run $cmd or die "Error: rfam_scan failed\n$?\n";
+   my ($in, $out, $err);
+   run $cmd, \$in, \$out, $err or die "Error: rfam_scan failed\n$?\n";
    # Parse GFF3 output of rfam_scan
    extract_gff_feats($out_gff, $in_fasta, $out_fasta);
    unlink $out_gff;
+   return 1;
+}
+
+
+func extract_gff_feats ($gff_in, $fasta_in, $fasta_out) {
+   # Given a FASTA file and its features in a GFF file. Extract the sequence of
+   # the GFF features and add then to an existing FASTA file
+   my $db = Bio::DB::Fasta->new($fasta_in, -clean => 1);
+   open my $in, '<', $gff_in or die "Error: Could not read file $gff_in\n$!\n";
+   my $out = Bio::SeqIO->new( -file => '>>'.$fasta_out, -format => 'fasta' );
+   my $gene_count = 0;
+   while ( my $line = <$in> ) {
+      chomp $line;
+      # Skip comment lines
+      next if $line =~ m/^#/;
+      # NZ_AJO51018	Rfam	similarity	19837	21385	1557.0	+	1	bias=16.0;evalue=0;...
+      my @fields = split /\t/, $line;
+      next if scalar @fields != 9;
+      my ($seqid, $source, $type, $start, $end, $score, $strand, $phase, $attr) = @fields;
+      # Get 16S sequence from genome
+      $gene_count++;
+      my $seq = Bio::PrimarySeq->new(
+         -id  => $seqid.':'.$start.','.$end.'/'.$strand,
+         -seq => $db->seq($seqid, $start, $end, $strand),
+      );
+      $out->write_seq( $seq );
+   }
+   close $in;
+   $out->close;
    return 1;
 }
 
@@ -397,35 +427,6 @@ func filter_seq_file ($in_file, $search_terms) {
       die "Error: These terms were not found in the file $in_file: ".join(' ',keys %leftovers)."\n";
    }
    return \%out_files;
-}
-
-
-func extract_gff_feats ($gff_in, $fasta_in, $fasta_out) {
-   # Given a FASTA file and its features in a GFF file. Extract the sequence of
-   # the GFF features and add then to an existing FASTA file
-   my $db = Bio::DB::Fasta->new($fasta_in, -clean => 1);
-   open my $in, '<', $gff_in or die "Error: Could not read file $gff_in\n$!\n";
-   my $out = Bio::SeqIO->new( -file => '>>'.$fasta_out, -format => 'fasta' );
-   my $gene_count = 0;
-   while ( my $line = <$in> ) {
-      chomp $line;
-      # Skip comment lines
-      next if $line =~ m/^#/;
-      # NZ_AJO51018	Rfam	similarity	19837	21385	1557.0	+	1	bias=16.0;evalue=0;...
-      my @fields = split /\t/, $line;
-      next if scalar @fields != 9;
-      my ($seqid, $source, $type, $start, $end, $score, $strand, $phase, $attr) = @fields;
-      # Get 16S sequence from genome
-      $gene_count++;
-      my $seq = Bio::PrimarySeq->new(
-         -id  => $seqid.':'.$start.','.$end.'/'.$strand,
-         -seq => $db->seq($seqid, $start, $end, $strand),
-      );
-      $out->write_seq( $seq );
-   }
-   close $in;
-   $out->close;
-   return 1;
 }
 
 
