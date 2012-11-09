@@ -141,7 +141,7 @@ func extract_ssu_seqs ($dirs, $img_metadata, $method, $rfam_cm, $rfam_fasta) {
          # Find kingdom of this genome
          my $kingdom = $kingdoms->{$img_id};
          if (not defined $kingdom) {
-            warn "Warn: No kingdom found for IMG genome '$img_id'. Skipping it...\n";
+            warn "Warn: No kingdom found for IMG genome $img_id. Skipping it...\n";
             next;
          }
 
@@ -242,7 +242,7 @@ func run_rnammer ($kingdom, $in_fasta, $out_fasta) {
    #    -f fasta   Filename for FASTA-formatted output (rRNA sequences found)
    #    -m         Molecule type: 'tsu' for 5/8s rRNA, 'ssu' for 16/18s rRNA,
    #               'lsu' for 23/28s rRNA or any combination separated by comma.
-   my $cmd = ['rnammer', '-multi', '-m', 'ssu', '-S', $kingdom, '-f', $out_fasta, $in_fasta];
+   my $cmd = ['rnammer', '-m', 'ssu', '-S', $kingdom, '-f', $out_fasta, $in_fasta];
    run $cmd or die "Error: RNAmmer failed\n$?\n";
    return 1;
 }
@@ -260,10 +260,11 @@ func run_rfam_scan ($kingdom, $in_fasta, $out_fasta, $rfam_cm, $rfam_fasta) {
    my $out_gff = "$out_fasta.gff";
    my $cmd = ['rfam_scan', '--include', $kingdom, '-o', $out_gff, '--blastdb', $rfam_fasta, $rfam_cm, $in_fasta];
    #./rfam_scan_fea --cpu 9 -v --include RF00177 -o out_1_1.txt --blastdb Rfam.fasta Rfam.cm.1_1 638341202.fna
+   run $cmd or die "Error: rfam_scan failed\n$?\n";
    # Parse GFF3 output of rfam_scan
    extract_gff_feats($out_gff, $in_fasta, $out_fasta);
    #unlink $gff_out;
-   run $cmd or die "Error: rfam_scan failed\n$?\n";
+
    return 1;
 }
 
