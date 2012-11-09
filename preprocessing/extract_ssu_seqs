@@ -132,7 +132,6 @@ func extract_ssu_seqs ($dirs, $img_metadata, $method, $rfam_cm, $rfam_fasta) {
          $rfam_fastas = split_rfam_fasta($rfam_fasta, $accs);
       }
    }
-
    my %seen;
    my $out = Bio::SeqIO->new(
       -fh     => \*STDOUT,
@@ -145,16 +144,13 @@ func extract_ssu_seqs ($dirs, $img_metadata, $method, $rfam_cm, $rfam_fasta) {
          my $in_fasta = File::Spec->catfile($input_dir, $img_id, $img_id.'.fna');
          next if not -e $in_fasta; # not an IMG genome folder
          next if exists $seen{$img_id};
-
          warn "Info: Scanning genome $img_id ($in_fasta)\n";
-
          # Find kingdom of this genome
          my $kingdom = $kingdoms->{$img_id};
          if (not defined $kingdom) {
             warn "Warn: No kingdom found for IMG genome $img_id. Skipping it...\n";
             next;
          }
-
          # Run RNAmmer or rfam_scan on genome
          my $temp_fasta = $$.'_'.$img_id.'.fa';
          if ($method eq 'img') {
@@ -168,18 +164,19 @@ func extract_ssu_seqs ($dirs, $img_metadata, $method, $rfam_cm, $rfam_fasta) {
          } else {
             die "Error: Unsupported method '$method'\n";
          }
-
          # Add sequences to existing FASTA stream on stdout
          my $seq_count = append_seqs($temp_fasta, $out, $img_id);
          unlink $temp_fasta;
-
          warn "Info: Extracted $seq_count SSU sequences\n";
-
          $seen{$img_id} = undef;
      }
      closedir $dh;
    }
    $out->close;
+   # Cleanup time
+   for my $file (keys %{$rfam_cms}, keys %{$rfam_fastas}) {
+      unlink $file;
+   }
    return 1;
 }
 
