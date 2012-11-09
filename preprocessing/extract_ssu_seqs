@@ -158,7 +158,7 @@ func extract_ssu_seqs ($dirs, $img_metadata, $method, $rfam_cm, $rfam_fasta) {
          }
 
          # Add sequences to existing FASTA stream on stdout
-         append_seqs($temp_fasta, $out);
+         append_seqs($temp_fasta, $out, $img_id);
          unlink $temp_fasta;
 
          $seen{$img_id} = undef;
