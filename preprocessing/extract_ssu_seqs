@@ -56,13 +56,13 @@ annotations, 'rnammer' to identify SSU genes using RNAmmer, or 'rfam_scan' to
 identify them using a more sensitive RFAM search. Default: method.default
 
 =for Euclid:
-  method.type: /(img|rnammer|rfam_scan)/
+  method.type: /(img|rnammer|rfam_scan|infernal)/
   method.default: 'img'
 
 =item -c <rfam_cm>
 
-Path to the Rfam database covariance model file. If you use 'rfam_scan' as
-<method>, you need to provide this file.
+Path to the Rfam database covariance model file. If you use 'rfam_scan' or
+'infernal' as <method>, you need to provide this file.
 
 =for Euclid:
    rfam_cm.type: readable
@@ -123,6 +123,16 @@ exit;
 
 func extract_ssu_seqs ($dirs, $img_metadata, $method, $rfam_cm, $rfam_fasta) {
    my $kingdoms = read_kingdom($img_metadata);
+   my ($rfam_cms, $rfam_fastas);
+   if (defined $rfam_cm) {
+      # Get SSU only, split by kingdom
+      ($rfam_cms, my $accs) = split_rfam_cm($rfam_cm);
+      if ( defined $rfam_fasta ) {
+         # Split RFAM FASTA database by kingdom
+         $rfam_fastas = split_rfam_fasta($rfam_fasta, $accs);
+      }
+   }
+
    my %seen;
    my $out = Bio::SeqIO->new(
       -fh     => \*STDOUT,
@@ -150,7 +160,9 @@ func extract_ssu_seqs ($dirs, $img_metadata, $method, $rfam_cm, $rfam_fasta) {
          if ($method eq 'img') {
             extract_from_img($kingdom, $input_dir, $temp_fasta, $img_id);
          } elsif ($method eq 'rfam_scan') {
-            run_rfam_scan($kingdom, $in_fasta, $temp_fasta, $rfam_cm, $rfam_fasta);
+            run_rfam_scan($kingdom, $in_fasta, $temp_fasta, $rfam_cms, $rfam_fastas);
+         } elsif ($method eq 'infernal') {
+            run_infernal($kingdom, $in_fasta, $temp_fasta, $rfam_cm);
          } elsif ($method eq 'rnammer') {
             run_rnammer($kingdom, $in_fasta, $temp_fasta);
          } else {
@@ -248,24 +260,146 @@ func run_rnammer ($kingdom, $in_fasta, $out_fasta) {
 }
 
 
-func run_rfam_scan ($kingdom, $in_fasta, $out_fasta, $rfam_cm, $rfam_fasta) {
-   # Get the Rfam SSU rRNA accession that correspond to each domain
-   my %king2acc = (
-      bac => 'RF00177',
-      arc => 'RF01959',
-      euk => 'RF01960',
-   );
-   $kingdom = $king2acc{$kingdom} or die "Error: No Rfam accession for kingdom $kingdom\n";
+func run_rfam_scan ($kingdom, $in_fasta, $out_fasta, $rfam_cms, $rfam_fastas) {
+   # Run rfam_scan against SSU for a given domain (euk, bac or arch)
+   my $rfam_cm    = $rfam_cms->{$kingdom};
+   my $rfam_fasta = $rfam_fastas->{$kingdom};
    # Run rfam_scan
    my $out_gff = "$out_fasta.gff";
-   my $cmd = ['rfam_scan', '--include', $kingdom, '-o', $out_gff, '--blastdb', $rfam_fasta, $rfam_cm, $in_fasta];
-   #./rfam_scan_fea --cpu 9 -v --include RF00177 -o out_1_1.txt --blastdb Rfam.fasta Rfam.cm.1_1 638341202.fna
+   my $cmd = ['rfam_scan', '-o', $out_gff, '--blastdb', $rfam_fasta, $rfam_cm, $in_fasta];
    run $cmd or die "Error: rfam_scan failed\n$?\n";
    # Parse GFF3 output of rfam_scan
    extract_gff_feats($out_gff, $in_fasta, $out_fasta);
-   #unlink $gff_out;
-
+   unlink $out_gff;
    return 1;
+}
+
+
+func split_rfam_fasta ($rfam_fasta, $id2king) {
+   # Split the RFAM FASTA database. Get only the SSU sequences. Put the ones
+   # from eukaryotes, bacteria and archaea in three separate files.
+   my @ids = keys %{$id2king};
+   my $fasta_files = filter_seq_file($rfam_fasta, \@ids);
+   for my $id (keys %{$fasta_files}) {
+      my $king = $id2king->{$id};
+      $fasta_files->{$king} = delete $fasta_files->{$id};
+   }
+   return $fasta_files;
+}
+
+
+func split_rfam_cm ($rfam_cm) {
+   # Split the RFAM CM FASTA database. Get only the SSU sequences. Put the ones
+   # from eukaryotes, bacteria and archaea in three separate files.
+   my %name2king = (
+      SSU_rRNA_bacteria => 'bac',
+      SSU_rRNA_archaea  => 'arc',
+      SSU_rRNA_eukarya  => 'euk',
+   );
+   my @names = keys %name2king;
+   my ($cm_files, $cm_accs) = filter_cm_file($rfam_cm, \@names);
+   for my $name (keys %{$cm_files}) {
+      my $king = $name2king{$name};
+      $cm_files->{$king} = delete $cm_files->{$name};
+
+      $cm_accs->{delete $cm_accs->{$name}} = $king;
+
+   }
+   return $cm_files, $cm_accs;
+}
+
+
+func filter_cm_file ($in_file, $names) {
+   # Given a file of INFERNAL CM (covariance models) and some search strings,
+   # extract the CMs whose NAME matches the search string and save them in a
+   # file. Each search term gets a separate output file.
+   open my $in_fh, '<', $in_file or die "Error: Could not read file $in_file\n$!\n";
+   my (%out_fhs, %out_files, %out_accs);
+   my %leftovers = map { $_ => undef } @$names;
+   for my $name (@$names) {
+      my $out_file = $$.'_db'.$name.'.cm.1_1';
+      open my $out_fh, '>', $out_file or die "Error: Could not write file $out_file\n$!\n";
+      $out_files{$name} = $out_file;
+      $out_fhs{$name}   = $out_fh;
+   }
+   my %names = map { $_ => undef } @$names;
+   my $record = 0;
+   my ($cur_name, $header, $out_fh);
+   while (my $line = <$in_fh> ) {
+      chomp $line;
+      if ( $line =~ m/^HMMER/ ) {
+         $header = $line;
+      } elsif ($line =~ m/^INFERNAL/ ) {
+         $header = $line;
+      } elsif ( $line =~ m/^NAME\s+(\S+)/ ) {
+         $cur_name = $1;
+         if (exists $names{$cur_name}) {
+            $record = 1;
+            $out_fh = $out_fhs{$cur_name};
+            print $out_fh "$header\n";
+            print $out_fh "$line\n";
+            delete $leftovers{$cur_name};
+         } else {
+            $record = 0;
+         }
+      } elsif ($line =~ m/^ACC\S*\s+(\S+)/) {
+         my $accession = $1;
+         $out_accs{$cur_name} = $accession;
+      } else {
+         if ($record) {
+            print $out_fh "$line\n";
+         }
+      }
+   }
+   $in_fh->close;
+   for my $out_fh (values %out_fhs) {
+      $out_fh->close;
+   }
+   if (scalar keys %leftovers > 0) {
+      die "Error: These terms were not found in the file $in_file: ".join(' ',keys %leftovers)."\n";
+   }
+   return \%out_files, \%out_accs;
+}
+
+
+func filter_seq_file ($in_file, $search_terms) {
+   # Given a file of sequences and some search strings, extract the sequences
+   # whose ID matches the search string and save them in a file. Each search
+   # term gets a separate output file.
+   my $in_fh = Bio::SeqIO->new(
+      -file => '<'.$in_file,
+   );
+   my $format = 'fasta'; # $in_fh->format;
+   my (%out_fhs, %out_files);
+   my %leftovers = map { $_ => undef } @$search_terms;
+   for my $search_term (@$search_terms) {
+      my $out_file = $$.'_db'.$search_term.'.'.$format;
+      my $out_fh   = Bio::SeqIO->new(
+         -file   => '>'.$out_file,
+         -format => $format,
+         -flush  => 0, # go as fast as possible
+      );
+      $out_files{$search_term} = $out_file;
+      $out_fhs{$search_term}   = $out_fh;
+   }
+   while (my $seq = $in_fh->next_seq) {
+      my $id = $seq->id;
+      for my $search_term (@$search_terms) {
+         if ($id =~ m/^$search_term/i) {
+            my $out_fh = $out_fhs{$search_term};
+            $out_fh->write_seq($seq);
+            delete $leftovers{$search_term};
+         }
+      }
+   }
+   $in_fh->close;
+   for my $out_fh (values %out_fhs) {
+      $out_fh->close;
+   }
+   if (scalar keys %leftovers > 0) {
+      die "Error: These terms were not found in the file $in_file: ".join(' ',keys %leftovers)."\n";
+   }
+   return \%out_files;
 }
 
 
