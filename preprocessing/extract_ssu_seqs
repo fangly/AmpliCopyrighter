@@ -75,6 +75,14 @@ Providing this file will speed up the rfam_search.
 =for Euclid:
    rfam_fasta.type: readable
 
+=item -t <num_threads>
+
+Number of threads to use simultaneously. Default: num_threads.default
+
+=for Euclid:
+   num_threads.type: 0+int
+   num_threads.default: 1
+
 =back
 
 =head1 AUTHORS
@@ -109,6 +117,8 @@ along with Copyrighter.  If not, see <http://www.gnu.org/licenses/>.
 
 use strict;
 use warnings;
+use threads;
+use threads::shared;
 use Getopt::Euclid qw(:minimal_keys);
 use Bio::SeqIO;
 use Bio::PrimarySeq;
@@ -117,12 +127,18 @@ use File::Spec;
 use Method::Signatures;
 use IPC::Run qw( run );
 
-extract_ssu_seqs($ARGV{'d'}, $ARGV{'i'}, $ARGV{'m'}, $ARGV{'c'}, $ARGV{'f'});
+my $stdout_mutex :shared;
+
+extract_ssu_seqs($ARGV{'d'}, $ARGV{'i'}, $ARGV{'m'}, $ARGV{'c'}, $ARGV{'f'}, $ARGV{'t'});
 exit;
 
 
-func extract_ssu_seqs ($dirs, $img_metadata, $method, $rfam_cm, $rfam_fasta) {
+func extract_ssu_seqs ($dirs, $img_metadata, $method, $rfam_cm, $rfam_fasta, $num_threads) {
+
+   # Read what kingdom each belongs to
    my $kingdoms = read_kingdom($img_metadata);
+
+   # Split RFAM files: one file for each kingdom
    my ($rfam_cms, $rfam_fastas);
    if (defined $rfam_cm) {
       # Get SSU only, split by kingdom
@@ -132,50 +148,77 @@ func extract_ssu_seqs ($dirs, $img_metadata, $method, $rfam_cm, $rfam_fasta) {
          $rfam_fastas = split_rfam_fasta($rfam_fasta, $accs);
       }
    }
-   my %seen;
-   my $out = Bio::SeqIO->new(
-      -fh     => \*STDOUT,
-      -format => 'fasta',
-      -flush  => 0, # go as fast as possible
-   );
+
+   # List all valid IMG directories
+   my @img_dirs :shared;
+   my @img_ids  :shared;
    for my $input_dir (@$dirs) {
       opendir my $dh, $input_dir or die "Error: Could not read folder $input_dir\n$!\n";
       while (my $img_id = readdir $dh) {
          my $in_fasta = File::Spec->catfile($input_dir, $img_id, $img_id.'.fna');
          next if not -e $in_fasta; # not an IMG genome folder
-         next if exists $seen{$img_id};
-         warn "Info: Scanning genome $img_id ($in_fasta)\n";
-         # Find kingdom of this genome
-         my $kingdom = $kingdoms->{$img_id};
-         if (not defined $kingdom) {
-            warn "Warn: No kingdom found for IMG genome $img_id. Skipping it...\n";
-            next;
-         }
-         # Run RNAmmer, INFERNAL or rfam_scan on genome, or trust IMG SSU annotations
-         my $temp_fasta = $$.'_'.$img_id.'.fa';
-         if ($method eq 'img') {
-            extract_from_img($kingdom, $input_dir, $temp_fasta, $img_id);
-         } elsif ($method eq 'rfam_scan') {
-            run_rfam_scan($kingdom, $in_fasta, $temp_fasta, $rfam_cms, $rfam_fastas);
-         } elsif ($method eq 'infernal') {
-            run_infernal($kingdom, $in_fasta, $temp_fasta, $rfam_cms);
-         } elsif ($method eq 'rnammer') {
-            run_rnammer($kingdom, $in_fasta, $temp_fasta);
-         } else {
-            die "Error: Unsupported method '$method'\n";
-         }
-         # Add sequences to existing FASTA stream on stdout
-         my $seq_count = append_seqs($temp_fasta, $out, $img_id);
-         unlink $temp_fasta;
-         warn "Info: Extracted $seq_count SSU sequences\n";
-         $seen{$img_id} = undef;
-     }
-     closedir $dh;
+         push @img_ids, $img_id;
+         push @img_dirs, $input_dir;
+      }
+      closedir $dh;
    }
-   $out->close;
+
+   # Start processing of genomes on multiple threads simultaneously
+   my %seen :shared;
+   my @threads;
+   for my $i (1 .. $num_threads) {
+      my $thr = threads->create(\&worker, \@img_dirs, \@img_ids, \%seen, $method, $kingdoms, $rfam_cms, $rfam_fastas);
+      push @threads, $thr;
+   }
+
+   # Wait for all threads to finish their work
+   for my $thr (@threads) {
+      $thr->join();
+   }
+
    # Cleanup time
    for my $file (keys %{$rfam_cms}, keys %{$rfam_fastas}) {
       unlink $file;
+   }
+
+   return 1;
+}
+
+
+func worker ($img_dirs, $img_ids, $seen, $method, $kingdoms, $rfam_cms, $rfam_fastas) {
+   # Each worker thread processes genomes as long as there are some left.
+   while (@$img_ids > 0) {
+      my ($input_dir, $img_id) = (shift @$img_dirs, shift @$img_ids);
+      my $in_fasta = File::Spec->catfile($input_dir, $img_id, $img_id.'.fna');
+      if (exists $seen->{$img_id}) {
+         next;
+      } else {
+         $seen->{$img_id} = undef;
+      }
+      warn "Info: Scanning genome $img_id ($in_fasta)\n";
+      # Find kingdom of this genome
+      my $kingdom = $kingdoms->{$img_id};
+      if (not defined $kingdom) {
+         warn "Warn: No kingdom found for IMG genome $img_id. Skipping it...\n";
+         next;
+      }
+      # Run RNAmmer, INFERNAL or rfam_scan on genome, or trust IMG SSU annotations
+      my $temp_fasta = $$.'_'.$img_id.'.fa';
+      if ($method eq 'img') {
+         extract_from_img($kingdom, $input_dir, $temp_fasta, $img_id);
+      } elsif ($method eq 'rfam_scan') {
+         run_rfam_scan($kingdom, $in_fasta, $temp_fasta, $rfam_cms, $rfam_fastas);
+      } elsif ($method eq 'infernal') {
+         run_infernal($kingdom, $in_fasta, $temp_fasta, $rfam_cms);
+      } elsif ($method eq 'rnammer') {
+         run_rnammer($kingdom, $in_fasta, $temp_fasta);
+      } else {
+         die "Error: Unsupported method '$method'\n";
+      }
+      # Add sequences to existing FASTA stream on stdout
+      my $seq_count = append_seqs($temp_fasta, $img_id);
+      unlink $temp_fasta;
+      warn "Info: Extracted $seq_count SSU sequences\n";
    }
    return 1;
 }
@@ -190,7 +233,6 @@ func extract_from_img ($kingdom, $input_dir, $out_fasta, $img_id) {
    $kingdom = $king2acc{$kingdom} or die "Error: No 16S/18S rRNA gene for kingdom $kingdom\n";
    my %genomes;
    my $out_fh = Bio::SeqIO->new( -file => '>'.$out_fasta, -format => 'fasta');
-
    my $gff_file = File::Spec->catfile($input_dir, $img_id, "$img_id.gff");
    if (-e $gff_file) {
       open my $fh, '<', $gff_file or die "Error: Could not read file $gff_file\n$!\n";
@@ -207,6 +249,7 @@ func extract_from_img ($kingdom, $input_dir, $out_fasta, $img_id) {
             }
          }
       }
+      close $fh;
       my $fasta_file = File::Spec->catfile($input_dir, $img_id, "$img_id.genes.fna");
       if (-e $fasta_file) {
          my $in_fh = Bio::SeqIO->new(-format => 'fasta',
@@ -221,23 +264,31 @@ func extract_from_img ($kingdom, $input_dir, $out_fasta, $img_id) {
                $out_fh->write_seq($seq_obj)
             }
          }
+         $in_fh->close;
       }
    }
-
    $out_fh->close;
    return 1;
 }
 
 
-func append_seqs ($in_fasta, Bio::SeqIO $out_stream, $genome_id) {
+func append_seqs ($in_fasta, $genome_id) {
    # Append sequences to stdout. Also, rename them by genome.
+   lock $stdout_mutex;
    my $in = Bio::SeqIO->new( -file => $in_fasta, -format => 'fasta' );
+   my $out = Bio::SeqIO->new(
+      -fh     => \*STDOUT,
+      -format => 'fasta',
+      -flush  => 0, # go as fast as possible
+   );
    my $seq_count = 0;
    while (my $seq = $in->next_seq) {
       $seq_count++;
       $seq->id( $genome_id.'_'.$seq_count );
-      $out_stream->write_seq($seq);
+      $out->write_seq($seq);
    }
+   $out->close;
+   $in->close;
    return $seq_count;
 }
 
@@ -266,7 +317,7 @@ func run_infernal ($kingdom, $in_fasta, $out_fasta, $rfam_cms) {
    run $cmd or die "Error: INFERNAL failed\n$?\n";
    unlink $out_file;
    parse_infernal_table($tbl_file, $in_fasta, $out_fasta);
-   #########unlink $out_file;
+   unlink $out_file;
    return 1;
 }
 
