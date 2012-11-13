@@ -160,22 +160,18 @@ sub extract_ssu_seqs {
    }
    # Start processing of genomes on multiple threads simultaneously
    my %seen :shared;
-   if ($num_threads == 1) {
-      worker($img_dirs, \%seen, $method, $kingdoms, $rfam_cms, $rfam_fastas);
-   } else {
-      my @threads;
-      for my $i (1 .. $num_threads) {
-         my $thr = threads->create(\&worker, $img_dirs, \%seen, $method, $kingdoms, $rfam_cms, $rfam_fastas);
-         if (not defined $thr) {
-            die "Error: Could not create thread\n$!\n";
-         }
-         $img_dirs->enqueue(undef);
-         push @threads, $thr;
+   my @threads;
+   for my $i (1 .. $num_threads) {
+      my $thr = threads->create(\&worker, $img_dirs, \%seen, $method, $kingdoms, $rfam_cms, $rfam_fastas);
+      if (not defined $thr) {
+         die "Error: Could not create thread\n$!\n";
       }
-      # Wait for all threads to finish their work
-      for my $thr (@threads) {
-         $thr->join();
-      }
+      $img_dirs->enqueue(undef);
+      push @threads, $thr;
+   }
+   # Wait for all threads to finish their work
+   for my $thr (@threads) {
+      $thr->join();
    }
    # Cleanup time
    for my $file (keys %{$rfam_cms}, keys %{$rfam_fastas}) {
