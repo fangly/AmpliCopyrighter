@@ -151,29 +151,30 @@ func extract_ssu_seqs ($dirs, $img_metadata, $method, $rfam_cm, $rfam_fasta, $nu
 
    # List all valid IMG directories
    my @img_dirs :shared;
-   my @img_ids  :shared;
    for my $input_dir (@$dirs) {
       opendir my $dh, $input_dir or die "Error: Could not read folder $input_dir\n$!\n";
       while (my $img_id = readdir $dh) {
          my $in_fasta = File::Spec->catfile($input_dir, $img_id, $img_id.'.fna');
          next if not -e $in_fasta; # not an IMG genome folder
-         push @img_ids, $img_id;
-         push @img_dirs, $input_dir;
+         push @img_dirs, File::Spec->catfile($input_dir, $img_id);
       }
       closedir $dh;
    }
 
    # Start processing of genomes on multiple threads simultaneously
    my %seen :shared;
-   my @threads;
-   for my $i (1 .. $num_threads) {
-      my $thr = threads->create(\&worker, \@img_dirs, \@img_ids, \%seen, $method, $kingdoms, $rfam_cms, $rfam_fastas);
-      push @threads, $thr;
-   }
-
-   # Wait for all threads to finish their work
-   for my $thr (@threads) {
-      $thr->join();
+   if ($num_threads == 1) {
+      worker(\@img_dirs, \%seen, $method, $kingdoms, $rfam_cms, $rfam_fastas);
+   } else {
+      my @threads;
+      for my $i (1 .. $num_threads) {
+         my $thr = threads->create(\&worker, \@img_dirs, \%seen, $method, $kingdoms, $rfam_cms, $rfam_fastas);
+         push @threads, $thr;
+      }
+      # Wait for all threads to finish their work
+      for my $thr (@threads) {
+         $thr->join();
+      }
    }
 
    # Cleanup time
@@ -185,23 +186,42 @@ func extract_ssu_seqs ($dirs, $img_metadata, $method, $rfam_cm, $rfam_fasta, $nu
 }
 
 
-func worker ($img_dirs, $img_ids, $seen, $method, $kingdoms, $rfam_cms, $rfam_fastas) {
+func worker ($img_dirs, $seen, $method, $kingdoms, $rfam_cms, $rfam_fastas) {
    # Each worker thread processes genomes as long as there are some left.
-   while (@$img_ids > 0) {
-      my ($input_dir, $img_id) = (shift @$img_dirs, shift @$img_ids);
-      my $in_fasta = File::Spec->catfile($input_dir, $img_id, $img_id.'.fna');
-      if (exists $seen->{$img_id}) {
-         next;
-      } else {
-         $seen->{$img_id} = undef;
+   DIR: while (1) {
+
+      # Determine the next directory this thread should process
+      my $input_dir;
+      {
+         lock $img_dirs;
+         if (@$img_dirs == 0) {
+            last DIR;
+         } else {
+            $input_dir = shift @$img_dirs;
+         }
       }
+
+      # Skip processing if dir was a duplicate and was already processed
+      my $img_id = ( File::Spec->splitdir($input_dir) )[-1];
+      {
+         lock $seen;
+         if (exists $seen->{$img_id}) {
+            next DIR;
+         } else {
+            $seen->{$img_id} = undef;
+         }
+      }
+
+      my $in_fasta = File::Spec->catfile($input_dir, $img_id.'.fna');
       warn "Info: Scanning genome $img_id ($in_fasta)\n";
+
       # Find kingdom of this genome
       my $kingdom = $kingdoms->{$img_id};
       if (not defined $kingdom) {
          warn "Warn: No kingdom found for IMG genome $img_id. Skipping it...\n";
          next;
       }
+
       # Run RNAmmer, INFERNAL or rfam_scan on genome, or trust IMG SSU annotations
       my $temp_fasta = $$.'_'.$img_id.'.fa';
       if ($method eq 'img') {
@@ -215,10 +235,12 @@ func worker ($img_dirs, $img_ids, $seen, $method, $kingdoms, $rfam_cms, $rfam_fa
       } else {
          die "Error: Unsupported method '$method'\n";
       }
+
       # Add sequences to existing FASTA stream on stdout
       my $seq_count = append_seqs($temp_fasta, $img_id);
       unlink $temp_fasta;
       warn "Info: Extracted $seq_count SSU sequences\n";
+
    }
    return 1;
 }
@@ -232,8 +254,12 @@ func extract_from_img ($kingdom, $input_dir, $out_fasta, $img_id) {
    );
    $kingdom = $king2acc{$kingdom} or die "Error: No 16S/18S rRNA gene for kingdom $kingdom\n";
    my %genomes;
-   my $out_fh = Bio::SeqIO->new( -file => '>'.$out_fasta, -format => 'fasta');
-   my $gff_file = File::Spec->catfile($input_dir, $img_id, "$img_id.gff");
+   my $out_fh = Bio::SeqIO->new(
+      -file   => '>'.$out_fasta,
+      -format => 'fasta',
+      -flush  => 0, # go as fast as possible
+   );
+   my $gff_file = File::Spec->catfile($input_dir, "$img_id.gff");
    if (-e $gff_file) {
       open my $fh, '<', $gff_file or die "Error: Could not read file $gff_file\n$!\n";
       while (my $line = <$fh>) {
@@ -250,10 +276,12 @@ func extract_from_img ($kingdom, $input_dir, $out_fasta, $img_id) {
          }
       }
       close $fh;
-      my $fasta_file = File::Spec->catfile($input_dir, $img_id, "$img_id.genes.fna");
+      my $fasta_file = File::Spec->catfile($input_dir, "$img_id.genes.fna");
       if (-e $fasta_file) {
-         my $in_fh = Bio::SeqIO->new(-format => 'fasta',
-                                     -file   => $fasta_file);
+         my $in_fh = Bio::SeqIO->new(
+            -file   => $fasta_file,
+            -format => 'fasta',
+         );
          while (my $seq_obj = $in_fh->next_seq()) {
             my $gene_id   = $seq_obj->id();
             my $genome_id = $genomes{$gene_id};
@@ -274,7 +302,7 @@ func extract_from_img ($kingdom, $input_dir, $out_fasta, $img_id) {
 
 func append_seqs ($in_fasta, $genome_id) {
    # Append sequences to stdout. Also, rename them by genome.
-   lock $stdout_mutex;
+   lock $stdout_mutex; ####
    my $in = Bio::SeqIO->new( -file => $in_fasta, -format => 'fasta' );
    my $out = Bio::SeqIO->new(
       -fh     => \*STDOUT,
