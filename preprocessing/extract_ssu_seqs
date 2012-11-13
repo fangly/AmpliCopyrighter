@@ -135,10 +135,8 @@ exit;
 
 sub extract_ssu_seqs {
    my ($dirs, $img_metadata, $method, $rfam_cm, $rfam_fasta, $num_threads) = @_;
-
    # Read what kingdom each belongs to
    my $kingdoms = read_kingdom($img_metadata);
-
    # Split RFAM files: one file for each kingdom
    my ($rfam_cms, $rfam_fastas);
    if (defined $rfam_cm) {
@@ -149,7 +147,6 @@ sub extract_ssu_seqs {
          $rfam_fastas = split_rfam_fasta($rfam_fasta, $accs);
       }
    }
-
    # List all valid IMG directories
    my $img_dirs = Thread::Queue->new();
    for my $input_dir (@$dirs) {
@@ -161,8 +158,6 @@ sub extract_ssu_seqs {
       }
       closedir $dh;
    }
-   $img_dirs->enqueue(undef);
-
    # Start processing of genomes on multiple threads simultaneously
    my %seen :shared;
    if ($num_threads == 1) {
@@ -174,6 +169,7 @@ sub extract_ssu_seqs {
          if (not defined $thr) {
             die "Error: Could not create thread\n$!\n";
          }
+         $img_dirs->enqueue(undef);
          push @threads, $thr;
       }
       # Wait for all threads to finish their work
@@ -181,12 +177,10 @@ sub extract_ssu_seqs {
          $thr->join();
       }
    }
-
    # Cleanup time
    for my $file (keys %{$rfam_cms}, keys %{$rfam_fastas}) {
       unlink $file;
    }
-
    return 1;
 }
 
@@ -195,7 +189,6 @@ sub worker {
    my ($img_dirs, $seen, $method, $kingdoms, $rfam_cms, $rfam_fastas) = @_;
    # Each worker thread processes genomes as long as there are some left.
    DIR: while ( my $img_dir = $img_dirs->dequeue() ) {
-
       # Skip processing if dir was an already-processed, duplicate dir
       my $img_id = ( File::Spec->splitdir($img_dir) )[-1];
       {
@@ -206,16 +199,14 @@ sub worker {
             $seen->{$img_id} = undef;
          }
       }
-
       # Find kingdom of this genome
+      my $in_fasta = File::Spec->catfile($img_dir, $img_id.'.fna');
       my $kingdom = $kingdoms->{$img_id};
       if (not defined $kingdom) {
-         warn "Warn: No kingdom found for IMG genome $img_id. Skipping it...\n";
+         warn "Warn: No kingdom found for IMG genome $img_id ($in_fasta). Skipping it...\n";
          next;
       }
-
       # Run RNAmmer, INFERNAL or rfam_scan on genome, or trust IMG SSU annotations
-      my $in_fasta = File::Spec->catfile($img_dir, $img_id.'.fna');
       my $temp_fasta = $$.'_'.$img_id.'.fa';
       if ($method eq 'img') {
          extract_from_img($kingdom, $img_dir, $temp_fasta, $img_id);
@@ -228,12 +219,10 @@ sub worker {
       } else {
          die "Error: Unsupported method '$method'\n";
       }
-
       # Add sequences to existing FASTA stream on stdout
       my $seq_count = append_seqs($temp_fasta, $img_id);
       warn "Info: Extracted $seq_count SSU sequences from genome $img_id ($in_fasta)\n";
       unlink $temp_fasta;
-
    }
    return 1;
 }
@@ -296,8 +285,8 @@ sub extract_from_img {
 
 sub append_seqs {
    my ($in_fasta, $genome_id) = @_;
-   # Append sequences to stdout. Also, rename them by genome.
-   lock $stdout_mutex; ####
+   # Append sequences to stdout, renaming them by genome ID.
+   lock $stdout_mutex; # wait until no other thread is writing on stdout
    my $in = Bio::SeqIO->new( -file => $in_fasta, -format => 'fasta' );
    my $out = Bio::SeqIO->new(
       -fh     => \*STDOUT,
@@ -466,9 +455,7 @@ sub split_rfam_cm {
    for my $name (keys %{$cm_files}) {
       my $king = $name2king{$name};
       $cm_files->{$king} = delete $cm_files->{$name};
-
       $cm_accs->{delete $cm_accs->{$name}} = $king;
-
    }
    return $cm_files, $cm_accs;
 }
@@ -575,12 +562,10 @@ sub read_kingdom {
    # Read IMG metadata file and record kingdom for each IMG genome
    my %kingdoms;
    open my $fh, '<', $img_metadata or die "Error: Could not read file $img_metadata\n$!\n";
-
    # Identify which column holds the domain
    my $header = <$fh>;
    chomp $header;
    my ($idcol, $domcol) = find_column_for($header, 'taxon_oid', 'Domain');
-
    # Parse file
    while (my $line = <$fh>) {
       chomp $line;
