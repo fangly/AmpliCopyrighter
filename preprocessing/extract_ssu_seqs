@@ -318,7 +318,7 @@ sub run_rnammer {
    #    -m         Molecule type: 'tsu' for 5/8s rRNA, 'ssu' for 16/18s rRNA,
    #               'lsu' for 23/28s rRNA or any combination separated by comma.
    my $cmd = ['rnammer', '-m', 'ssu', '-S', $kingdom, '-f', $out_fasta, $in_fasta];
-   run $cmd or die "Error: RNAmmer failed\n$?\n";
+   run $cmd or die "Error: RNAmmer failed with status $?.\n";
    return 1;
 }
 
@@ -330,7 +330,7 @@ sub run_infernal {
    my $tbl_file = "$$.tbl";
    my $out_file = "$$.out";
    my $cmd = ['cmsearch', '--rfam', '--cut_ga', '--tblout', $tbl_file, '-o', $out_file, $rfam_cm, $in_fasta];
-   run $cmd or die "Error: INFERNAL failed\n$?\n";
+   run $cmd or die "Error: INFERNAL failed with status $?. Maybe you are running a version of INFERNAL < 1.1?\n";
    unlink $out_file;
    parse_infernal_table($tbl_file, $in_fasta, $out_fasta);
    unlink $out_file;
@@ -347,7 +347,7 @@ sub run_rfam_scan {
    my $out_gff = "$out_fasta.gff";
    my $cmd = ['rfam_scan', '-o', $out_gff, '--blastdb', $rfam_fasta, $rfam_cm, $in_fasta];
    my ($in, $out, $err);
-   run $cmd, \$in, \$out, $err or die "Error: rfam_scan failed\n$?\n";
+   run $cmd, \$in, \$out, $err or die "Error: rfam_scan failed with status $?\n";
    # Parse GFF3 output of rfam_scan
    extract_gff_feats($out_gff, $in_fasta, $out_fasta);
    unlink $out_gff;
