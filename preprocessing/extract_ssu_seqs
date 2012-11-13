@@ -119,6 +119,7 @@ use strict;
 use warnings;
 use threads;
 use threads::shared;
+use Thread::Queue;
 use Getopt::Euclid qw(:minimal_keys);
 use Bio::SeqIO;
 use Bio::PrimarySeq;
@@ -150,25 +151,29 @@ func extract_ssu_seqs ($dirs, $img_metadata, $method, $rfam_cm, $rfam_fasta, $nu
    }
 
    # List all valid IMG directories
-   my @img_dirs :shared;
+   my $img_dirs = Thread::Queue->new();
    for my $input_dir (@$dirs) {
       opendir my $dh, $input_dir or die "Error: Could not read folder $input_dir\n$!\n";
       while (my $img_id = readdir $dh) {
          my $in_fasta = File::Spec->catfile($input_dir, $img_id, $img_id.'.fna');
          next if not -e $in_fasta; # not an IMG genome folder
-         push @img_dirs, File::Spec->catfile($input_dir, $img_id);
+         $img_dirs->enqueue( File::Spec->catfile($input_dir, $img_id) );
       }
       closedir $dh;
    }
+   $img_dirs->enqueue(undef);
 
    # Start processing of genomes on multiple threads simultaneously
    my %seen :shared;
    if ($num_threads == 1) {
-      worker(\@img_dirs, \%seen, $method, $kingdoms, $rfam_cms, $rfam_fastas);
+      worker($img_dirs, \%seen, $method, $kingdoms, $rfam_cms, $rfam_fastas);
    } else {
       my @threads;
       for my $i (1 .. $num_threads) {
-         my $thr = threads->create(\&worker, \@img_dirs, \%seen, $method, $kingdoms, $rfam_cms, $rfam_fastas);
+         my $thr = threads->create(\&worker, $img_dirs, \%seen, $method, $kingdoms, $rfam_cms, $rfam_fastas);
+         if (not defined $thr) {
+            die "Error: Could not create thread\n$!\n";
+         }
          push @threads, $thr;
       }
       # Wait for all threads to finish their work
@@ -188,21 +193,10 @@ func extract_ssu_seqs ($dirs, $img_metadata, $method, $rfam_cm, $rfam_fasta, $nu
 
 func worker ($img_dirs, $seen, $method, $kingdoms, $rfam_cms, $rfam_fastas) {
    # Each worker thread processes genomes as long as there are some left.
-   DIR: while (1) {
+   DIR: while ( my $img_dir = $img_dirs->dequeue() ) {
 
-      # Determine the next directory this thread should process
-      my $input_dir;
-      {
-         lock $img_dirs;
-         if (@$img_dirs == 0) {
-            last DIR;
-         } else {
-            $input_dir = shift @$img_dirs;
-         }
-      }
-
-      # Skip processing if dir was a duplicate and was already processed
-      my $img_id = ( File::Spec->splitdir($input_dir) )[-1];
+      # Skip processing if dir was an already-processed, duplicate dir
+      my $img_id = ( File::Spec->splitdir($img_dir) )[-1];
       {
          lock $seen;
          if (exists $seen->{$img_id}) {
@@ -212,7 +206,7 @@ func worker ($img_dirs, $seen, $method, $kingdoms, $rfam_cms, $rfam_fastas) {
          }
       }
 
-      my $in_fasta = File::Spec->catfile($input_dir, $img_id.'.fna');
+      my $in_fasta = File::Spec->catfile($img_dir, $img_id.'.fna');
       warn "Info: Scanning genome $img_id ($in_fasta)\n";
 
       # Find kingdom of this genome
@@ -225,7 +219,7 @@ func worker ($img_dirs, $seen, $method, $kingdoms, $rfam_cms, $rfam_fastas) {
       # Run RNAmmer, INFERNAL or rfam_scan on genome, or trust IMG SSU annotations
       my $temp_fasta = $$.'_'.$img_id.'.fa';
       if ($method eq 'img') {
-         extract_from_img($kingdom, $input_dir, $temp_fasta, $img_id);
+         extract_from_img($kingdom, $img_dir, $temp_fasta, $img_id);
       } elsif ($method eq 'rfam_scan') {
          run_rfam_scan($kingdom, $in_fasta, $temp_fasta, $rfam_cms, $rfam_fastas);
       } elsif ($method eq 'infernal') {
@@ -246,7 +240,7 @@ func worker ($img_dirs, $seen, $method, $kingdoms, $rfam_cms, $rfam_fastas) {
 }
 
 
-func extract_from_img ($kingdom, $input_dir, $out_fasta, $img_id) {
+func extract_from_img ($kingdom, $img_dir, $out_fasta, $img_id) {
    my %king2acc = (
       bac => '16S',
       arc => '16S',
@@ -259,7 +253,7 @@ func extract_from_img ($kingdom, $input_dir, $out_fasta, $img_id) {
       -format => 'fasta',
       -flush  => 0, # go as fast as possible
    );
-   my $gff_file = File::Spec->catfile($input_dir, "$img_id.gff");
+   my $gff_file = File::Spec->catfile($img_dir, "$img_id.gff");
    if (-e $gff_file) {
       open my $fh, '<', $gff_file or die "Error: Could not read file $gff_file\n$!\n";
       while (my $line = <$fh>) {
@@ -276,7 +270,7 @@ func extract_from_img ($kingdom, $input_dir, $out_fasta, $img_id) {
          }
       }
       close $fh;
-      my $fasta_file = File::Spec->catfile($input_dir, "$img_id.genes.fna");
+      my $fasta_file = File::Spec->catfile($img_dir, "$img_id.genes.fna");
       if (-e $fasta_file) {
          my $in_fh = Bio::SeqIO->new(
             -file   => $fasta_file,
