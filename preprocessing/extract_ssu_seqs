@@ -125,7 +125,6 @@ use Bio::SeqIO;
 use Bio::PrimarySeq;
 use Bio::DB::Fasta;
 use File::Spec;
-use Method::Signatures;
 use IPC::Run qw( run );
 
 my $stdout_mutex :shared;
@@ -134,7 +133,8 @@ extract_ssu_seqs($ARGV{'d'}, $ARGV{'i'}, $ARGV{'m'}, $ARGV{'c'}, $ARGV{'f'}, $AR
 exit;
 
 
-func extract_ssu_seqs ($dirs, $img_metadata, $method, $rfam_cm, $rfam_fasta, $num_threads) {
+sub extract_ssu_seqs {
+   my ($dirs, $img_metadata, $method, $rfam_cm, $rfam_fasta, $num_threads) = @_;
 
    # Read what kingdom each belongs to
    my $kingdoms = read_kingdom($img_metadata);
@@ -191,7 +191,8 @@ func extract_ssu_seqs ($dirs, $img_metadata, $method, $rfam_cm, $rfam_fasta, $nu
 }
 
 
-func worker ($img_dirs, $seen, $method, $kingdoms, $rfam_cms, $rfam_fastas) {
+sub worker {
+   my ($img_dirs, $seen, $method, $kingdoms, $rfam_cms, $rfam_fastas) = @_;
    # Each worker thread processes genomes as long as there are some left.
    DIR: while ( my $img_dir = $img_dirs->dequeue() ) {
 
@@ -206,9 +207,6 @@ func worker ($img_dirs, $seen, $method, $kingdoms, $rfam_cms, $rfam_fastas) {
          }
       }
 
-      my $in_fasta = File::Spec->catfile($img_dir, $img_id.'.fna');
-      warn "Info: Scanning genome $img_id ($in_fasta)\n";
-
       # Find kingdom of this genome
       my $kingdom = $kingdoms->{$img_id};
       if (not defined $kingdom) {
@@ -217,6 +215,7 @@ func worker ($img_dirs, $seen, $method, $kingdoms, $rfam_cms, $rfam_fastas) {
       }
 
       # Run RNAmmer, INFERNAL or rfam_scan on genome, or trust IMG SSU annotations
+      my $in_fasta = File::Spec->catfile($img_dir, $img_id.'.fna');
       my $temp_fasta = $$.'_'.$img_id.'.fa';
       if ($method eq 'img') {
          extract_from_img($kingdom, $img_dir, $temp_fasta, $img_id);
@@ -232,15 +231,16 @@ func worker ($img_dirs, $seen, $method, $kingdoms, $rfam_cms, $rfam_fastas) {
 
       # Add sequences to existing FASTA stream on stdout
       my $seq_count = append_seqs($temp_fasta, $img_id);
+      warn "Info: Extracted $seq_count SSU sequences from genome $img_id ($in_fasta)\n";
       unlink $temp_fasta;
-      warn "Info: Extracted $seq_count SSU sequences\n";
 
    }
    return 1;
 }
 
 
-func extract_from_img ($kingdom, $img_dir, $out_fasta, $img_id) {
+sub extract_from_img {
+   my ($kingdom, $img_dir, $out_fasta, $img_id) = @_;
    my %king2acc = (
       bac => '16S',
       arc => '16S',
@@ -294,7 +294,8 @@ func extract_from_img ($kingdom, $img_dir, $out_fasta, $img_id) {
 }
 
 
-func append_seqs ($in_fasta, $genome_id) {
+sub append_seqs {
+   my ($in_fasta, $genome_id) = @_;
    # Append sequences to stdout. Also, rename them by genome.
    lock $stdout_mutex; ####
    my $in = Bio::SeqIO->new( -file => $in_fasta, -format => 'fasta' );
@@ -315,7 +316,8 @@ func append_seqs ($in_fasta, $genome_id) {
 }
 
 
-func run_rnammer ($kingdom, $in_fasta, $out_fasta) {
+sub run_rnammer {
+   my ($kingdom, $in_fasta, $out_fasta) = @_;
    # Run RNAmmer on a genome
    # Usage: rnammer [options] <sequence>
    #    -S         Super kingdom of the input sequence: 'arc', 'bac', or 'euk'
@@ -330,7 +332,8 @@ func run_rnammer ($kingdom, $in_fasta, $out_fasta) {
 }
 
 
-func run_infernal ($kingdom, $in_fasta, $out_fasta, $rfam_cms) {
+sub run_infernal {
+   my ($kingdom, $in_fasta, $out_fasta, $rfam_cms) = @_;
    # Run INFERNAL of a genome against SSU for a given domain (euk, bac or arch)
    my $rfam_cm = $rfam_cms->{$kingdom};
    my $tbl_file = "$$.tbl";
@@ -344,7 +347,8 @@ func run_infernal ($kingdom, $in_fasta, $out_fasta, $rfam_cms) {
 }
 
 
-func run_rfam_scan ($kingdom, $in_fasta, $out_fasta, $rfam_cms, $rfam_fastas) {
+sub run_rfam_scan {
+   my ($kingdom, $in_fasta, $out_fasta, $rfam_cms, $rfam_fastas) = @_;
    # Run rfam_scan of a genome against SSU for a given domain (euk, bac or arch)
    my $rfam_cm    = $rfam_cms->{$kingdom};
    my $rfam_fasta = $rfam_fastas->{$kingdom};
@@ -360,7 +364,8 @@ func run_rfam_scan ($kingdom, $in_fasta, $out_fasta, $rfam_cms, $rfam_fastas) {
 }
 
 
-func extract_gff_feats ($gff_in, $fasta_in, $fasta_out) {
+sub extract_gff_feats {
+   my ($gff_in, $fasta_in, $fasta_out) = @_;
    # Given a FASTA file and its features in a GFF file. Extract the sequence of
    # the GFF features and add then to an existing FASTA file
    my $db = Bio::DB::Fasta->new($fasta_in, -clean => 1);
@@ -389,7 +394,8 @@ func extract_gff_feats ($gff_in, $fasta_in, $fasta_out) {
 }
 
 
-func parse_infernal_table ($tbl_file, $in_fasta, $out_fasta) {
+sub parse_infernal_table {
+   my ($tbl_file, $in_fasta, $out_fasta) = @_;
    # Parse INFERNAL output, <= 1.0.2 (legacy), or >= 1.1 (new)
    my $db = Bio::DB::Fasta->new($in_fasta, -clean => 1);
    my $out = Bio::SeqIO->new(-file => '>'.$out_fasta, -format => 'fasta');
@@ -432,7 +438,8 @@ func parse_infernal_table ($tbl_file, $in_fasta, $out_fasta) {
 }
 
 
-func split_rfam_fasta ($rfam_fasta, $id2king) {
+sub split_rfam_fasta {
+   my ($rfam_fasta, $id2king) = @_;
    # Split the RFAM FASTA database. Get only the SSU sequences. Put the ones
    # from eukaryotes, bacteria and archaea in three separate files.
    my @ids = keys %{$id2king};
@@ -445,7 +452,8 @@ func split_rfam_fasta ($rfam_fasta, $id2king) {
 }
 
 
-func split_rfam_cm ($rfam_cm) {
+sub split_rfam_cm {
+   my ($rfam_cm) = @_;
    # Split the RFAM CM FASTA database. Get only the SSU sequences. Put the ones
    # from eukaryotes, bacteria and archaea in three separate files.
    my %name2king = (
@@ -466,7 +474,8 @@ func split_rfam_cm ($rfam_cm) {
 }
 
 
-func filter_cm_file ($in_file, $names) {
+sub filter_cm_file {
+   my ($in_file, $names) = @_;
    # Given a file of INFERNAL CM (covariance models) and some search strings,
    # extract the CMs whose NAME matches the search string and save them in a
    # file. Each search term gets a separate output file.
@@ -519,7 +528,8 @@ func filter_cm_file ($in_file, $names) {
 }
 
 
-func filter_seq_file ($in_file, $search_terms) {
+sub filter_seq_file {
+   my ($in_file, $search_terms) = @_;
    # Given a file of sequences and some search strings, extract the sequences
    # whose ID matches the search string and save them in a file. Each search
    # term gets a separate output file.
@@ -560,7 +570,8 @@ func filter_seq_file ($in_file, $search_terms) {
 }
 
 
-func read_kingdom ($img_metadata) {
+sub read_kingdom {
+   my ($img_metadata) = @_;
    # Read IMG metadata file and record kingdom for each IMG genome
    my %kingdoms;
    open my $fh, '<', $img_metadata or die "Error: Could not read file $img_metadata\n$!\n";
@@ -593,7 +604,8 @@ func read_kingdom ($img_metadata) {
 }
 
 
-func find_column_for ($header_line, @names) {
+sub find_column_for {
+   my ($header_line, @names) = @_;
    # Given a tab-separated header line, find which column matches the given name.
    # Search is insensitive to case, spaces, underscores and dashes. Also, note
    # that matches only need to be partial.
