@@ -135,6 +135,12 @@ exit;
 
 sub extract_ssu_seqs {
    my ($dirs, $img_metadata, $method, $rfam_cm, $rfam_fasta, $num_threads) = @_;
+   # Sanity checks
+   if ( ($method eq 'infernal') || ($method eq 'rfam_scan') ) {
+      if (not defined $rfam_cm) {
+         die "Error: Need to provide an RFAM CM file to use with method $method\n";
+      }
+   }
    # Read what kingdom each belongs to
    my $kingdoms = read_kingdom($img_metadata);
    # Split RFAM files: one file for each kingdom
