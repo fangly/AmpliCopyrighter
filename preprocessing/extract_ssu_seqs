@@ -178,9 +178,12 @@ sub extract_ssu_seqs {
    # Wait for all threads to finish their work
    for my $thr (@threads) {
       $thr->join();
+      if (my $err = $thr->error) {
+         die "$err\n";
+      }
    }
    # Cleanup time
-   for my $file (keys %{$rfam_cms}, keys %{$rfam_fastas}) {
+   for my $file (values %{$rfam_cms}, values %{$rfam_fastas}) {
       unlink $file;
    }
    return 1;
@@ -334,6 +337,7 @@ sub run_infernal {
    unlink $out_file;
    parse_infernal_table($tbl_file, $in_fasta, $out_fasta);
    unlink $out_file;
+   unlink $tbl_file;
    return 1;
 }
 
@@ -417,6 +421,7 @@ sub parse_infernal_table {
             $strand = 1;
          }
          # Extract the sequence
+         #warn "Worker ".threads->tid." extracting sequence $seqid:$start-$end/$strand from $in_fasta\n";
          my $seq = $db->get_Seq_by_id($seqid)->trunc($start, $end);
          $seq = $seq->revcom if $strand == -1;
          # Write the sequence
