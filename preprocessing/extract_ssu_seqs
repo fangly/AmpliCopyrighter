@@ -216,9 +216,9 @@ sub worker {
       if ($method eq 'img') {
          extract_from_img($kingdom, $img_dir, $temp_fasta, $img_id);
       } elsif ($method eq 'rfam_scan') {
-         run_rfam_scan($kingdom, $in_fasta, $temp_fasta, $rfam_cms, $rfam_fastas);
+         run_rfam_scan($kingdom, $in_fasta, $temp_fasta, $rfam_cms, $rfam_fastas, $img_id);
       } elsif ($method eq 'infernal') {
-         run_infernal($kingdom, $in_fasta, $temp_fasta, $rfam_cms);
+         run_infernal($kingdom, $in_fasta, $temp_fasta, $rfam_cms, $img_id);
       } elsif ($method eq 'rnammer') {
          run_rnammer($kingdom, $in_fasta, $temp_fasta);
       } else {
@@ -327,28 +327,27 @@ sub run_rnammer {
 
 
 sub run_infernal {
-   my ($kingdom, $in_fasta, $out_fasta, $rfam_cms) = @_;
+   my ($kingdom, $in_fasta, $out_fasta, $rfam_cms, $img_id) = @_;
    # Run INFERNAL of a genome against SSU for a given domain (euk, bac or arch)
    my $rfam_cm = $rfam_cms->{$kingdom};
-   my $tbl_file = "$$.tbl";
-   my $out_file = "$$.out";
+   my $tbl_file = $$.'_'.$img_id.'.tbl';
+   my $out_file = $$.'_'.$img_id.'.out';
    my $cmd = ['cmsearch', '--rfam', '--cut_ga', '--tblout', $tbl_file, '-o', $out_file, $rfam_cm, $in_fasta];
    run $cmd or die "Error: INFERNAL failed with status $?. Maybe you are running a version of INFERNAL < 1.1?\n";
    unlink $out_file;
    parse_infernal_table($tbl_file, $in_fasta, $out_fasta);
-   unlink $out_file;
    unlink $tbl_file;
    return 1;
 }
 
 
 sub run_rfam_scan {
-   my ($kingdom, $in_fasta, $out_fasta, $rfam_cms, $rfam_fastas) = @_;
+   my ($kingdom, $in_fasta, $out_fasta, $rfam_cms, $rfam_fastas, $img_id) = @_;
    # Run rfam_scan of a genome against SSU for a given domain (euk, bac or arch)
    my $rfam_cm    = $rfam_cms->{$kingdom};
    my $rfam_fasta = $rfam_fastas->{$kingdom};
    # Run rfam_scan
-   my $out_gff = "$out_fasta.gff";
+   my $out_gff = $$.'_'.$img_id.'.gff';
    my $cmd = ['rfam_scan', '-o', $out_gff, '--blastdb', $rfam_fasta, $rfam_cm, $in_fasta];
    my ($in, $out, $err);
    run $cmd, \$in, \$out, $err or die "Error: rfam_scan failed with status $?\n";
