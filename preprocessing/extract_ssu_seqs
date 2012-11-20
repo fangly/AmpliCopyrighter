@@ -226,7 +226,15 @@ sub worker {
       }
       # Add sequences to existing FASTA stream on stdout
       my $seq_count = append_seqs($temp_fasta, $img_id);
-      warn "Info: Extracted $seq_count SSU sequences from genome $img_id ($in_fasta)\n";
+      my $kingdom_string = '';
+      if      ($kingdom eq 'arc') {
+         $kingdom_string = 'archaeal';
+      } elsif ($kingdom eq 'bac') {
+         $kingdom_string = 'bacterial';
+      } elsif ($kingdom eq 'euk') {
+         $kingdom_string = 'eukaryal';
+      }
+      warn "Info: Extracted $seq_count SSU sequences from $kingdom_string genome $img_id ($in_fasta)\n";
       unlink $temp_fasta;
    }
    return 1;
