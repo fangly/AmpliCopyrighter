@@ -218,7 +218,7 @@ sub fix_gg_tax {
 
     my $tmp_name = $img_name;
     my $candidatus = ($tmp_name =~ s/^Candidatus\s+//i);
-    my ($genus, $species, $strain) = split /\s+/, $tmp_name;
+    my ($genus, $species, $strain) = split /\s+/, $tmp_name, 3;
 
     # Genus should be capitalized
     #my $msg = 'Not fixing the taxonomy string';
