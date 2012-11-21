@@ -11,19 +11,22 @@ fix_img_taxonomy - Fix inconsistencies of the taxonomy in the IMG metadata
 
 =head1 SYNOPSIS
 
-  fix_img_taxonomy -i img_metadata.txt > img_metadata_fixed.txt
+  fix_img_taxonomy -i img_metadata.csv > img_metadata_fixed.csv
 
 =head1 DESCRIPTION
 
 Take an IMG metadata file (tab-delimited text file) and for each genome in the
 file:
 
-1/ Remove comments like '(draft Illumina assembly)' from name
-2/ If the genome is a Candidatus, as determined from the genome name or genus,
+1/ Remove comments like '(draft Illumina assembly)' from name.
+2/ If the entry in the species field is 'unclassified', 'sp.' or titlecase,
+replace it by ''.
+3/ If the entry in the domain, phylum, class, order, family or genus is
+'unclassified', replace it by ''.
+4/ If the species or genus is empty, try to determine it from the genome name.
+5/ If the genome is a Candidatus, as determined from the genome name or genus,
 make sure both the genome name and genus specify it.
-3/ If the entry in the genus or species field is 'unclassified', replace it by ''
-4/ If the entry in the genus or species field is empty or 'unclassified',
-determine genus or species from the genome name field.
+
 
 =head1 REQUIRED ARGUMENTS
 
@@ -141,11 +144,36 @@ func fix_img_taxonomy ( Str $img_metadata ) {
 }
 
 
+func clean_name (Str $name) {
+   my $new_name = $name;
+   $new_name =~ s/ \(.*draft.*\)//i;
+   $new_name =~ s/^SAR/sar/;
+   $new_name =~ s/^Candidate /candidate /;
+   $new_name =~ s/Pelagibacter-like \(SAR11\) /Pelagibacter ubique SAR11 /;
+   $new_name =~ s/^Marine /marine /;
+   $new_name =~ s/^Gamma /gamma /;
+   $new_name =~ s/^Bacterium /bacterium /;
+   $new_name =~ s/^Cyanobacterium /Cyanobacteria /;
+   $new_name =~ s/sp\.(\S)/sp. $1/;
+   $new_name =~ s/ bacterium\.? (\S*?sp\.?)?/ sp. /i;
+   if ( not $new_name eq $name ) {
+      warn "Info: Cleaned name '$name' to '$new_name'\n";
+   }
+   return $new_name;
+}
+
+
 func clean_species (Str $species) {
    my $new_species = $species;
-   $new_species =~ s/^(unclassified.*|bacterium)$//;
+   $new_species =~ s/^(unclassified.*|bacterium|\S*?sp\.?)$//;
    if (not $new_species eq $species) {
       warn "Info: Cleaned species '$species' to '$new_species'\n";
+   }
+   if ($new_species =~ m/^[[:upper:]][[:lower:]]/) {
+      # IMG has genus name (uppercase) instead of species name, e.g.
+      # Accumulibacter is a genus, not a species
+      $new_species = ''; 
+      warn "Info: Cleaned uppercase species '$species' to '$new_species'\n";
    }
    return $new_species;
 }
@@ -215,24 +243,6 @@ func parse_name (Str $name) {
       }
    }
    return $candidatus, $genus, $species, $strain || '';      
-}
-
-
-func clean_name (Str $name) {
-   my $new_name = $name;
-   $new_name =~ s/ \(.*draft.*\)//i;
-   $new_name =~ s/^SAR/sar/;
-   $new_name =~ s/^Candidate /candidate /;
-   $new_name =~ s/^Pelagibacter-like /pelagibacter-like /;
-   $new_name =~ s/^Marine /marine /;
-   $new_name =~ s/^Gamma /gamma /;
-   $new_name =~ s/^Bacterium /bacterium /;
-   $new_name =~ s/^Cyanobacterium /Cyanobacteria /;
-   $new_name =~ s/ bacterium (\S*?sp\.?)?/ sp. /i;
-   if ( not $new_name eq $name ) {
-      warn "Info: Cleaned name '$name' to '$new_name'\n";
-   }
-   return $new_name;
 }
 
 
