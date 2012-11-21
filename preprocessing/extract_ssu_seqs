@@ -11,7 +11,7 @@ extract_ssu_seqs - Identify 16S/18S rRNA genes in IMG genomes and extract their 
 
 =head1 SYNOPSIS
 
-  extract_ssu_seqs -i <folder_of_IMG_genomes>...
+  extract_ssu_seqs -i img_dir
 
 =head1 DESCRIPTION
 
