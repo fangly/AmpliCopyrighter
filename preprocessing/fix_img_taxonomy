@@ -1,0 +1,285 @@
+#! /usr/bin/env perl
+
+# fix_img_taxonomy
+# Copyright 2012 Florent Angly
+# You may distribute this module under the terms of the GPLv3
+
+
+=head1 NAME
+
+fix_img_taxonomy - Fix inconsistencies of the taxonomy in the IMG metadata
+
+=head1 SYNOPSIS
+
+  fix_img_taxonomy -i img_metadata.txt > img_metadata_fixed.txt
+
+=head1 DESCRIPTION
+
+Take an IMG metadata file (tab-delimited text file) and for each genome in the
+file:
+
+1/ Remove comments like '(draft Illumina assembly)' from name
+2/ If the genome is a Candidatus, as determined from the genome name or genus,
+make sure both the genome name and genus specify it.
+3/ If the entry in the genus or species field is 'unclassified', replace it by ''
+4/ If the entry in the genus or species field is empty or 'unclassified',
+determine genus or species from the genome name field.
+
+=head1 REQUIRED ARGUMENTS
+
+=over
+
+=item -i <img_file>
+
+Input IMG metadata file. The IMG metadata file can be obtained using the export
+function of IMG (http://img.jgi.doe.gov/). It should tab-delimited columns. This
+will use the columns named: 'Genome Name', 'Domain', 'Phylum', 'Class', 'Order',
+'Family', 'Genus' and 'Species'.
+
+=for Euclid:
+   img_file.type: readable
+
+=back
+
+=head1 AUTHOR
+
+Florent Angly <florent.angly@gmail.com>
+
+=head1 BUGS
+
+All complex software has bugs lurking in it, and this program is no exception.
+If you find a bug, please report it on the bug tracker:
+L<http://github.com/fangly/AmpliCopyrighter/issues>
+
+=head1 COPYRIGHT
+
+Copyright 2012 Florent Angly
+
+Copyrighter is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+Copyrighter is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+You should have received a copy of the GNU General Public License
+along with Copyrighter.  If not, see <http://www.gnu.org/licenses/>.
+
+=cut
+
+
+use strict;
+use warnings;
+use Method::Signatures;
+use Getopt::Euclid qw(:minimal_keys);
+
+fix_img_taxonomy($ARGV{'i'});
+
+exit;
+
+
+func fix_img_taxonomy ( Str $img_metadata ) {
+
+   # Read IMG metadata file and record kingdom for each IMG genome
+   open my $in, '<', $img_metadata or die "Error: Could not read file $img_metadata\n$!\n";
+
+   # Identify which column holds the domain
+   my $header = <$in>;
+   chomp $header;
+   my ($name_col, $domain_col, $phylum_col, $class_col, $order_col, $family_col, $genus_col, $species_col) =
+      find_column_for($header, 'Genome Name', 'Domain', 'Phylum', 'Class', 'Order', 'Family', 'Genus', 'Species');
+
+   print "$header\n";
+
+   # Parse file
+   my $num_mods = 0;
+   while (my $line = <$in>) {
+      chomp $line;
+      next if $line =~ m/^#/;
+      my @splitline = split /\t/, $line;
+      my ($name, $domain, $phylum, $class, $order, $family, $genus, $species) =
+         @splitline[$name_col, $domain_col, $phylum_col, $class_col, $order_col, $family_col, $genus_col, $species_col];
+
+      warn "Info: Processing genome $name\n";
+
+      my ($new_name, $new_domain, $new_phylum, $new_class, $new_order, $new_family, $new_genus, $new_species) =
+         (    $name,     $domain,     $phylum,     $class,     $order,     $family,     $genus,     $species);
+
+      $new_name    = clean_name($new_name);
+      $new_domain  = clean_taxo($new_domain, 'domain');
+      $new_phylum  = clean_taxo($new_phylum, 'phylum');
+      $new_class   = clean_taxo($new_class , 'class' );
+      $new_order   = clean_taxo($new_order , 'order' );
+      $new_family  = clean_taxo($new_family, 'family');
+      $new_genus   = clean_taxo($new_genus , 'genus' );
+      $new_species = clean_species($new_species);
+
+      $new_genus   = fix_genus($new_genus, $new_name);
+      $new_species = fix_species($new_species, $new_name);
+ 
+      ($new_name, $new_genus) = fix_candidatus($new_name, $new_genus);
+
+      if ( (not $new_name eq $name) || (not $new_domain eq $domain) ||
+         (not $new_phylum eq $phylum) || (not $new_class eq $class) ||
+         (not $new_order eq $order) || (not $new_family eq $family) ||
+         (not $new_genus eq $genus) || (not $new_species eq $species) ) {
+         $num_mods++;
+      }
+
+      @splitline[$name_col, $domain_col, $phylum_col, $class_col, $order_col, $family_col, $genus_col, $species_col] =
+         ($new_name, $new_domain, $new_phylum, $new_class, $new_order, $new_family, $new_genus, $new_species);
+
+      print join("\t", @splitline)."\n";
+
+   }
+   close $in;
+
+   warn "Info: Modified the taxonomy of $num_mods genomes\n"; 
+
+   return 1;
+}
+
+
+func clean_species (Str $species) {
+   my $new_species = $species;
+   $new_species =~ s/^(unclassified.*|bacterium)$//;
+   if (not $new_species eq $species) {
+      warn "Info: Cleaned species '$species' to '$new_species'\n";
+   }
+   return $new_species;
+}
+
+
+func clean_taxo (Str $val, $level) {
+   my $new_val = $val;
+   $new_val =~ s/^unclassified.*//i;
+   if (not $new_val eq $val) {
+      warn "Info: Cleaned $level '$val' to '$new_val'\n";
+   }
+   return $new_val;
+}
+
+
+func fix_species (Str $species, Str $name) {
+   my $new_species = $species;
+   if ( not $new_species ) {
+      my ($ncandidatus, $ngenus, $nspecies, $nstrain) = parse_name($name);
+      if ($nspecies) {
+         $new_species = $nspecies;
+         warn "Info: Replaced missing species by '$new_species'\n";
+      }
+   }
+   return $new_species;
+}
+
+
+func fix_genus (Str $genus, Str $name) {
+   my $new_genus = $genus;
+   if ( not $new_genus ) {
+      my ($ncandidatus, $ngenus, $nspecies, $nstrain) = parse_name($name);
+      if ($ngenus) {
+         $new_genus = $ngenus;
+         warn "Info: Replaced missing genus by '$new_genus'\n";
+      }
+   }
+   return $new_genus;
+}
+
+
+func parse_name (Str $name) {
+   my ($candidatus, $genus, $species, $strain);
+   if ($name =~ m/^[[:upper:]]/) {
+      # Proper scientific names start with uppercase
+      $candidatus = ($name =~ s/^Candidatus\s+//i);
+      ($genus, $species, $strain) = split /\s+/, $name, 3;
+      if ($genus =~ m/aceae$/) {
+         # Not a genus, but a family (ends in -aceae)
+         $genus = '';
+      }
+      if ($genus =~ m/ales$/) {
+         # Not a genus, but an order (ends in -ales)
+         $genus = '';
+      }
+      if ($genus =~ m/bacteria$/) {
+         # Not a genus, but a likely phylum
+         $genus = '';
+      }
+      if ($genus =~ m/etes$/) {
+         # Not a genus, but a likely phylum or class
+         $genus = '';
+      }
+      if ($species =~ m/^\S*?sp\.?$/) {
+         # Unknown species (sp., genosp.)
+         $species = '';
+      }
+   }
+   return $candidatus, $genus, $species, $strain || '';      
+}
+
+
+func clean_name (Str $name) {
+   my $new_name = $name;
+   $new_name =~ s/ \(.*draft.*\)//i;
+   $new_name =~ s/^SAR/sar/;
+   $new_name =~ s/^Candidate /candidate /;
+   $new_name =~ s/^Pelagibacter-like /pelagibacter-like /;
+   $new_name =~ s/^Marine /marine /;
+   $new_name =~ s/^Gamma /gamma /;
+   $new_name =~ s/^Bacterium /bacterium /;
+   $new_name =~ s/^Cyanobacterium /Cyanobacteria /;
+   $new_name =~ s/ bacterium (\S*?sp\.?)?/ sp. /i;
+   if ( not $new_name eq $name ) {
+      warn "Info: Cleaned name '$name' to '$new_name'\n";
+   }
+   return $new_name;
+}
+
+
+func fix_candidatus (Str $name, Str $genus) {
+   my ($new_name, $new_genus) = ($name, $genus);
+   if ( ($name =~ m/^Candidatus/i) || ($genus =~ m/^Candidatus/i) ) {
+      # Genome is a Candidatus, make sure both its name and genus reflect that
+      if ($name =~ m/^[[:upper:]]/) {
+         # Not a proper species name, e.g. 'gamma proteobacterium IMCC1989'
+         $new_name  =~ s/^(?:Candidatus\s*)?(.*)$/Candidatus $1/;
+      }
+      $new_genus =~ s/^(?:Candidatus\s*)?(.*)$/Candidatus $1/;
+      if ( (not $new_name eq $name) || (not $new_genus eq $genus) ) {
+         warn "Info: Replaced candidatus '$name' (genus '$genus') by '$new_name' (genus '$new_genus')\n";
+      }
+   }
+   return $new_name, $new_genus;
+}
+
+
+func find_column_for ( Str $header_line, @names ) {
+   # Given a tab-separated header line, find which column matches the given name.
+   # Search is insensitive to case, spaces, underscores and dashes. Also, note
+   # that matches only need to be partial.
+   my @fields = split /\t/, $header_line;
+   # Make names and cols insensitive
+   for my $arr ( \@fields, \@names ) {
+      for my $i (0 .. scalar @$arr - 1) {
+         $arr->[$i] =~ s/[\s_-]//g;
+         $arr->[$i] = lc $arr->[$i];
+      }
+   }
+   # Look for names in column headers
+   my @col_nums;
+   for my $name (@names) {
+      my $col_num;
+      for ($col_num = 0; $col_num < scalar @fields; $col_num++) {
+         my $field = $fields[$col_num];
+         if ($field =~ m/$name/) {
+            push @col_nums, $col_num;
+            last;
+         }
+      }
+      if (not defined $col_num) {
+         die "Error: Could not find column holding '$name' data\n";
+      }
+   }
+   return @col_nums;
+}
+
