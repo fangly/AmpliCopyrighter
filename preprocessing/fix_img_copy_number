@@ -126,6 +126,7 @@ along with Copyrighter.  If not, see <http://www.gnu.org/licenses/>.
 use strict;
 use warnings;
 use Bio::SeqIO;
+use Bio::DB::Fasta;
 use Method::Signatures;
 use Getopt::Euclid qw(:minimal_keys);
 use Statistics::Basic qw(mean stddev);
@@ -139,22 +140,51 @@ exit;
 
 func fix_img_copy_number ( Str $img_metafile, Str $img_fasta, Str $rrndb_file,
    Str $infernal_fasta, Str $rnammer_fasta, Int $trunc, Str $out_meta ) {
-
-   my $img_meta = read_img_metadata($img_metafile, $img_fasta, $trunc);
-   my $img_avg  = img_avg($img_meta);
-
+   # Read all these input files in
+   my $img_meta  = read_img_metadata($img_metafile, $img_fasta, $trunc);
    my $rrndb     = read_rrndb($rrndb_file);
+   my $infernal  = count_genome_ssu($infernal_fasta, $trunc);
+   my $rnammer   = count_genome_ssu($rnammer_fasta , $trunc);
+   # Calculate species average
+   my $img_avg   = img_avg($img_meta);
    my $rrndb_avg = rrndb_avg($rrndb);
-
-   my $infernal = count_genome_ssu($infernal_fasta, $trunc);
-   my $rnammer  = count_genome_ssu($rnammer_fasta , $trunc);
-
+   # Detect and correct wrong copy numbers
    $img_meta = check_copy_number( $img_meta, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer );
-
+   # Write updated results
    write_img_metadata( $img_meta, $img_metafile, $out_meta );
-  
-   ### Write updated FASTA file
+   write_ssu_seqs( $img_meta, $img_fasta, $infernal_fasta, $rnammer_fasta);
+   return 1;
+}
 
+
+func write_ssu_seqs ($img, $img_fasta, $infernal_fasta, $rnammer_fasta) {
+   my %dbs = (
+      'img'      => Bio::DB::Fasta->new($img_fasta     , -reindex => 1),
+      'infernal' => Bio::DB::Fasta->new($infernal_fasta, -reindex => 1),
+      'rnammer'  => Bio::DB::Fasta->new($rnammer_fasta , -reindex => 1),
+   );
+   my $out = Bio::SeqIO->new(-fh => \*STDOUT, -format => 'fasta');
+   while (my ($genome_id, $genome_data) = each %$img) {
+      my $source = $genome_data->{'source'} || 'img';
+      my $domain = $genome_data->{'domain'};
+      my $type   = ($domain eq 'Eukaryota') ? '18S' : '16S';
+      my $ssu    = $genome_data->{$type};
+      my $db = $dbs{$source};
+      for my $i (1 .. $ssu) {
+         my $seq_id = $genome_id.'_'.$i;
+         my $seq = $db->get_Seq_by_id($seq_id);
+         if (not defined $seq) {
+            if ($source eq 'img') {
+               # Likely a genome listed in the metadata, but with no IMG folder
+               next;
+            } else {
+               die "Error: Sequence $seq_id not found in $source sequences\n";
+            }
+         }
+         $out->write_seq($seq);
+      }
+   }
+   $out->close;
    return 1;
 }
 
@@ -210,8 +240,6 @@ func check_copy_number ( $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer
          }
       }
 
-
-
    }
 
    warn "Info: Found $num_dodgy IMG genomes with dodgy SSU counts\n";
@@ -224,6 +252,7 @@ func check_copy_number ( $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer
 func resolve_copy_number ($id, $img, $rrndb_avg, $infernal, $rnammer) {
 
    my $resolved = 0;
+   my $source;
    my $correct;
 
    my $img_data = $img->{$id};
@@ -244,6 +273,7 @@ func resolve_copy_number ($id, $img, $rrndb_avg, $infernal, $rnammer) {
         ($infernal_ssu == $rnammer_ssu) && (delta($infernal_ssu, $rrndb_ssu_avg) < 1) ) {
       # RNAmmer, INFERNAL, rrNDB all agree. IMG is wrong.
       $correct = $infernal_ssu;
+      $source = 'infernal';
       $resolved = 1;
       warn "Warn: Copy number for genome ID $id ($img_ssu) was replaced by ".
          "$correct because INFERNAL ($infernal_ssu), RNAmmer ($rnammer_ssu) and".
@@ -256,6 +286,7 @@ func resolve_copy_number ($id, $img, $rrndb_avg, $infernal, $rnammer) {
         (delta($rnammer_ssu, $rrndb_ssu_avg) < 1) ) {
       # RNAmmer and rrNDB agree. INFERNAL abstained. IMG is wrong.
       $correct = $rnammer_ssu;
+      $source = 'rnammer';
       $resolved = 1;
       warn "Warn: Copy number for genome ID $id ($img_ssu) was replaced by ".
          "$correct because RNAmmer ($rnammer_ssu) and rrNDB (species average:".
@@ -268,6 +299,7 @@ func resolve_copy_number ($id, $img, $rrndb_avg, $infernal, $rnammer) {
         (delta($infernal_ssu, $rrndb_ssu_avg) < 1) ) {
       # INFERNAL and rrNDB agree. RNAmmer abstained. IMG is wrong.
       $correct = $infernal_ssu;
+      $source = 'infernal';
       $resolved = 1;
       warn "Warn: Copy number for genome ID $id ($img_ssu) was replaced by ".
          "$correct because INFERNAL ($infernal_ssu) and rrNDB (species average:".
@@ -281,6 +313,7 @@ func resolve_copy_number ($id, $img, $rrndb_avg, $infernal, $rnammer) {
       if ( (defined $infernal_ssu) && (defined $rnammer_ssu) && ($infernal_ssu == $rnammer_ssu) ) {
          # INFERNAL and RNAmmer agree
          $correct = $infernal_ssu;
+         $source = 'infernal';
          $resolved = 1;
          warn "Warn: Copy number for genome ID $id ($img_ssu) was replaced by ".
             "$correct because INFERNAL ($infernal_ssu) and RNAmmer ($rnammer_ssu)".
@@ -289,7 +322,8 @@ func resolve_copy_number ($id, $img, $rrndb_avg, $infernal, $rnammer) {
    } # else -> same as case 1-3
 
    if ($correct) {
-      $img_data->{$type} = $correct;
+      $img_data->{$type}    = $correct;
+      $img_data->{'source'} = $source;
    }
 
    return $resolved;
