@@ -74,21 +74,18 @@ Species, Strain designation, 16S, ITS, 23S and 5S (but extra columns are ok).
 
 =over
 
-###=item -t <trunc>
+=item -t <trunc>
 
-###When counting IMG, INFERNAL or RNAmmer SSU, omit truncated SSUs, smaller than
-###the specified length. Note that the smallest 16S rRNA sequence in
-###Greengenes is 1253 bp long.
+When counting IMG, INFERNAL or RNAmmer SSU, omit truncated SSUs, smaller than
+the specified length. Note that the smallest 16S rRNA sequence in
+Greengenes is 1253 bp long. Using a threshold value of 1220 seems to produce
+nice results. Default: trunc.default
 
-###=for Euclid:
-###   trunc.type: integer
-###   trunc.default: 1210
+=for Euclid:
+   trunc.type: integer
+   trunc.default: 1220
 
 =back
-
-######
-# ssu_img.fa
-######
 
 =head1 AUTHOR
 
@@ -126,24 +123,28 @@ use Getopt::Euclid qw(:minimal_keys);
 use Statistics::Basic qw(mean stddev);
 $Statistics::Basic::IPRES = 8;
 
-fix_img_copy_number( $ARGV{'i'}, $ARGV{'g'}, $ARGV{'r'}, $ARGV{'f'}, $ARGV{'m'} );
+fix_img_copy_number($ARGV{'i'}, $ARGV{'g'}, $ARGV{'r'}, $ARGV{'f'}, $ARGV{'m'}, $ARGV{'t'});
 
 exit;
 
 
 func fix_img_copy_number ( Str $img_metafile, Str $img_fasta, Str $rrndb_file,
-   Str $infernal_fasta, Str $rnammer_fasta ) {
+   Str $infernal_fasta, Str $rnammer_fasta, Int $trunc ) {
 
-   my $img_meta = read_img_metadata($img_metafile, $img_fasta);
+   my $img_meta = read_img_metadata($img_metafile, $img_fasta, $trunc);
    my $img_avg  = img_avg($img_meta);
 
    my $rrndb     = read_rrndb($rrndb_file);
    my $rrndb_avg = rrndb_avg($rrndb);
 
-   my $infernal = count_genome_ssu($infernal_fasta);
-   my $rnammer  = count_genome_ssu($rnammer_fasta );
+   my $infernal = count_genome_ssu($infernal_fasta, $trunc);
+   my $rnammer  = count_genome_ssu($rnammer_fasta , $trunc);
 
    check_copy_number( $img_meta, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer );
+
+   ### Write updated metadata file
+  
+   ### Write updated FASTA file
 
    return 1;   
 }
@@ -324,7 +325,7 @@ func delta ($num1, $num2) {
 }
 
 
-func count_genome_ssu ( Str $fasta ) {
+func count_genome_ssu ( Str $fasta, Int $trunc ) {
    # Read a FASTA file and count the number of SSU for each genome
    my $data;
    my $in = Bio::SeqIO->new( -file => $fasta, -format => 'fasta');
@@ -334,6 +335,12 @@ func count_genome_ssu ( Str $fasta ) {
    while (my $seq = $in->next_seq) {
       # Sequence IDs should be of the form: ><img-id>_<ssu-num>
       my $id = $seq->id;
+
+      # Do not count truncated SSU sequences
+      if ($seq->length < $trunc) {
+         next;
+      }
+
       my ($img_id, $ssu_id) = ($id =~ m/^(\S+)_(\S+)$/);
       if ( (not defined $img_id) || (not defined $ssu_id) ) {
          die "Error: Sequence with ID $id is not of the form '><genome-id>_<ssu-id>'\n";
@@ -495,9 +502,9 @@ func img_avg ( $img_data ) {
 }
 
 
-func read_img_metadata ( Str $img_metadata, Str $img_fasta ) {
+func read_img_metadata ( Str $img_metadata, Str $img_fasta, Int $trunc ) {
    # Read SSU count from FASTA file
-   my $img_ssus = count_genome_ssu($img_fasta);
+   my $img_ssus = count_genome_ssu($img_fasta, $trunc);
 
    # Read IMG metadata file and record some data
    my $img_data;
