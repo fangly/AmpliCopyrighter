@@ -150,70 +150,27 @@ func fix_img_copy_number ( Str $img_metafile, Str $img_fasta, Str $rrndb_file,
 
 
 func check_copy_number ( $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer ) {
-
-   my $min_count = 1;
-   my $max_count = 15;
-
    my $num_dodgy = 0;
    my $num_resolved = 0;
    for my $id (keys %$img) {
-      my $img_data = $img->{$id};
 
-      my $domain  = $img_data->{'domain'};
-      my $genus   = $img_data->{'genus'};
-      my $species = $img_data->{'species'};
-
-      my $type;
-      if ($domain eq 'Eukaryota') {
-         $type = '18S';
-      } else {
-         $type = '16S';
-      }
-
-      my $img_ssu = $img_data->{$type};
-      my $is_dodgy = 0;
-
-      if ( $img_ssu < $min_count ) {
-         warn "Warn: Copy number of genome ID $id ($img_ssu) is strangely low\n";
-         $is_dodgy = 1;
-      }
-
-      if ( $img_ssu > $max_count ) {
-         warn "Warn: Copy number of genome ID $id ($img_ssu) is strangely high\n";
-         $is_dodgy = 1;
-      }
-
-      my $infernal_ssu = $infernal->{$id};
-      if ( (defined $infernal_ssu) && ($infernal_ssu != $img_ssu) ) {
-         warn "Warn: Copy number of genome ID $id ($img_ssu) is different from".
-            " INFERNAL's ($infernal_ssu)\n";
-         $is_dodgy = 1;
-      }
-
-      my $rnammer_ssu = $rnammer->{$id};
-      if ( (defined $rnammer_ssu) && ($rnammer_ssu != $img_ssu) ) {
-         warn "Warn: Copy number of genome ID $id ($img_ssu) is different from".
-            " RNAmmer's ($rnammer_ssu)\n";
-         $is_dodgy = 1;
-      }
-
-      my $rrndb_ssu_avg = $rrndb_avg->{'Bacteria'}->{$genus}->{$species}->{$type}->{'avg'};
-      if ( (defined $rrndb_ssu_avg) && (delta($rrndb_ssu_avg, $img_ssu) > 1) ) {
-         warn "Warn: Copy number of genome ID $id ($img_ssu) is different from".
-            " rrNDB's average for $genus $species ($rrndb_ssu_avg)\n";
-         $is_dodgy = 1;
-      }
-
-      # warn if different from species average in img
-      
-
-      if ($is_dodgy) {
-         show_evidence($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer);
-      }
-
+      # Determine if IMG copy number is dodgy
+      my $is_dodgy = is_dodgy($id, $img, $rrndb_avg, $infernal, $rnammer);
       if ($is_dodgy) {
          $num_dodgy++;
       }
+
+      #if ($is_dodgy) {
+      #   show_evidence($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer);
+      #}
+
+      if ($is_dodgy) {
+         if ( resolve_copy_number($id, $img, $rrndb_avg, $infernal, $rnammer) ) {
+            $num_resolved++ ;
+         }
+      }
+
+
 
    }
 
@@ -221,6 +178,131 @@ func check_copy_number ( $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer
    warn "Info: Resolved $num_resolved inconsistencies\n";
 
    return 1;
+}
+
+
+func resolve_copy_number ($id, $img, $rrndb_avg, $infernal, $rnammer) {
+
+   my $resolved = 0;
+   my $correct;
+
+   my $img_data = $img->{$id};
+   my $name     = $img_data->{'name'};
+   my $domain   = $img_data->{'domain'};
+   my $genus    = $img_data->{'genus'};
+   my $species  = $img_data->{'species'};
+   my $type     = ($domain eq 'Eukaryota') ? '18S' : '16S';
+   my $img_ssu  = $img_data->{$type};
+
+   my $infernal_ssu  = $infernal->{$id};
+   my $rnammer_ssu   = $rnammer->{$id};
+   my $rrndb_ssu_avg = $rrndb_avg->{'Bacteria'}->{$genus}->{$species}->{$type}->{'avg'};
+
+   # Case 1
+   if ( (not $resolved) &&
+        (defined $infernal_ssu) && (defined $rnammer_ssu) && (defined $rrndb_ssu_avg) &&
+        ($infernal_ssu == $rnammer_ssu) && (delta($infernal_ssu, $rrndb_ssu_avg) < 1) ) {
+      # RNAmmer, INFERNAL, rrNDB all agree. IMG is wrong.
+      $correct = $infernal_ssu;
+      $resolved = 1;
+      warn "Warn: Copy number for genome ID $id ($img_ssu) was replaced by ".
+         "$correct because INFERNAL ($infernal_ssu), RNAmmer ($rnammer_ssu) and".
+         " rrNDB (species average: $rrndb_ssu_avg) all agree.\n";
+   }
+   
+   # Case 2
+   if ( (not $resolved) &&
+        (not defined $infernal_ssu) && (defined $rnammer_ssu) && (defined $rrndb_ssu_avg) &&
+        (delta($rnammer_ssu, $rrndb_ssu_avg) < 1) ) {
+      # RNAmmer and rrNDB agree. INFERNAL abstained. IMG is wrong.
+      $correct = $rnammer_ssu;
+      $resolved = 1;
+      warn "Warn: Copy number for genome ID $id ($img_ssu) was replaced by ".
+         "$correct because RNAmmer ($rnammer_ssu) and rrNDB (species average:".
+         " $rrndb_ssu_avg) agree. INFERNAL abstained.\n";
+   }
+
+   # Case 3
+   if ( (not $resolved) &&
+        (defined $infernal_ssu) && (not defined $rnammer_ssu) && (defined $rrndb_ssu_avg) &&
+        (delta($infernal_ssu, $rrndb_ssu_avg) < 1) ) {
+      # INFERNAL and rrNDB agree. RNAmmer abstained. IMG is wrong.
+      $correct = $infernal_ssu;
+      $resolved = 1;
+      warn "Warn: Copy number for genome ID $id ($img_ssu) was replaced by ".
+         "$correct because INFERNAL ($infernal_ssu) and rrNDB (species average:".
+         " $rrndb_ssu_avg) agree. RNAmmer abstained.\n";
+   }
+
+   # Case 4
+   if ( (not $resolved) &&
+        ($img_ssu == 0) && (not defined $rrndb_ssu_avg) ) {
+      # IMG has zero copies
+      if ( (defined $infernal_ssu) && (defined $rnammer_ssu) && ($infernal_ssu == $rnammer_ssu) ) {
+         # INFERNAL and RNAmmer agree
+         $correct = $infernal_ssu;
+         $resolved = 1;
+         warn "Warn: Copy number for genome ID $id ($img_ssu) was replaced by ".
+            "$correct because INFERNAL ($infernal_ssu) and RNAmmer ($rnammer_ssu)".
+            " agree. rrNDB abstained.\n";
+      }
+   } # else -> same as case 1-3
+
+   if ($correct) {
+      #### Put correct Copy number in IMG metadata ####
+   }
+
+   return $resolved;
+}
+
+
+func is_dodgy ($id, $img, $rrndb_avg, $infernal, $rnammer) {
+   # Compare IMG Copy number to INFERNAL, RNAmmer and rrNDB to determine if it is
+   # likely correct.
+   my $is_dodgy  = 0;
+   my $min_count = 1;
+   my $max_count = 15;
+   my $img_data  = $img->{$id};
+   my $domain    = $img_data->{'domain'};
+   my $genus     = $img_data->{'genus'};
+   my $species   = $img_data->{'species'};
+   my $type      = ($domain eq 'Eukaryota') ? '18S' : '16S';
+   my $img_ssu   = $img_data->{$type};
+
+   if ( $img_ssu < $min_count ) {
+      warn "Warn: Copy number of genome ID $id ($img_ssu) is strangely low\n";
+      $is_dodgy = 1;
+   }
+
+   if ( $img_ssu > $max_count ) {
+      warn "Warn: Copy number of genome ID $id ($img_ssu) is strangely high\n";
+      $is_dodgy = 1;
+   }
+
+   my $infernal_ssu = $infernal->{$id};
+   if ( (defined $infernal_ssu) && ($infernal_ssu != $img_ssu) ) {
+      warn "Warn: Copy number of genome ID $id ($img_ssu) is different from".
+         " INFERNAL's ($infernal_ssu)\n";
+      $is_dodgy = 1;
+   }
+
+   my $rnammer_ssu = $rnammer->{$id};
+   if ( (defined $rnammer_ssu) && ($rnammer_ssu != $img_ssu) ) {
+      warn "Warn: Copy number of genome ID $id ($img_ssu) is different from".
+         " RNAmmer's ($rnammer_ssu)\n";
+      $is_dodgy = 1;
+   }
+
+   my $rrndb_ssu_avg = $rrndb_avg->{'Bacteria'}->{$genus}->{$species}->{$type}->{'avg'};
+   if ( (defined $rrndb_ssu_avg) && (delta($rrndb_ssu_avg, $img_ssu) >= 1) ) {
+      warn "Warn: Copy number of genome ID $id ($img_ssu) is different from".
+         " rrNDB's average for $genus $species ($rrndb_ssu_avg)\n";
+      $is_dodgy = 1;
+   }
+
+   ### warn if different from species average in img
+
+   return $is_dodgy;
 }
 
 
@@ -232,9 +314,8 @@ func show_evidence ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer
    my $status  = $img->{$id}->{'status' };
    my $scaff   = $img->{$id}->{'scaff'  };
    my $length  = $img->{$id}->{'length' };
-
    warn "  $name (ID $id): $status, $scaff scaffolds, $length bp\n";
-   
+   return 1;
 }
 
 
@@ -460,7 +541,7 @@ func read_img_metadata ( Str $img_metadata, Str $img_fasta ) {
             $img_data->{$id}->{'16S'} = $img_ssus->{$id};
          } else {
             if ($S16 > 0) {
-               warn "Warn: SSU number of genome ID $id not found from FASTA ".
+               warn "Warn: Copy number of genome ID $id not found from FASTA ".
                   "file. Using value from metadata instead ($S16)\n";
             }
             $img_data->{$id}->{'16S'} = $S16;
@@ -472,7 +553,7 @@ func read_img_metadata ( Str $img_metadata, Str $img_fasta ) {
             $img_data->{$id}->{'18S'} = $img_ssus->{$id};
          } else {
             if ($S18 > 0) {
-               warn "Warn: SSU number of genome ID $id not found from FASTA ".
+               warn "Warn: Copy number of genome ID $id not found from FASTA ".
                   "file. Using value from metadata instead ($S18)\n";
             }
             $img_data->{$id}->{'18S'} = $S16;
