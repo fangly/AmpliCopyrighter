@@ -223,38 +223,27 @@ func check_copy_number ( $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer
    my $num_dodgy = 0;
    my $num_resolved = 0;
    for my $id (keys %$img) {
-
       # Determine if IMG copy number is dodgy
       my $is_dodgy = is_dodgy($id, $img, $rrndb_avg, $infernal, $rnammer);
       if ($is_dodgy) {
          $num_dodgy++;
       }
-
-      #if ($is_dodgy) {
-      #   show_evidence($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer);
-      #}
-
-      if ($is_dodgy) {
-         if ( resolve_copy_number($id, $img, $rrndb_avg, $infernal, $rnammer) ) {
-            $num_resolved++ ;
-         }
+      # Try to fix copy number
+      if ( $is_dodgy &&
+           resolve_copy_number($id, $img, $img_avg, $rrndb_avg, $rrndb_avg, $infernal, $rnammer) ) {
+         $num_resolved++;
       }
-
    }
-
    warn "Info: Found $num_dodgy IMG genomes with dodgy SSU counts\n";
    warn "Info: Resolved $num_resolved inconsistencies\n";
-
    return $img;
 }
 
 
-func resolve_copy_number ($id, $img, $rrndb_avg, $infernal, $rnammer) {
-
-   my $resolved = 0;
+func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer) {
    my $source;
    my $correct;
-
+   my $resolved = 0;
    my $img_data = $img->{$id};
    my $name     = $img_data->{'name'};
    my $domain   = $img_data->{'domain'};
@@ -262,7 +251,6 @@ func resolve_copy_number ($id, $img, $rrndb_avg, $infernal, $rnammer) {
    my $species  = $img_data->{'species'};
    my $type     = ($domain eq 'Eukaryota') ? '18S' : '16S';
    my $img_ssu  = $img_data->{$type};
-
    my $infernal_ssu  = $infernal->{$id};
    my $rnammer_ssu   = $rnammer->{$id};
    my $rrndb_ssu_avg = $rrndb_avg->{'Bacteria'}->{$genus}->{$species}->{$type}->{'avg'};
@@ -270,7 +258,7 @@ func resolve_copy_number ($id, $img, $rrndb_avg, $infernal, $rnammer) {
    # Case 1
    if ( (not $resolved) &&
         (defined $infernal_ssu) && (defined $rnammer_ssu) && (defined $rrndb_ssu_avg) &&
-        ($infernal_ssu == $rnammer_ssu) && (delta($infernal_ssu, $rrndb_ssu_avg) < 1) ) {
+        ($infernal_ssu == $rnammer_ssu) && (delta($infernal_ssu, $rrndb_ssu_avg) <= 1) ) {
       # RNAmmer, INFERNAL, rrNDB all agree. IMG is wrong.
       $correct = $infernal_ssu;
       $source = 'infernal';
@@ -283,7 +271,7 @@ func resolve_copy_number ($id, $img, $rrndb_avg, $infernal, $rnammer) {
    # Case 2
    if ( (not $resolved) &&
         (not defined $infernal_ssu) && (defined $rnammer_ssu) && (defined $rrndb_ssu_avg) &&
-        (delta($rnammer_ssu, $rrndb_ssu_avg) < 1) ) {
+        (delta($rnammer_ssu, $rrndb_ssu_avg) <= 1) ) {
       # RNAmmer and rrNDB agree. INFERNAL abstained. IMG is wrong.
       $correct = $rnammer_ssu;
       $source = 'rnammer';
@@ -296,7 +284,7 @@ func resolve_copy_number ($id, $img, $rrndb_avg, $infernal, $rnammer) {
    # Case 3
    if ( (not $resolved) &&
         (defined $infernal_ssu) && (not defined $rnammer_ssu) && (defined $rrndb_ssu_avg) &&
-        (delta($infernal_ssu, $rrndb_ssu_avg) < 1) ) {
+        (delta($infernal_ssu, $rrndb_ssu_avg) <= 1) ) {
       # INFERNAL and rrNDB agree. RNAmmer abstained. IMG is wrong.
       $correct = $infernal_ssu;
       $source = 'infernal';
@@ -321,6 +309,10 @@ func resolve_copy_number ($id, $img, $rrndb_avg, $infernal, $rnammer) {
       }
    } # else -> same as case 1-3
 
+   if (not $correct) {
+      show_evidence($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer);
+   }
+
    if ($correct) {
       $img_data->{$type}    = $correct;
       $img_data->{'source'} = $source;
@@ -330,16 +322,72 @@ func resolve_copy_number ($id, $img, $rrndb_avg, $infernal, $rnammer) {
 }
 
 
+func show_evidence ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer) {
+   my $domain  = $img->{$id}->{'domain' };
+   my $genus   = $img->{$id}->{'genus'  };
+   my $species = $img->{$id}->{'species'};
+   my $name    = $img->{$id}->{'name'   };
+   my $status  = $img->{$id}->{'status' };
+   my $scaff   = $img->{$id}->{'scaff'  };
+   my $length  = $img->{$id}->{'length' };
+   my @traits;
+   if ($domain eq 'Eukaryota') {
+      @traits = ('18S', '5S', '28S', 'ITS');
+   } else {
+      @traits = ('16S', '5S', '23S', 'ITS');
+   }
+   # Stats for this genome
+   my @vals;
+   my $evi = '';
+   $evi .= "  $name (ID $id): $domain, $status, $scaff scaffolds, $length bp\n";
+   $evi .= "      Type\t".join("\t",@traits)."\n";
+   # IMG
+   @vals = map { defined $img->{$id}->{$_} ?
+                 $img->{$id}->{$_} :
+                 '-'
+               } @traits;
+   $evi .= "       IMG\t".join("\t",@vals)."\n";
+   # RNAmmer
+   @vals = (defined $rnammer->{$id} ? $rnammer->{$id} : '-', '-', '-', '-');
+   $evi .= "   RNAmmer\t".join("\t",@vals)."\n";
+   # INFERNAL
+   @vals = (defined $infernal->{$id} ? $infernal->{$id} : '-', '-', '-', '-');
+   $evi .= "  INFERNAL\t".join("\t",@vals)."\n";
+   # Stats for the entire species
+   $evi .= "\n";
+   $evi .= "  ".$genus.' '.$species.", species average:\n";
+   my $fmt = '%.1f'; # 1 decimal point
+   # IMG species average
+   @vals = map { defined $img_avg->{$domain}->{$genus}->{$species}->{$_}->{'avg'} ?
+                 sprintf($fmt, $img_avg->{$domain}->{$genus}->{$species}->{$_}->{'avg'}) :
+                 '-'
+               } @traits;
+   $evi .= "       IMG\t".join("\t",@vals)."\n";
+   # rrNDB species average
+   @vals = map { defined $rrndb_avg->{'Bacteria'}->{$genus}->{$species}->{$_}->{'avg'} ?
+                 sprintf($fmt, $rrndb_avg->{'Bacteria'}->{$genus}->{$species}->{$_}->{'avg'}) :
+                 '-'
+               } @traits;
+   $evi .= "     rrNDB\t".join("\t",@vals)."\n";
+   $evi .= "\n";
+   warn $evi;
+   return 1;
+}
+
+
 func is_dodgy ($id, $img, $rrndb_avg, $infernal, $rnammer) {
    # Compare IMG Copy number to INFERNAL, RNAmmer and rrNDB to determine if it is
    # likely correct.
    my $is_dodgy  = 0;
    my $min_count = 1;
    my $max_count = 15;
+   my $scaff_thr = 1_000_000; # 1 Mbp
    my $img_data  = $img->{$id};
    my $domain    = $img_data->{'domain'};
    my $genus     = $img_data->{'genus'};
    my $species   = $img_data->{'species'};
+   my $scaff     = $img_data->{'scaff'};
+   my $length    = $img_data->{'length'};
    my $type      = ($domain eq 'Eukaryota') ? '18S' : '16S';
    my $img_ssu   = $img_data->{$type};
 
@@ -367,8 +415,10 @@ func is_dodgy ($id, $img, $rrndb_avg, $infernal, $rnammer) {
       $is_dodgy = 1;
    }
 
+   my $avg_scaff_len = ($scaff == 0) ? 0 : $length / $scaff;
    my $rrndb_ssu_avg = $rrndb_avg->{'Bacteria'}->{$genus}->{$species}->{$type}->{'avg'};
-   if ( (defined $rrndb_ssu_avg) && (delta($rrndb_ssu_avg, $img_ssu) >= 1) ) {
+   if ( ($avg_scaff_len < $scaff_thr) &&
+        (defined $rrndb_ssu_avg) && (delta($rrndb_ssu_avg, $img_ssu) > 1) ) {
       warn "Warn: Copy number of genome ID $id ($img_ssu) is different from".
          " rrNDB's average for $genus $species ($rrndb_ssu_avg)\n";
       $is_dodgy = 1;
@@ -377,19 +427,6 @@ func is_dodgy ($id, $img, $rrndb_avg, $infernal, $rnammer) {
    ### warn if different from species average in img
 
    return $is_dodgy;
-}
-
-
-func show_evidence ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer) {
-   my $domain  = $img->{$id}->{'domain' };
-   my $genus   = $img->{$id}->{'genus'  };
-   my $species = $img->{$id}->{'species'};
-   my $name    = $img->{$id}->{'name'   };
-   my $status  = $img->{$id}->{'status' };
-   my $scaff   = $img->{$id}->{'scaff'  };
-   my $length  = $img->{$id}->{'length' };
-   warn "  $name (ID $id): $status, $scaff scaffolds, $length bp\n";
-   return 1;
 }
 
 
