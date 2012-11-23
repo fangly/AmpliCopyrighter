@@ -85,6 +85,14 @@ nice results. Default: trunc.default
    trunc.type: integer
    trunc.default: 1220
 
+=item -o <out_meta>
+
+Name of file where to save the updated IMG metadata. Default: out_meta.default
+
+=for Euclid:
+   out_meta.type: writeable
+   out_meta.default: 'img_metadata_fixed.csv'
+
 =back
 
 =head1 AUTHOR
@@ -123,13 +131,14 @@ use Getopt::Euclid qw(:minimal_keys);
 use Statistics::Basic qw(mean stddev);
 $Statistics::Basic::IPRES = 8;
 
-fix_img_copy_number($ARGV{'i'}, $ARGV{'g'}, $ARGV{'r'}, $ARGV{'f'}, $ARGV{'m'}, $ARGV{'t'});
+fix_img_copy_number( $ARGV{'i'}, $ARGV{'g'}, $ARGV{'r'}, $ARGV{'f'}, $ARGV{'m'},
+   $ARGV{'t'}, $ARGV{'o'} );
 
 exit;
 
 
 func fix_img_copy_number ( Str $img_metafile, Str $img_fasta, Str $rrndb_file,
-   Str $infernal_fasta, Str $rnammer_fasta, Int $trunc ) {
+   Str $infernal_fasta, Str $rnammer_fasta, Int $trunc, Str $out_meta ) {
 
    my $img_meta = read_img_metadata($img_metafile, $img_fasta, $trunc);
    my $img_avg  = img_avg($img_meta);
@@ -140,13 +149,43 @@ func fix_img_copy_number ( Str $img_metafile, Str $img_fasta, Str $rrndb_file,
    my $infernal = count_genome_ssu($infernal_fasta, $trunc);
    my $rnammer  = count_genome_ssu($rnammer_fasta , $trunc);
 
-   check_copy_number( $img_meta, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer );
+   $img_meta = check_copy_number( $img_meta, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer );
 
-   ### Write updated metadata file
+   write_img_metadata( $img_meta, $img_metafile, $out_meta );
   
    ### Write updated FASTA file
 
-   return 1;   
+   return 1;
+}
+
+
+func write_img_metadata ($img, $input_meta, $output_meta) {
+   # Write IMG metadata file with updated SSU copy number
+   open my $in , '<', $input_meta  or die "Error: Could not read file $input_meta\n$!\n";
+   open my $out, '>', $output_meta or die "Error: Could not write file $output_meta\n$!\n";
+   # Take care of header
+   my $header = <$in>;
+   chomp $header;
+   my @cols = find_column_for($header, 'taxon_oid', 'Domain', '16S rRNA Count',
+      '18S rRNA Count');
+   print $out "$header\n";
+   # Now the rest of the file
+   while (my $line = <$in>) {
+      chomp $line;
+      next if $line =~ m/^#/;
+      my @splitline = split /\t/, $line;
+      my ($id, $domain, $S16, $S18) = @splitline[@cols];
+      if ($domain eq 'Eukaryota') {
+         $S18 = $img->{$id}->{'18S'}; # Eukaryal 18S
+      } else {
+         $S16 = $img->{$id}->{'16S'}; # Bacterial/archaeal 16S
+      }
+      @splitline[@cols] = ($id, $domain, $S16, $S18);
+      print $out join("\t", @splitline)."\n";
+   }
+   close $in;
+   close $out;
+   return 1;
 }
 
 
@@ -178,7 +217,7 @@ func check_copy_number ( $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer
    warn "Info: Found $num_dodgy IMG genomes with dodgy SSU counts\n";
    warn "Info: Resolved $num_resolved inconsistencies\n";
 
-   return 1;
+   return $img;
 }
 
 
@@ -250,7 +289,7 @@ func resolve_copy_number ($id, $img, $rrndb_avg, $infernal, $rnammer) {
    } # else -> same as case 1-3
 
    if ($correct) {
-      #### Put correct Copy number in IMG metadata ####
+      $img_data->{$type} = $correct;
    }
 
    return $resolved;
@@ -332,15 +371,19 @@ func count_genome_ssu ( Str $fasta, Int $trunc ) {
    my $num_ssu = 0;
    my $curr_id;
    my $num_genomes = 0;
+   my $num_seqs    = 0;
+   my $num_trunc   = 0;
    while (my $seq = $in->next_seq) {
       # Sequence IDs should be of the form: ><img-id>_<ssu-num>
       my $id = $seq->id;
 
       # Do not count truncated SSU sequences
       if ($seq->length < $trunc) {
+         $num_trunc++;
          next;
       }
 
+      $num_seqs++;
       my ($img_id, $ssu_id) = ($id =~ m/^(\S+)_(\S+)$/);
       if ( (not defined $img_id) || (not defined $ssu_id) ) {
          die "Error: Sequence with ID $id is not of the form '><genome-id>_<ssu-id>'\n";
@@ -359,7 +402,8 @@ func count_genome_ssu ( Str $fasta, Int $trunc ) {
    }
    $in->close;
    $data->{$curr_id} = $num_ssu;
-   warn "Info: Parsed $num_genomes genomes from FASTA file $fasta\n";
+   warn "Info: Read $num_seqs SSU sequences ($num_trunc skipped) from $num_genomes ".
+      "genomes in FASTA file $fasta\n";
    return $data;
 }
 
