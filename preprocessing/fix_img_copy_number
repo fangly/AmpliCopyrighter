@@ -1,0 +1,519 @@
+#! /usr/bin/env perl
+
+# fix_img_copy_number
+# Copyright 2012 Florent Angly
+# You may distribute this module under the terms of the GPLv3
+
+
+=head1 NAME
+
+fix_img_copy_number - Fix IMG SSU copy number based on external clues
+
+=head1 SYNOPSIS
+
+  fix_img_copy_number -i img_metadata.csv -r rrndb.csv > img_metadata_fixed.txt
+
+=head1 DESCRIPTION
+
+Take an IMG metadata file (tab-delimited text file), optional rRNDB data, and
+optional SSU sequences obtained by other methods (e.g. RNAmmer, INFERNAL).
+Determine the SSU copy number from this information and output the corresponding
+sequences.
+
+=head1 REQUIRED ARGUMENTS
+
+=over
+
+=item -i <img_file>
+
+Input IMG metadata file. The IMG metadata file can be obtained using the export
+function of IMG (http://img.jgi.doe.gov/). It should tab-delimited columns. This
+script will use the columns named: taxon_oid, Genome Name, Domain, Genus,
+Species, 5S rRNA Count, 16S rRNA Count, 18S rRNA Count, 23S rRNA Count, 28S rRNA
+Count, Scaffold Count, Genome Size, and Status.
+
+=for Euclid:
+   img_file.type: readable
+
+=item -g <img_fasta>
+
+SSU sequences (in FASTA format) reported by IMG. Sequence IDs should be
+of the form: ><img-id>_<ssu-num>
+
+=for Euclid:
+   img_fasta.type: readable
+
+=item -f <infernal_fasta>
+
+SSU sequences (in FASTA format) identified by INFERNAL. Sequence IDs should be
+of the form: ><img-id>_<ssu-num>
+
+=for Euclid:
+   infernal_fasta.type: readable
+
+=item -m <rnammer_fasta>
+
+SSU sequences (in FASTA format) identified by RNAmmer. Sequence IDs should be
+of the form: ><img-id>_<ssu-num>
+
+=for Euclid:
+   rnammer_fasta.type: readable
+
+=item -r <rrndb_file>
+
+Input rrNDB file. Go to http://rrndb.mmg.msu.edu/search.php, click on "Get CSV".
+Then convert the file from CSV to tab-separated). Expected columns are: Genus,
+Species, Strain designation, 16S, ITS, 23S and 5S (but extra columns are ok).
+
+=for Euclid:
+   rrndb_file.type: readable
+
+=back
+
+=head1 OPTIONAL ARGUMENTS
+
+=over
+
+###=item -t <trunc>
+
+###When counting IMG, INFERNAL or RNAmmer SSU, omit truncated SSUs, smaller than
+###the specified length. Note that the smallest 16S rRNA sequence in
+###Greengenes is 1253 bp long.
+
+###=for Euclid:
+###   trunc.type: integer
+###   trunc.default: 1210
+
+=back
+
+######
+# ssu_img.fa
+######
+
+=head1 AUTHOR
+
+Florent Angly <florent.angly@gmail.com>
+
+=head1 BUGS
+
+All complex software has bugs lurking in it, and this program is no exception.
+If you find a bug, please report it on the bug tracker:
+L<http://github.com/fangly/AmpliCopyrighter/issues>
+
+=head1 COPYRIGHT
+
+Copyright 2012 Florent Angly
+
+Copyrighter is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+Copyrighter is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+You should have received a copy of the GNU General Public License
+along with Copyrighter.  If not, see <http://www.gnu.org/licenses/>.
+
+=cut
+
+
+use strict;
+use warnings;
+use Bio::SeqIO;
+use Method::Signatures;
+use Getopt::Euclid qw(:minimal_keys);
+use Statistics::Basic qw(mean stddev);
+$Statistics::Basic::IPRES = 8;
+
+fix_img_copy_number( $ARGV{'i'}, $ARGV{'g'}, $ARGV{'r'}, $ARGV{'f'}, $ARGV{'m'} );
+
+exit;
+
+
+func fix_img_copy_number ( Str $img_metafile, Str $img_fasta, Str $rrndb_file,
+   Str $infernal_fasta, Str $rnammer_fasta ) {
+
+   my $img_meta = read_img_metadata($img_metafile, $img_fasta);
+   my $img_avg  = img_avg($img_meta);
+
+   my $rrndb     = read_rrndb($rrndb_file);
+   my $rrndb_avg = rrndb_avg($rrndb);
+
+   my $infernal = count_genome_ssu($infernal_fasta);
+   my $rnammer  = count_genome_ssu($rnammer_fasta );
+
+   check_copy_number( $img_meta, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer );
+
+   return 1;   
+}
+
+
+func check_copy_number ( $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer ) {
+
+   my $min_count = 1;
+   my $max_count = 15;
+
+   my $num_dodgy = 0;
+   my $num_resolved = 0;
+   for my $id (keys %$img) {
+      my $img_data = $img->{$id};
+
+      my $domain  = $img_data->{'domain'};
+      my $genus   = $img_data->{'genus'};
+      my $species = $img_data->{'species'};
+
+      my $type;
+      if ($domain eq 'Eukaryota') {
+         $type = '18S';
+      } else {
+         $type = '16S';
+      }
+
+      my $img_ssu = $img_data->{$type};
+      my $is_dodgy = 0;
+
+      if ( $img_ssu < $min_count ) {
+         warn "Warn: Copy number of genome ID $id ($img_ssu) is strangely low\n";
+         $is_dodgy = 1;
+      }
+
+      if ( $img_ssu > $max_count ) {
+         warn "Warn: Copy number of genome ID $id ($img_ssu) is strangely high\n";
+         $is_dodgy = 1;
+      }
+
+      my $infernal_ssu = $infernal->{$id};
+      if ( (defined $infernal_ssu) && ($infernal_ssu != $img_ssu) ) {
+         warn "Warn: Copy number of genome ID $id ($img_ssu) is different from".
+            " INFERNAL's ($infernal_ssu)\n";
+         $is_dodgy = 1;
+      }
+
+      my $rnammer_ssu = $rnammer->{$id};
+      if ( (defined $rnammer_ssu) && ($rnammer_ssu != $img_ssu) ) {
+         warn "Warn: Copy number of genome ID $id ($img_ssu) is different from".
+            " RNAmmer's ($rnammer_ssu)\n";
+         $is_dodgy = 1;
+      }
+
+      my $rrndb_ssu_avg = $rrndb_avg->{'Bacteria'}->{$genus}->{$species}->{$type}->{'avg'};
+      if ( (defined $rrndb_ssu_avg) && (delta($rrndb_ssu_avg, $img_ssu) > 1) ) {
+         warn "Warn: Copy number of genome ID $id ($img_ssu) is different from".
+            " rrNDB's average for $genus $species ($rrndb_ssu_avg)\n";
+         $is_dodgy = 1;
+      }
+
+      # warn if different from species average in img
+      
+
+      if ($is_dodgy) {
+         show_evidence($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer);
+      }
+
+      if ($is_dodgy) {
+         $num_dodgy++;
+      }
+
+   }
+
+   warn "Info: Found $num_dodgy IMG genomes with dodgy SSU counts\n";
+   warn "Info: Resolved $num_resolved inconsistencies\n";
+
+   return 1;
+}
+
+
+func show_evidence ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer) {
+   my $domain  = $img->{$id}->{'domain' };
+   my $genus   = $img->{$id}->{'genus'  };
+   my $species = $img->{$id}->{'species'};
+   my $name    = $img->{$id}->{'name'   };
+   my $status  = $img->{$id}->{'status' };
+   my $scaff   = $img->{$id}->{'scaff'  };
+   my $length  = $img->{$id}->{'length' };
+
+   warn "  $name (ID $id): $status, $scaff scaffolds, $length bp\n";
+   
+}
+
+
+func delta ($num1, $num2) {
+   return abs($num1 - $num2);
+}
+
+
+func count_genome_ssu ( Str $fasta ) {
+   # Read a FASTA file and count the number of SSU for each genome
+   my $data;
+   my $in = Bio::SeqIO->new( -file => $fasta, -format => 'fasta');
+   my $num_ssu = 0;
+   my $curr_id;
+   my $num_genomes = 0;
+   while (my $seq = $in->next_seq) {
+      # Sequence IDs should be of the form: ><img-id>_<ssu-num>
+      my $id = $seq->id;
+      my ($img_id, $ssu_id) = ($id =~ m/^(\S+)_(\S+)$/);
+      if ( (not defined $img_id) || (not defined $ssu_id) ) {
+         die "Error: Sequence with ID $id is not of the form '><genome-id>_<ssu-id>'\n";
+      }
+      if ( (not defined $curr_id) || (not $img_id eq $curr_id) ) {
+         # Save results for current IMG genome and start processing a new one
+         if (defined $curr_id) {
+            $data->{$curr_id} = $num_ssu;
+         }
+         $curr_id = $img_id;
+         $num_ssu = 1;
+         $num_genomes++;
+      } else {
+         $num_ssu++;
+      }
+   }
+   $in->close;
+   $data->{$curr_id} = $num_ssu;
+   warn "Info: Parsed $num_genomes genomes from FASTA file $fasta\n";
+   return $data;
+}
+
+
+func rrndb_avg ( $rrndb_data ) {
+   my $rrndb_avg;
+
+   # Organize rrndb genomes by species
+   while ( my ($id, $data) = each %{$rrndb_data} ) {
+      my $domain  = $data->{'domain'};
+      my $genus   = $data->{'genus'};
+      my $species = $data->{'species'};
+      my @traits = ('5S', '23S', '16S', 'ITS');
+      for my $trait (@traits) {
+         my $val = $data->{$trait};
+
+         # Skip missing values
+         next if not defined $val;
+
+         push @{$rrndb_avg->{$domain}->{$genus}->{$species}->{$trait}->{'vals'}}, $val;
+         push @{$rrndb_avg->{$domain}->{$genus}->{$species}->{$trait}->{'ids'}}, $id;
+      }
+   }
+
+   # Calculate the average SSU per species
+   while (my ($domain, $domain_data) = each %{$rrndb_avg}) {
+      while (my ($genus, $genus_data) = each %{$domain_data}) {
+         while (my ($species, $species_data) = each %{$genus_data}) {
+            while (my ($trait, $trait_data) = each %{$species_data}) {
+               my @vals = @{$rrndb_avg->{$domain}->{$genus}->{$species}->{$trait}->{'vals'}};
+               $rrndb_avg->{$domain}->{$genus}->{$species}->{$trait}->{'num'} = scalar @vals;
+               $rrndb_avg->{$domain}->{$genus}->{$species}->{$trait}->{'avg'} = mean(@vals)->query;
+               $rrndb_avg->{$domain}->{$genus}->{$species}->{$trait}->{'std'} = stddev(@vals)->query;
+            }
+         }
+      }
+   }
+
+   # Remove temp values
+   while (my ($domain, $domain_data) = each %{$rrndb_avg}) {
+      while (my ($genus, $genus_data) = each %{$domain_data}) {
+         while (my ($species, $species_data) = each %{$genus_data}) {
+            while (my ($trait, $trait_data) = each %{$species_data}) {
+               delete $rrndb_avg->{$domain}->{$genus}->{$species}->{$trait}->{'vals'};
+            }
+         }
+      }
+   }
+
+   return $rrndb_avg;
+}
+
+
+func read_rrndb ( Str $rrndb_file ) {
+   my $rrndb_data;
+   open my $in, '<', $rrndb_file or die "Error: Could not read file $rrndb_file\n";
+   # Identify which column holds the info we want
+   my $header = <$in>;
+   chomp $header;
+   my @cols = find_column_for($header, 'Genus', 'Species', 'Strain designation',
+      '16S', 'ITS', '23S', '5S', 'Status', 'Scaffold Count', 'Genome Size');
+   # Parse file
+   my $num = 0;
+   while (my $line = <$in>) {
+      chomp $line;
+      next if $line =~ m/^#/;
+      $num++;
+      my @splitline = split /\t/, $line;
+      my ($genus, $species, $strain, $S16, $its, $S23, $S5) = @splitline[@cols];
+      my $id = $num; # make up an ID
+      my $name = "$genus $species $strain";
+      $rrndb_data->{$id}->{'domain'}  = 'Bacteria'; # no euks, just proks (assume bacteria)
+      $rrndb_data->{$id}->{'genus'}   = $genus;
+      $rrndb_data->{$id}->{'species'} = $species;
+      $rrndb_data->{$id}->{'name'}    = $name;
+      $rrndb_data->{$id}->{'5S'}      = $S5  unless $S5  eq 'NA';
+      $rrndb_data->{$id}->{'23S'}     = $S23 unless $S23 eq 'NA';
+      $rrndb_data->{$id}->{'16S'}     = $S16 unless $S16 eq 'NA';
+      $rrndb_data->{$id}->{'ITS'}     = $its unless $its eq 'NA';
+   }
+   close $in;
+   warn "Info: Parsed $num species from rrNDB file\n";
+   return $rrndb_data;
+}
+
+
+func img_avg ( $img_data ) {
+   my $img_avg;
+
+   # Organize IMG genomes by species
+   while ( my ($id, $data) = each %{$img_data} ) {
+      my $domain  = $data->{'domain'};
+      my $genus   = $data->{'genus'};
+      my $species = $data->{'species'};
+      my @traits;
+      if ($domain =~ m/^(?:Archaea|Bacteria)$/i) {
+         @traits = ('5S', '23S', '16S');
+      } elsif ($domain =~ m/^Eukaryota$/i) {
+         @traits = ('5S', '28S', '18S');
+      } else {
+         die "Error: domain '$domain' is not supported\n";
+      }
+      for my $trait (@traits) {
+         my $val = $data->{$trait};
+
+         # Skip values of zero (they are missing values)
+         next if not $val;
+
+         push @{$img_avg->{$domain}->{$genus}->{$species}->{$trait}->{'vals'}}, $val;
+         push @{$img_avg->{$domain}->{$genus}->{$species}->{$trait}->{'ids'}}, $id;
+      }
+   }
+
+   # Calculate the average SSU per species
+   while (my ($domain, $domain_data) = each %{$img_avg}) {
+      while (my ($genus, $genus_data) = each %{$domain_data}) {
+         while (my ($species, $species_data) = each %{$genus_data}) {
+            while (my ($trait, $trait_data) = each %{$species_data}) {
+               my @vals = @{$img_avg->{$domain}->{$genus}->{$species}->{$trait}->{'vals'}};
+               $img_avg->{$domain}->{$genus}->{$species}->{$trait}->{'num'} = scalar @vals;
+               $img_avg->{$domain}->{$genus}->{$species}->{$trait}->{'avg'} = mean(@vals)->query;
+               $img_avg->{$domain}->{$genus}->{$species}->{$trait}->{'std'} = stddev(@vals)->query;
+            }
+         }
+      }
+   }
+
+   # Remove temp values
+   while (my ($domain, $domain_data) = each %{$img_avg}) {
+      while (my ($genus, $genus_data) = each %{$domain_data}) {
+         while (my ($species, $species_data) = each %{$genus_data}) {
+            while (my ($trait, $trait_data) = each %{$species_data}) {
+               delete $img_avg->{$domain}->{$genus}->{$species}->{$trait}->{'vals'};
+            }
+         }
+      }
+   }
+
+   return $img_avg;
+}
+
+
+func read_img_metadata ( Str $img_metadata, Str $img_fasta ) {
+   # Read SSU count from FASTA file
+   my $img_ssus = count_genome_ssu($img_fasta);
+
+   # Read IMG metadata file and record some data
+   my $img_data;
+   open my $in, '<', $img_metadata or die "Error: Could not read file $img_metadata\n$!\n";
+   # Identify which column holds the info we want
+   my $header = <$in>;
+   chomp $header;
+   my @cols = find_column_for($header, 'taxon_oid', 'Genome Name', 'Domain',
+      'Genus', 'Species', '5S rRNA Count', '16S rRNA Count', '18S rRNA Count',
+      '23S rRNA Count', '28S rRNA Count', 'Scaffold Count', 'Genome Size', 'Status');
+   # Parse file
+   my $num = 0;
+   while (my $line = <$in>) {
+      chomp $line;
+      next if $line =~ m/^#/;
+      $num++;
+      my @splitline = split /\t/, $line;
+      my ($id, $name, $domain, $genus, $species, $S5, $S16, $S18, $S23, $S28,
+         $scaff, $length, $status) = @splitline[@cols];
+
+      #### any weird values to take care of? empty string? 'n/a'?
+
+      #### can skip this genome if too many scaffolds or short length
+
+      # Remove Candidatus everywhere to make it easier on ourself
+      $name  =~ s/Candidatus //i;
+      $genus =~ s/Candidatus //i;
+
+      # Record taxonomic and SSU info
+      $img_data->{$id}->{'domain'}  = $domain;
+      $img_data->{$id}->{'genus'}   = $genus;
+      $img_data->{$id}->{'species'} = $species;
+      $img_data->{$id}->{'name'}    = $name;
+      $img_data->{$id}->{'status'}  = $status;
+      $img_data->{$id}->{'scaff'}   = $scaff;
+      $img_data->{$id}->{'length'}  = $length;
+      if ($domain =~ m/^(?:Archaea|Bacteria)$/i) {
+         $img_data->{$id}->{'5S'}  = $S5;
+         $img_data->{$id}->{'23S'} = $S23;
+         if (exists $img_ssus->{$id}) {
+            $img_data->{$id}->{'16S'} = $img_ssus->{$id};
+         } else {
+            if ($S16 > 0) {
+               warn "Warn: SSU number of genome ID $id not found from FASTA ".
+                  "file. Using value from metadata instead ($S16)\n";
+            }
+            $img_data->{$id}->{'16S'} = $S16;
+         }
+      } elsif ($domain =~ m/^Eukaryota$/i) {
+         $img_data->{$id}->{'5S'}  = $S5;
+         $img_data->{$id}->{'28S'} = $S28;
+         if (exists $img_ssus->{$id}) {
+            $img_data->{$id}->{'18S'} = $img_ssus->{$id};
+         } else {
+            if ($S18 > 0) {
+               warn "Warn: SSU number of genome ID $id not found from FASTA ".
+                  "file. Using value from metadata instead ($S18)\n";
+            }
+            $img_data->{$id}->{'18S'} = $S16;
+         }
+      } else {
+         die "Error: domain '$domain' is not supported\n";
+      }
+   }
+   close $in;
+   warn "Info: Parsed $num genomes from IMG metadata file\n";
+   return $img_data;
+}
+
+
+func find_column_for ( Str $header_line, @names ) {
+   # Given a tab-separated header line, find which column matches the given name.
+   # Search is insensitive to case, spaces, underscores and dashes. Also, note
+   # that matches only need to be partial.
+   my @fields = split /\t/, $header_line;
+   # Make names and cols insensitive
+   for my $arr ( \@fields, \@names ) {
+      for my $i (0 .. scalar @$arr - 1) {
+         $arr->[$i] =~ s/[\s_-]//g;
+         $arr->[$i] = lc $arr->[$i];
+      }
+   }
+   # Look for names in column headers
+   my @col_nums;
+   for my $name (@names) {
+      my $col_num;
+      for ($col_num = 0; $col_num < scalar @fields; $col_num++) {
+         my $field = $fields[$col_num];
+         if ($field =~ m/$name/) {
+            push @col_nums, $col_num;
+            last;
+         }
+      }
+      if (not defined $col_num) {
+         die "Error: Could not find column holding '$name' data\n";
+      }
+   }
+   return @col_nums;
+}
+
