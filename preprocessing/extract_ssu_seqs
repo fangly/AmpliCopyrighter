@@ -372,7 +372,11 @@ sub extract_gff_feats {
    # the GFF features and add then to an existing FASTA file
    my $db = Bio::DB::Fasta->new($fasta_in, -clean => 1);
    open my $in, '<', $gff_in or die "Error: Could not read file $gff_in\n$!\n";
-   my $out = Bio::SeqIO->new( -file => '>>'.$fasta_out, -format => 'fasta' );
+   my $out = Bio::SeqIO->new(
+      -file   => '>>'.$fasta_out,
+      -format => 'fasta',
+      -flush  => 0,
+   );
    my $gene_count = 0;
    while ( my $line = <$in> ) {
       chomp $line;
@@ -400,7 +404,11 @@ sub parse_infernal_table {
    my ($tbl_file, $in_fasta, $out_fasta) = @_;
    # Parse INFERNAL output, <= 1.0.2 (legacy), or >= 1.1 (new)
    my $db = Bio::DB::Fasta->new($in_fasta, -clean => 1);
-   my $out = Bio::SeqIO->new(-file => '>'.$out_fasta, -format => 'fasta');
+   my $out = Bio::SeqIO->new(
+      -file   => '>'.$out_fasta,
+      -format => 'fasta',
+      -flush  => 0,
+   );
    open my $in, '<', $tbl_file or die "Error: Could not read file $tbl_file\n$!\n";
    my ($rfamid, $rfamname);
    my $legacy_re = qr/^\s*(\S*)\s+(\S+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(\d+)$/;
