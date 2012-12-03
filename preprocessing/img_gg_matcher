@@ -32,6 +32,9 @@ By matching sequences very stringently (using BLAT, slower). See the <rrna> opti
 
 =back
 
+The results are written to screen in a format similar to that of the correspondance
+file.
+
 =head1 REQUIRED ARGUMENTS
 
 =over
@@ -142,6 +145,7 @@ along with Copyrighter.  If not, see <http://www.gnu.org/licenses/>.
 
 use strict;
 use warnings;
+use List::Util qw(min);
 use Method::Signatures;
 use Getopt::Euclid qw(:minimal_keys);
 use Bio::DB::Fasta;
@@ -505,9 +509,10 @@ func extract_gg_name ( Str $desc ) {
    # Extract species name from a Greengenes FASTA description, that looks like:
    #    M36507.1 Methanococcus vannielii k__Archaea; [...] ; s__Methanococcus vannielii; otu_144
    # 1/ Remove accession number (first field)
-   $desc = (split ' ', $desc, 2)[-1] || '';
+   $desc = (split /\s+/, $desc, 2)[-1] || ''; # \s+ matches one or multiple tab or spaces as delimiter
    # 2/ Remove taxonomy string (starts with k__)
    $desc =~ s/k__.*$//i;
+   $desc =~ s/\s+$//;
    return $desc;
 }
 
