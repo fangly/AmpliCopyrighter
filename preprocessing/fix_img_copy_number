@@ -372,7 +372,7 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
       # Case 1
       if ( (not $resolved) && (defined $infernal_ssu) && (defined $rnammer_ssu) &&
            (defined $rrndb_ssu_avg) && ($infernal_ssu == $rnammer_ssu) &&
-           (delta($infernal_ssu, $rrndb_ssu_avg) < ssu_thr_hi($rrndb_ssu_avg)) ) {
+           lt_avg_ssu_diff($infernal_ssu, $rrndb_ssu_avg) ) {
          # RNAmmer, INFERNAL, rrNDB all agree. IMG is wrong.
          $correct = $infernal_ssu;
          $source = 'infernal';
@@ -383,8 +383,7 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
    
       # Case 2
       if ( (not $resolved) && (not defined $infernal_ssu) && (defined $rnammer_ssu) &&
-           (defined $rrndb_ssu_avg) && (delta($rnammer_ssu, $rrndb_ssu_avg) <
-           ssu_thr_hi($rrndb_ssu_avg)) ) {
+           (defined $rrndb_ssu_avg) && lt_avg_ssu_diff($rnammer_ssu, $rrndb_ssu_avg) ) {
          # RNAmmer and rrNDB agree. INFERNAL abstained. IMG is wrong.
          $correct = $rnammer_ssu;
          $source = 'rnammer';
@@ -395,8 +394,7 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
 
       # Case 3
       if ( (not $resolved) && (defined $infernal_ssu) && (not defined $rnammer_ssu) &&
-           (defined $rrndb_ssu_avg) && (delta($infernal_ssu, $rrndb_ssu_avg) <
-           ssu_thr_hi($rrndb_ssu_avg)) ) {
+           (defined $rrndb_ssu_avg) && lt_avg_ssu_diff($infernal_ssu, $rrndb_ssu_avg) ) {
          # INFERNAL and rrNDB agree. RNAmmer abstained. IMG is wrong.
          $correct = $infernal_ssu;
          $source = 'infernal';
@@ -423,7 +421,7 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
       # Case 5
       if ( (not $resolved) && ($img_1XS_ssu == 0) && (not defined $infernal_ssu) &&
            (not defined $rnammer_ssu) && (defined $rrndb_ssu_avg) && ($img_5S_ssu > 0) &&
-           (delta($img_5S_ssu, $rrndb_ssu_avg) < ssu_thr_hi($rrndb_ssu_avg)) ) {
+           lt_avg_ssu_diff($img_5S_ssu, $rrndb_ssu_avg) ) {
          # If IMG 16S is 0, INFERNAL and RNAmmer missing, but 5S agrees with rrNDB
          $correct = $img_5S_ssu;
          $source = 'img';
@@ -434,7 +432,7 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
       # Case 6
       if ( (not $resolved) && ($img_1XS_ssu == 0) && (not defined $infernal_ssu) &&
            (not defined $rnammer_ssu) && (defined $rrndb_ssu_avg) && ($img_2XS_ssu > 0) &&
-           (delta($img_2XS_ssu, $rrndb_ssu_avg) < ssu_thr_hi($rrndb_ssu_avg)) ) {
+           lt_avg_ssu_diff($img_2XS_ssu, $rrndb_ssu_avg) ) {
          # If IMG 16S is 0, INFERNAL and RNAmmer missing, but 2XS agrees with rrNDB
          $correct = $img_2XS_ssu;
          $source = 'img';
@@ -531,11 +529,27 @@ func ssu_thr ($mean_copy) {
 }
 
 
-func ssu_thr_hi ($mean_copy) {
-   # Higher range for threshold, allow 20% error margin.
-   return 1.2 * ssu_thr($mean_copy);
+func lt_avg_ssu_diff ($copy_num, $mean_copy, Int $mult = 1) {
+   # Check that the difference between the given copy number and species average
+   # is under the maximum allowed threshold (w 20% error margin)
+   if ( delta($copy_num, $mean_copy) < 1.2 * $mult * ssu_thr($mean_copy) ) {
+      return 1;
+   } else {
+      return 0;
+   }
 }
 
+
+func lt_ssu_diff ($copy_num_1, $copy_num_2) {
+   # Check that the difference between the two given copy numbers is under the
+   # maximum allowed. (2*ssu_thr because ssu_thr is between avg and extreme,
+   # not two values)
+   if ( delta($copy_num_1,$copy_num_2) < 2*ssu_thr(max($copy_num_1,$copy_num_2)) ){
+      return 1;
+   } else {
+      return 0;
+   }
+}
 
 func is_dodgy ($id, $img, $rrndb_avg, $infernal, $rnammer, $scaff_thr, Int $silent = 0) {
    # Compare IMG Copy number to INFERNAL, RNAmmer and rrNDB to determine if it is
@@ -580,13 +594,11 @@ func is_dodgy ($id, $img, $rrndb_avg, $infernal, $rnammer, $scaff_thr, Int $sile
 
    my $rrndb_ssu_avg = $rrndb_avg->{'Bacteria'}->{$genus}->{$species}->{$type}->{'avg'};
    if (defined $rrndb_ssu_avg) {
-      my $thr = ssu_thr_hi($rrndb_ssu_avg);
-      my $delta = delta($rrndb_ssu_avg, $img_ssu);
-      if ($delta > 2 * $thr) {
+      if ( lt_avg_ssu_diff($img_ssu, $rrndb_ssu_avg, 2) ) {
          $msg = "very dodgy: very different from rrNDB's average for $genus ".
             "$species ($rrndb_ssu_avg)\n";
          $is_dodgy = 2;
-      } elsif ($delta > 1 * $thr) {
+      } elsif ( lt_avg_ssu_diff($img_ssu, $rrndb_ssu_avg, 1) ) {
          $msg = "dodgy: different from rrNDB's average for $genus $species ".
             "($rrndb_ssu_avg)\n";
          $is_dodgy = 1;
