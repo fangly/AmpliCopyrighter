@@ -76,11 +76,20 @@ Species, Strain designation, 16S, ITS, 23S and 5S (but extra columns are ok).
 
 =item -c <completeness>
 
-What genomes to include: finished, draft, all
+What genomes to include: finished, draft, all. Default: completeness.default
 
 =for Euclid:
    completeness.type: /(finished|draft|all)/
    completeness.default: 'all'
+
+=item -d <discard>
+
+Remove genomes at or above this level of dodginess (after correction): 1=dodgy,
+2=very dodgy. Default: discard.default
+
+=for Euclid:
+   discard.type: integer, discard == 1 || discard == 2
+   discard.default: 2
 
 =item -t <trunc>
 
@@ -92,6 +101,15 @@ nice results. Default: trunc.default
 =for Euclid:
    trunc.type: integer
    trunc.default: 1220
+
+=item -u <unknown>
+
+Remove genomes with unknown genus or species: 1=yes, 0=no. Default: unknown.default
+
+=for Euclid:
+   unknown.type: integer, unknown == 0 || unknown == 1
+   unknown.default: 1
+
 
 =item -s <scaff>
 
@@ -158,16 +176,18 @@ use Statistics::Basic qw(mean stddev);
 $Statistics::Basic::IPRES = 8;
 
 fix_img_copy_number( $ARGV{'i'}, $ARGV{'g'}, $ARGV{'r'}, $ARGV{'f'}, $ARGV{'m'},
-   $ARGV{'c'}, $ARGV{'t'}, $ARGV{'s'}, $ARGV{'o'}, $ARGV{'n'} );
+   $ARGV{'c'}, $ARGV{'d'}, $ARGV{'t'}, $ARGV{'u'}, $ARGV{'s'}, $ARGV{'o'},
+   $ARGV{'n'} );
 
 exit;
 
 
 func fix_img_copy_number ( Str $img_metafile, Str $img_fasta, Str $rrndb_file,
-   Str $infernal_fasta, Str $rnammer_fasta, Str $completeness, Int $trunc,
-   Int $scaff_thr, Str $out_meta, Str $new_rrndb ) {
+   Str $infernal_fasta, Str $rnammer_fasta, Str $completeness, Int $discard,
+   Int $trunc, Int $unknown, Int $scaff_thr, Str $out_meta, Str $new_rrndb ) {
    # Read all these input files
-   my $img_meta  = read_img_metadata($img_metafile, $img_fasta, $completeness, $trunc);
+   my $img_meta  = read_img_metadata($img_metafile, $img_fasta, $completeness,
+      $trunc, $unknown);
    my $rrndb     = read_rrndb($rrndb_file, $new_rrndb);
    my $infernal  = count_genome_ssu($infernal_fasta);
    my $rnammer   = count_genome_ssu($rnammer_fasta );
@@ -178,7 +198,7 @@ func fix_img_copy_number ( Str $img_metafile, Str $img_fasta, Str $rrndb_file,
    my $rrndb_avg = rrndb_avg($rrndb);
    # Detect and correct wrong copy numbers
    $img_meta = check_copy_number( $img_meta, $img_avg, $rrndb, $rrndb_avg,
-      $infernal, $rnammer, $infernal_trunc, $rnammer_trunc, $scaff_thr );
+      $infernal, $rnammer, $infernal_trunc, $rnammer_trunc, $scaff_thr, $discard );
    # Write updated results
    write_img_metadata( $img_meta, $img_metafile, $out_meta );
    write_ssu_seqs( $img_meta, $img_fasta, $infernal_fasta, $rnammer_fasta, $trunc);
@@ -262,7 +282,13 @@ func write_img_metadata ($img, $input_meta, $output_meta) {
 
 
 func check_copy_number ( $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer, 
-   $infernal_trunc, $rnammer_trunc, $scaff_thr ) {
+   $infernal_trunc, $rnammer_trunc, $scaff_thr, $discard_lvl ) {
+
+   my %levels = (
+      1 =>      '', # dodgy
+      2 => 'very ', # very dodgy
+   );
+   my $lvl_str = $levels{$discard_lvl};
 
    my $num_dodgy = 0;
    my $num_very_dodgy = 0;
@@ -289,19 +315,20 @@ func check_copy_number ( $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer
               $num_very_resolved++;
             }
          } else {
-            if ($is_dodgy == 2) {
-               # If it was very dodgy and could not be fixed, remove it
+            if ($is_dodgy >= $discard_lvl) {
+               # If it was more dodgy than what is desired and could not be
+               # fixed, remove it
                delete $img->{$id};
                $num_removed++;
                warn "Warn: Copy number of genome ID $id could not be corrected".
-                  " and was so dodgy it had to be removed.\n";
+                  " and was ".$lvl_str."dodgy; it had to be removed.\n";
             }
          }
       }
    }
    warn "Info: Found $num_dodgy and $num_very_dodgy IMG genomes with dodgy and very dodgy SSU counts\n";
    warn "Info: Resolved $num_resolved dodgy and $num_very_resolved very dodgy counts.\n";
-   warn "Info: Deleted $num_removed genomes with very dodgy counts that could not be resolved.\n";
+   warn "Info: Deleted $num_removed genomes with ".$lvl_str."dodgy counts that could not be resolved.\n";
    return $img;
 }
 
@@ -387,7 +414,8 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
             $resolved = 1;
             warn "Warn: Copy number of genome ID $id ($img_ssu) was replaced ".
                "by $correct because $trunc_str INFERNAL ($infernal_ssu) and ".
-               "$trunc_str RNAmmer ($rnammer_ssu) agree. rrNDB abstained.\n";
+               "$trunc_str RNAmmer ($rnammer_ssu) agree, and average contig ".
+               "length was at least $scaff_thr bp. rrNDB abstained.\n";
          }
       }
 
@@ -778,7 +806,7 @@ func img_avg ( $img_data ) {
 
 
 func read_img_metadata ( Str $img_metadata, Str $img_fasta, Str $completeness,
-   Int $trunc ) {
+   Int $trunc, Int $unknown ) {
    # Read SSU count from FASTA file
    my $img_ssus = count_genome_ssu($img_fasta, $trunc);
    # Read IMG metadata file and record some data
@@ -801,6 +829,10 @@ func read_img_metadata ( Str $img_metadata, Str $img_fasta, Str $completeness,
          $scaff, $length, $status) = @splitline[@cols];
       # Remove draft or finished genomes, as specified
       next if not status_ok($status, $completeness);
+      # Remove genomes with unknown genus or species
+      if ( $unknown && (not($species) || not($genus)) ) {
+         next;
+      }
       # Remove Candidatus everywhere to make it easier on ourself
       $name  =~ s/Candidatus //i;
       $genus =~ s/Candidatus //i;
