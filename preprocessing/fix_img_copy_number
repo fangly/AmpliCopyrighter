@@ -346,9 +346,11 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
    my $species       = $img_data->{'species'};
    my $scaff         = $img_data->{'scaff'};
    my $length        = $img_data->{'length'};
-   my $type          = ($domain eq 'Eukaryota') ? '18S' : '16S';
-   my $img_ssu       = $img_data->{$type};
-   my $rrndb_ssu_avg = $rrndb_avg->{'Bacteria'}->{$genus}->{$species}->{$type}->{'avg'};
+   my @types         = ($domain eq 'Eukaryota') ? ('18S', '5S', '28S') : ('16S', '5S', '23S');
+   my $img_1xS_ssu   = $img_data->{$types[0]}; # 16S or 18S
+   my $img_5S_ssu    = $img_data->{$types[1]}; # 5S
+   my $img_2xS_ssu   = $img_data->{$types[2]}; # 23S or 28S
+   my $rrndb_ssu_avg = $rrndb_avg->{'Bacteria'}->{$genus}->{$species}->{$types[0]}->{'avg'};
 
    for my $trunc_str ('', 'truncated') {
 
@@ -363,61 +365,69 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
       }
 
       # Case 1
-      if ( (not $resolved) &&
-           (defined $infernal_ssu) && (defined $rnammer_ssu) && (defined $rrndb_ssu_avg) &&
-           ($infernal_ssu == $rnammer_ssu) && (delta($infernal_ssu, $rrndb_ssu_avg) <= 1) ) {
+      if ( (not $resolved) && (defined $infernal_ssu) && (defined $rnammer_ssu) &&
+           (defined $rrndb_ssu_avg) && ($infernal_ssu == $rnammer_ssu) &&
+           (delta($infernal_ssu, $rrndb_ssu_avg) < ssu_thr($rrndb_ssu_avg)) ) {
          # RNAmmer, INFERNAL, rrNDB all agree. IMG is wrong.
          $correct = $infernal_ssu;
          $source = 'infernal';
          $resolved = 1;
-         warn "Warn: Copy number of genome ID $id ($img_ssu) was replaced by ".
+         warn "Warn: Copy number of genome ID $id ($img_1xS_ssu) was replaced by ".
             "$correct because $trunc_str INFERNAL ($infernal_ssu), $trunc_str ".
             "RNAmmer ($rnammer_ssu) and rrNDB (species average: $rrndb_ssu_avg)".
             " all agree.\n";
       }
    
       # Case 2
-      if ( (not $resolved) &&
-           (not defined $infernal_ssu) && (defined $rnammer_ssu) && (defined $rrndb_ssu_avg) &&
-           (delta($rnammer_ssu, $rrndb_ssu_avg) <= 1) ) {
+      if ( (not $resolved) && (not defined $infernal_ssu) && (defined $rnammer_ssu) &&
+           (defined $rrndb_ssu_avg) && (delta($rnammer_ssu, $rrndb_ssu_avg) <
+           ssu_thr($rrndb_ssu_avg)) ) {
          # RNAmmer and rrNDB agree. INFERNAL abstained. IMG is wrong.
          $correct = $rnammer_ssu;
          $source = 'rnammer';
          $resolved = 1;
-         warn "Warn: Copy number of genome ID $id ($img_ssu) was replaced by ".
+         warn "Warn: Copy number of genome ID $id ($img_1xS_ssu) was replaced by ".
             "$correct because $trunc_str RNAmmer ($rnammer_ssu) and rrNDB ".
             "(species average: $rrndb_ssu_avg) agree. INFERNAL abstained.\n";
       }
 
       # Case 3
-      if ( (not $resolved) &&
-           (defined $infernal_ssu) && (not defined $rnammer_ssu) && (defined $rrndb_ssu_avg) &&
-           (delta($infernal_ssu, $rrndb_ssu_avg) <= 1) ) {
+      if ( (not $resolved) && (defined $infernal_ssu) && (not defined $rnammer_ssu) &&
+           (defined $rrndb_ssu_avg) && (delta($infernal_ssu, $rrndb_ssu_avg) <
+           ssu_thr($rrndb_ssu_avg)) ) {
          # INFERNAL and rrNDB agree. RNAmmer abstained. IMG is wrong.
          $correct = $infernal_ssu;
          $source = 'infernal';
          $resolved = 1;
-         warn "Warn: Copy number of genome ID $id ($img_ssu) was replaced by ".
+         warn "Warn: Copy number of genome ID $id ($img_1xS_ssu) was replaced by ".
             "$correct because $trunc_str INFERNAL ($infernal_ssu) and rrNDB ".
             "(species average: $rrndb_ssu_avg) agree. RNAmmer abstained.\n";
       }
 
       # Case 4
       my $avg_scaff_len = ($scaff == 0) ? 0 : $length / $scaff;
-      if ( (not $resolved) &&
-           (defined $infernal_ssu) && (defined $rnammer_ssu) && (not defined $rrndb_ssu_avg) &&
-           ($avg_scaff_len >= $scaff_thr) && ($infernal_ssu == $rnammer_ssu) ) {
+      if ( (not $resolved) && (defined $infernal_ssu) && (defined $rnammer_ssu) &&
+           (not defined $rrndb_ssu_avg) && ($avg_scaff_len >= $scaff_thr) &&
+           ($infernal_ssu == $rnammer_ssu) ) {
          # We have long (more reliable) contigs, rrNDB abstained, INFERNAL and RNAmmer agree
          if ( (defined $infernal_ssu) && (defined $rnammer_ssu) && ($infernal_ssu == $rnammer_ssu) ) {
             $correct = $infernal_ssu;
             $source = 'infernal';
             $resolved = 1;
-            warn "Warn: Copy number of genome ID $id ($img_ssu) was replaced ".
+            warn "Warn: Copy number of genome ID $id ($img_1xS_ssu) was replaced ".
                "by $correct because $trunc_str INFERNAL ($infernal_ssu) and ".
                "$trunc_str RNAmmer ($rnammer_ssu) agree, and average contig ".
                "length was at least $scaff_thr bp. rrNDB abstained.\n";
          }
       }
+
+      # Case 5
+      #if ( (not $resolved) &&
+      #     (not defined $infernal_ssu) && (not defined $rnammer_ssu) && (defined $rrndb_ssu_avg) ) {
+      #     ssu_thr($rrndb_ssu_avg)
+      #   # Use 5S or 23S if missing 16S (5S and 28S if missing 18S) and matching rrNDB
+      #
+      #}
 
       if ($trunc_str) {
          $source .= '_'.$trunc_str;
@@ -431,9 +441,16 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
       show_evidence($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer);
    }
 
+   ####
+   #if ( ($img_1xS_ssu == 0) && ()  ) {
+   #   # Show data for very dodgy copy numbers that could not be corrected
+   #   show_evidence($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer);
+   #}
+   ####
+
    if ($correct) {
-      $img_data->{$type}    = $correct;
-      $img_data->{'source'} = $source;
+      $img_data->{$types[0]} = $correct;
+      $img_data->{'source'}  = $source;
    }
 
    return $resolved;
