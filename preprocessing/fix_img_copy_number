@@ -89,7 +89,7 @@ Remove genomes at or above this level of dodginess (after correction): 1=dodgy,
 
 =for Euclid:
    discard.type: integer, discard == 1 || discard == 2
-   discard.default: 2
+   discard.default: 1
 
 =item -t <trunc>
 
@@ -170,6 +170,7 @@ use strict;
 use warnings;
 use Bio::SeqIO;
 use Bio::DB::Fasta;
+use List::Util qw(max);
 use Method::Signatures;
 use Getopt::Euclid qw(:minimal_keys);
 use Statistics::Basic qw(mean stddev);
@@ -347,9 +348,9 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
    my $scaff         = $img_data->{'scaff'};
    my $length        = $img_data->{'length'};
    my @types         = ($domain eq 'Eukaryota') ? ('18S', '5S', '28S') : ('16S', '5S', '23S');
-   my $img_1xS_ssu   = $img_data->{$types[0]}; # 16S or 18S
+   my $img_1XS_ssu   = $img_data->{$types[0]}; # 16S or 18S
    my $img_5S_ssu    = $img_data->{$types[1]}; # 5S
-   my $img_2xS_ssu   = $img_data->{$types[2]}; # 23S or 28S
+   my $img_2XS_ssu   = $img_data->{$types[2]}; # 23S or 28S
    my $rrndb_ssu_avg = $rrndb_avg->{'Bacteria'}->{$genus}->{$species}->{$types[0]}->{'avg'};
 
    for my $trunc_str ('', 'truncated') {
@@ -372,7 +373,7 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
          $correct = $infernal_ssu;
          $source = 'infernal';
          $resolved = 1;
-         warn "Warn: Copy number of genome ID $id ($img_1xS_ssu) was replaced by ".
+         warn "Warn: Copy number of genome ID $id ($img_1XS_ssu) was replaced by ".
             "$correct because $trunc_str INFERNAL ($infernal_ssu), $trunc_str ".
             "RNAmmer ($rnammer_ssu) and rrNDB (species average: $rrndb_ssu_avg)".
             " all agree.\n";
@@ -386,7 +387,7 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
          $correct = $rnammer_ssu;
          $source = 'rnammer';
          $resolved = 1;
-         warn "Warn: Copy number of genome ID $id ($img_1xS_ssu) was replaced by ".
+         warn "Warn: Copy number of genome ID $id ($img_1XS_ssu) was replaced by ".
             "$correct because $trunc_str RNAmmer ($rnammer_ssu) and rrNDB ".
             "(species average: $rrndb_ssu_avg) agree. INFERNAL abstained.\n";
       }
@@ -399,7 +400,7 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
          $correct = $infernal_ssu;
          $source = 'infernal';
          $resolved = 1;
-         warn "Warn: Copy number of genome ID $id ($img_1xS_ssu) was replaced by ".
+         warn "Warn: Copy number of genome ID $id ($img_1XS_ssu) was replaced by ".
             "$correct because $trunc_str INFERNAL ($infernal_ssu) and rrNDB ".
             "(species average: $rrndb_ssu_avg) agree. RNAmmer abstained.\n";
       }
@@ -414,20 +415,38 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
             $correct = $infernal_ssu;
             $source = 'infernal';
             $resolved = 1;
-            warn "Warn: Copy number of genome ID $id ($img_1xS_ssu) was replaced ".
+            warn "Warn: Copy number of genome ID $id ($img_1XS_ssu) was replaced ".
                "by $correct because $trunc_str INFERNAL ($infernal_ssu) and ".
-               "$trunc_str RNAmmer ($rnammer_ssu) agree, and average contig ".
-               "length was at least $scaff_thr bp. rrNDB abstained.\n";
+               "$trunc_str RNAmmer ($rnammer_ssu) agree. rrNDB abstained but ".
+               "average contig length was at least $scaff_thr bp.\n";
          }
       }
 
       # Case 5
-      #if ( (not $resolved) &&
-      #     (not defined $infernal_ssu) && (not defined $rnammer_ssu) && (defined $rrndb_ssu_avg) ) {
-      #     ssu_thr($rrndb_ssu_avg)
-      #   # Use 5S or 23S if missing 16S (5S and 28S if missing 18S) and matching rrNDB
-      #
-      #}
+      if ( (not $resolved) && ($img_1XS_ssu == 0) && (not defined $infernal_ssu) &&
+           (not defined $rnammer_ssu) && (defined $rrndb_ssu_avg) && ($img_5S_ssu > 0) &&
+           (delta($img_5S_ssu, $rrndb_ssu_avg) < ssu_thr($rrndb_ssu_avg)) ) {
+         # If IMG 16S is 0, INFERNAL and RNAmmer missing, but 5S agrees with rrNDB
+         $correct = $img_5S_ssu;
+         $source = 'img';
+         $resolved = 1;
+         warn "Warn: Copy number of genome ID $id ($img_1XS_ssu) was replaced ".
+            "by $correct because $trunc_str IMG 5S ($img_5S_ssu) agrees with ".
+            "rrNDB ($rrndb_ssu_avg).\n";
+      }
+
+      # Case 6
+      if ( (not $resolved) && ($img_1XS_ssu == 0) && (not defined $infernal_ssu) &&
+           (not defined $rnammer_ssu) && (defined $rrndb_ssu_avg) && ($img_2XS_ssu > 0) &&
+           (delta($img_2XS_ssu, $rrndb_ssu_avg) < ssu_thr($rrndb_ssu_avg)) ) {
+         # If IMG 16S is 0, INFERNAL and RNAmmer missing, but 2XS agrees with rrNDB
+         $correct = $img_2XS_ssu;
+         $source = 'img';
+         $resolved = 1;
+         warn "Warn: Copy number of genome ID $id ($img_1XS_ssu) was replaced ".
+            "by $correct because $trunc_str IMG ".$types[2]." ($img_2XS_ssu) ".
+            "agrees with rrNDB ($rrndb_ssu_avg).\n";
+      }
 
       if ($trunc_str) {
          $source .= '_'.$trunc_str;
@@ -437,16 +456,9 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
    }
 
    if ( (not $correct) && ($is_dodgy >= $discard_lvl) ) {
-      # Show data for very dodgy copy numbers that could not be corrected
-      show_evidence($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer);
+      # Show data for copy numbers that could not be corrected
+     show_evidence($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer);
    }
-
-   ####
-   #if ( ($img_1xS_ssu == 0) && ()  ) {
-   #   # Show data for very dodgy copy numbers that could not be corrected
-   #   show_evidence($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer);
-   #}
-   ####
 
    if ($correct) {
       $img_data->{$types[0]} = $correct;
@@ -579,9 +591,8 @@ func is_dodgy ($id, $img, $rrndb_avg, $infernal, $rnammer, Int $silent = 0) {
    #####
    # dodgy is avg_scaff_len < 1000_000
    # very dodgy if < 100000
+   # warn if different from species average in img
    #####
-
-   ### warn if different from species average in img
 
    if (not $silent) {
       if (defined $msg) {
