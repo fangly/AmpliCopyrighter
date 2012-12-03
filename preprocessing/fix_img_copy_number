@@ -307,7 +307,7 @@ func check_copy_number ( $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer
       if ( $is_dodgy ) {
          my $is_resolved = resolve_copy_number($id, $img, $img_avg, $rrndb_avg,
             $rrndb_avg, $infernal, $rnammer, $infernal_trunc, $rnammer_trunc,
-            $scaff_thr, $is_dodgy);
+            $scaff_thr, $is_dodgy, $discard_lvl);
          if ($is_resolved) {
             if ($is_dodgy == 1) {
               $num_resolved++;
@@ -334,7 +334,7 @@ func check_copy_number ( $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer
 
 
 func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
-   $rnammer, $infernal_trunc, $rnammer_trunc, $scaff_thr, $is_dodgy) {
+   $rnammer, $infernal_trunc, $rnammer_trunc, $scaff_thr, $is_dodgy, $discard_lvl) {
 
    my $source;
    my $correct;
@@ -426,7 +426,7 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
       last if $resolved;
    }
 
-   if ( (not $correct) && ($is_dodgy == 2) ) {
+   if ( (not $correct) && ($is_dodgy >= $discard_lvl) ) {
       # Show data for very dodgy copy numbers that could not be corrected
       show_evidence($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer);
    }
