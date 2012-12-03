@@ -74,6 +74,14 @@ Species, Strain designation, 16S, ITS, 23S and 5S (but extra columns are ok).
 
 =over
 
+=item -c <completeness>
+
+What genomes to include: finished, draft, all
+
+=for Euclid:
+   completeness.type: /(finished|draft|all)/
+   completeness.default: 'all'
+
 =item -t <trunc>
 
 When counting IMG, INFERNAL or RNAmmer SSU, consider SSUs smaller than the
@@ -101,6 +109,14 @@ Name of file in which to save the updated IMG metadata. Default: out_meta.defaul
 =for Euclid:
    out_meta.type: writeable
    out_meta.default: 'img_metadata_fixed.csv'
+
+=item -n <new_rrndb>
+
+Name of file in which to save the cleaned rrNDB data. Default: new_rrndb.default
+
+=for Euclid:
+   new_rrndb.type: writeable
+   new_rrndb.default: 'rrndb_cleaned.csv'
 
 =back
 
@@ -142,16 +158,17 @@ use Statistics::Basic qw(mean stddev);
 $Statistics::Basic::IPRES = 8;
 
 fix_img_copy_number( $ARGV{'i'}, $ARGV{'g'}, $ARGV{'r'}, $ARGV{'f'}, $ARGV{'m'},
-   $ARGV{'t'}, $ARGV{'s'}, $ARGV{'o'} );
+   $ARGV{'c'}, $ARGV{'t'}, $ARGV{'s'}, $ARGV{'o'}, $ARGV{'n'} );
 
 exit;
 
 
 func fix_img_copy_number ( Str $img_metafile, Str $img_fasta, Str $rrndb_file,
-   Str $infernal_fasta, Str $rnammer_fasta, Int $trunc, Int $scaff_thr, Str $out_meta ) {
-   # Read all these input files in
-   my $img_meta  = read_img_metadata($img_metafile, $img_fasta, $trunc);
-   my $rrndb     = read_rrndb($rrndb_file);
+   Str $infernal_fasta, Str $rnammer_fasta, Str $completeness, Int $trunc,
+   Int $scaff_thr, Str $out_meta, Str $new_rrndb ) {
+   # Read all these input files
+   my $img_meta  = read_img_metadata($img_metafile, $img_fasta, $completeness, $trunc);
+   my $rrndb     = read_rrndb($rrndb_file, $new_rrndb);
    my $infernal  = count_genome_ssu($infernal_fasta);
    my $rnammer   = count_genome_ssu($rnammer_fasta );
    my $infernal_trunc = count_genome_ssu($infernal_fasta, $trunc);
@@ -263,7 +280,8 @@ func check_copy_number ( $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer
       # Try to fix copy number
       if ( $is_dodgy ) {
          my $is_resolved = resolve_copy_number($id, $img, $img_avg, $rrndb_avg,
-            $rrndb_avg, $infernal, $rnammer, $infernal_trunc, $rnammer_trunc, $scaff_thr);
+            $rrndb_avg, $infernal, $rnammer, $infernal_trunc, $rnammer_trunc,
+            $scaff_thr, $is_dodgy);
          if ($is_resolved) {
             if ($is_dodgy == 1) {
               $num_resolved++;
@@ -275,7 +293,7 @@ func check_copy_number ( $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer
                # If it was very dodgy and could not be fixed, remove it
                delete $img->{$id};
                $num_removed++;
-               warn "warn: Copy number for genome ID $id could not be corrected".
+               warn "Warn: Copy number of genome ID $id could not be corrected".
                   " and was so dodgy it had to be removed.\n";
             }
          }
@@ -289,7 +307,7 @@ func check_copy_number ( $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer
 
 
 func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
-   $rnammer, $infernal_trunc, $rnammer_trunc, $scaff_thr) {
+   $rnammer, $infernal_trunc, $rnammer_trunc, $scaff_thr, $is_dodgy) {
 
    my $source;
    my $correct;
@@ -325,7 +343,7 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
          $correct = $infernal_ssu;
          $source = 'infernal';
          $resolved = 1;
-         warn "Warn: Copy number for genome ID $id ($img_ssu) was replaced by ".
+         warn "Warn: Copy number of genome ID $id ($img_ssu) was replaced by ".
             "$correct because $trunc_str INFERNAL ($infernal_ssu), $trunc_str ".
             "RNAmmer ($rnammer_ssu) and rrNDB (species average: $rrndb_ssu_avg)".
             " all agree.\n";
@@ -339,7 +357,7 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
          $correct = $rnammer_ssu;
          $source = 'rnammer';
          $resolved = 1;
-         warn "Warn: Copy number for genome ID $id ($img_ssu) was replaced by ".
+         warn "Warn: Copy number of genome ID $id ($img_ssu) was replaced by ".
             "$correct because $trunc_str RNAmmer ($rnammer_ssu) and rrNDB ".
             "(species average: $rrndb_ssu_avg) agree. INFERNAL abstained.\n";
       }
@@ -352,7 +370,7 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
          $correct = $infernal_ssu;
          $source = 'infernal';
          $resolved = 1;
-         warn "Warn: Copy number for genome ID $id ($img_ssu) was replaced by ".
+         warn "Warn: Copy number of genome ID $id ($img_ssu) was replaced by ".
             "$correct because $trunc_str INFERNAL ($infernal_ssu) and rrNDB ".
             "(species average: $rrndb_ssu_avg) agree. RNAmmer abstained.\n";
       }
@@ -367,7 +385,7 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
             $correct = $infernal_ssu;
             $source = 'infernal';
             $resolved = 1;
-            warn "Warn: Copy number for genome ID $id ($img_ssu) was replaced ".
+            warn "Warn: Copy number of genome ID $id ($img_ssu) was replaced ".
                "by $correct because $trunc_str INFERNAL ($infernal_ssu) and ".
                "$trunc_str RNAmmer ($rnammer_ssu) agree. rrNDB abstained.\n";
          }
@@ -380,7 +398,8 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
       last if $resolved;
    }
 
-   if (not $correct) {
+   if ( (not $correct) && ($is_dodgy == 2) ) {
+      # Show data for very dodgy copy numbers that could not be corrected
       show_evidence($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer);
    }
 
@@ -414,37 +433,45 @@ func show_evidence ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer
    my @vals;
    my $evi = '';
    $evi .= "  $name (ID $id): $domain, $status, $scaff scaffolds, $length bp, avg $avg_scaff_len bp / scaffold\n";
-   $evi .= "      Type\t".join("\t",@traits)."\n";
+   $evi .= "       Type\t".join("\t",@traits)."\n";
    # IMG
    @vals = map { defined $img->{$id}->{$_} ?
                  $img->{$id}->{$_} :
                  '-'
                } @traits;
-   $evi .= "       IMG\t".join("\t",@vals)."\n";
+   $evi .= "        IMG\t".join("\t",@vals)."\n";
    # RNAmmer
    @vals = (defined $rnammer->{$id} ? $rnammer->{$id} : '-', '-', '-', '-');
-   $evi .= "   RNAmmer\t".join("\t",@vals)."\n";
+   $evi .= "    RNAmmer\t".join("\t",@vals)."\n";
    # INFERNAL
    @vals = (defined $infernal->{$id} ? $infernal->{$id} : '-', '-', '-', '-');
-   $evi .= "  INFERNAL\t".join("\t",@vals)."\n";
-   # Stats for the entire species
-   $evi .= "\n";
-   $evi .= "  ".$genus.' '.$species.", species average:\n";
+   $evi .= "   INFERNAL\t".join("\t",@vals)."\n";
    # IMG species average
    @vals = map { defined $img_avg->{$domain}->{$genus}->{$species}->{$_}->{'avg'} ?
                  sprintf($fmt, $img_avg->{$domain}->{$genus}->{$species}->{$_}->{'avg'}) :
                  '-'
                } @traits;
-   $evi .= "       IMG\t".join("\t",@vals)."\n";
+   $evi .= "    IMG avg\t".join("\t",@vals)."\n";
    # rrNDB species average
    @vals = map { defined $rrndb_avg->{'Bacteria'}->{$genus}->{$species}->{$_}->{'avg'} ?
                  sprintf($fmt, $rrndb_avg->{'Bacteria'}->{$genus}->{$species}->{$_}->{'avg'}) :
                  '-'
                } @traits;
-   $evi .= "     rrNDB\t".join("\t",@vals)."\n";
+   $evi .= "  rrNDB avg\t".join("\t",@vals)."\n";
    $evi .= "\n";
    warn $evi;
    return 1;
+}
+
+
+func ssu_thr ($mean_copy) {
+   # Using rrNDB, it looks like there is a linear relation between the max
+   # difference D between a copy number for a genome and the average copy number
+   # X of the species that this genome is from:
+   #    at X =  3.25, D = 1
+   #    at X = 12.5 , D = 2
+   # Or: D = 0.10811 X + 0.64865
+   return 0.125 * $mean_copy + 0.438;
 }
 
 
@@ -488,16 +515,26 @@ func is_dodgy ($id, $img, $rrndb_avg, $infernal, $rnammer, Int $silent = 0) {
       $is_dodgy = 1;
    }
 
+
    my $rrndb_ssu_avg = $rrndb_avg->{'Bacteria'}->{$genus}->{$species}->{$type}->{'avg'};
-   if ( (defined $rrndb_ssu_avg) && (delta($rrndb_ssu_avg, $img_ssu) > 2) ) {
-      $msg = "Warn: Copy number of genome ID $id ($img_ssu) is very dodgy: very".
-         " different from rrNDB's average for $genus $species ($rrndb_ssu_avg)\n";
-      $is_dodgy = 2;
-   } elsif ( (defined $rrndb_ssu_avg) && (delta($rrndb_ssu_avg, $img_ssu) > 1) ) {
-      $msg = "Warn: Copy number of genome ID $id ($img_ssu) is dodgy: different".
-         " from rrNDB's average for $genus $species ($rrndb_ssu_avg)\n";
-      $is_dodgy = 1;
+   if (defined $rrndb_ssu_avg) {
+      my $thr = ssu_thr($rrndb_ssu_avg);
+      my $delta = delta($rrndb_ssu_avg, $img_ssu);
+      if ($delta > 2 * $thr) {
+         $msg = "Warn: Copy number of genome ID $id ($img_ssu) is very dodgy: very".
+            " different from rrNDB's average for $genus $species ($rrndb_ssu_avg)\n";
+         $is_dodgy = 2;
+      } elsif ($delta > 1 * $thr) {
+         $msg = "Warn: Copy number of genome ID $id ($img_ssu) is dodgy: different".
+            " from rrNDB's average for $genus $species ($rrndb_ssu_avg)\n";
+         $is_dodgy = 1;
+      }
    }
+
+   #####
+   # dodgy is avg_scaff_len < 1000_000
+   # very dodgy if < 100000
+   #####
 
    ### warn if different from species average in img
 
@@ -609,12 +646,14 @@ func rrndb_avg ( $rrndb_data ) {
 }
 
 
-func read_rrndb ( Str $rrndb_file ) {
+func read_rrndb ( Str $rrndb_in, Str $rrndb_out ) {
    my $rrndb_data;
-   open my $in, '<', $rrndb_file or die "Error: Could not read file $rrndb_file\n";
+   open my $in , '<', $rrndb_in  or die "Error: Could not read file $rrndb_in\n";
+   open my $out, '>', $rrndb_out or die "Error: Could not write file $rrndb_out\n";
    # Identify which column holds the info we want
    my $header = <$in>;
    chomp $header;
+   print $out "$header\n";
    my @cols = find_column_for($header, 'Genus', 'Species', 'Strain designation',
       '16S', 'ITS', '23S', '5S', 'Status', 'Scaffold Count', 'Genome Size');
    # Parse file
@@ -622,23 +661,63 @@ func read_rrndb ( Str $rrndb_file ) {
    while (my $line = <$in>) {
       chomp $line;
       next if $line =~ m/^#/;
+      next if $line =~ m/^Average/;
       $num++;
       my @splitline = split /\t/, $line;
-      my ($genus, $species, $strain, $S16, $its, $S23, $S5) = @splitline[@cols];
+      my ($genus, $species, $strain, $S16, $its, $S23, $S5) = clean_rrndb( @splitline[@cols] );
+      print $out join("\t", $genus, $species, $strain, $S16||'', $its||'', $S23||'', $S5||'')."\n";
       my $id = $num; # make up an ID
       my $name = "$genus $species $strain";
       $rrndb_data->{$id}->{'domain'}  = 'Bacteria'; # no euks, just proks (assume bacteria)
       $rrndb_data->{$id}->{'genus'}   = $genus;
       $rrndb_data->{$id}->{'species'} = $species;
       $rrndb_data->{$id}->{'name'}    = $name;
-      $rrndb_data->{$id}->{'5S'}      = $S5  unless $S5  eq 'NA';
-      $rrndb_data->{$id}->{'23S'}     = $S23 unless $S23 eq 'NA';
-      $rrndb_data->{$id}->{'16S'}     = $S16 unless $S16 eq 'NA';
-      $rrndb_data->{$id}->{'ITS'}     = $its unless $its eq 'NA';
+      $rrndb_data->{$id}->{'5S'}      = $S5  if defined $S5;
+      $rrndb_data->{$id}->{'23S'}     = $S23 if defined $S23;
+      $rrndb_data->{$id}->{'16S'}     = $S16 if defined $S16;
+      $rrndb_data->{$id}->{'ITS'}     = $its if defined $its;
    }
+   close $out;
    close $in;
    warn "Info: Parsed $num species from rrNDB file\n";
    return $rrndb_data;
+}
+
+
+func clean_rrndb ($genus, $species, $strain, $S16, $its, $S23, $S5) {
+   $S16 = undef if $S16 eq 'NA';
+   $its = undef if $its eq 'NA';
+   $S23 = undef if $S23 eq 'NA';
+   $S5  = undef if $S5  eq 'NA';
+   $species =~ s/^sp\.?$//i;      # sp.
+   $strain  =~ s/^\(no .+\)$//i;  # (no designation)
+   $genus   =~ s/^\(no .+\)$//i;  # (no genus)
+   $genus   =~ s/^Candidatus //i;
+   $genus   =~ s/ sensu stricto//i;
+   $genus   =~ s/_incertae_sedis//i;
+   my %repl = (
+      'Escherichia/Shigella boydii'         => 'Shigella',
+      'Escherichia/Shigella coli'           => 'Escherichia',
+      'Escherichia/Shigella dysenteriae'    => 'Shigella',
+      'Escherichia/Shigella enterocolitica' => 'Yersinia',
+      'Escherichia/Shigella fergusonii'     => 'Escherichia',
+      'Escherichia/Shigella flexneri'       => 'Shigella',
+      'Escherichia/Shigella sonnei'         => 'Shigella',
+      'GpI punctiforme'                     => 'Nostoc',
+      'GpXI aeruginosa'                     => 'Microcystis',
+   );
+   my $full_name = $genus.' '.$species;
+   if (exists $repl{$full_name}) {
+      $genus = $repl{$full_name};
+   }
+   %repl = (
+      'Rs-D17' => ['Endomicrobium', ''],
+      'M18'    => ['Pseudomonas', 'aeruginosa'],
+   );
+   if (exists $repl{$strain}) {
+      ($genus, $species) = @{$repl{$strain}};
+   }
+   return $genus, $species, $strain, $S16, $its, $S23, $S5;
 }
 
 
@@ -698,10 +777,10 @@ func img_avg ( $img_data ) {
 }
 
 
-func read_img_metadata ( Str $img_metadata, Str $img_fasta, Int $trunc ) {
+func read_img_metadata ( Str $img_metadata, Str $img_fasta, Str $completeness,
+   Int $trunc ) {
    # Read SSU count from FASTA file
    my $img_ssus = count_genome_ssu($img_fasta, $trunc);
-
    # Read IMG metadata file and record some data
    my $img_data;
    open my $in, '<', $img_metadata or die "Error: Could not read file $img_metadata\n$!\n";
@@ -720,15 +799,11 @@ func read_img_metadata ( Str $img_metadata, Str $img_fasta, Int $trunc ) {
       my @splitline = split /\t/, $line;
       my ($id, $name, $domain, $genus, $species, $S5, $S16, $S18, $S23, $S28,
          $scaff, $length, $status) = @splitline[@cols];
-
-      #### any weird values to take care of? empty string? 'n/a'?
-
-      #### can skip this genome if too many scaffolds or short length
-
+      # Remove draft or finished genomes, as specified
+      next if not status_ok($status, $completeness);
       # Remove Candidatus everywhere to make it easier on ourself
       $name  =~ s/Candidatus //i;
       $genus =~ s/Candidatus //i;
-
       # Record taxonomic and SSU info
       $img_data->{$id}->{'domain'}  = $domain;
       $img_data->{$id}->{'genus'}   = $genus;
@@ -768,6 +843,21 @@ func read_img_metadata ( Str $img_metadata, Str $img_fasta, Int $trunc ) {
    close $in;
    warn "Info: Parsed $num genomes from IMG metadata file\n";
    return $img_data;
+}
+
+
+func status_ok ( Str $status, Str $completeness ) {
+   my $ok = 1;
+   if ($completeness eq 'finished') {
+      $ok = 0 if $status !~ m/finish/i;
+   } elsif ($completeness eq 'draft') {
+      $ok = 0 if $status !~ m/draft/i;
+   } elsif ($completeness eq 'all') {
+      # nothing to do
+   } else {
+      die "Error: unknown completeness value '$completeness'\n";
+   }
+   return $ok;
 }
 
 
