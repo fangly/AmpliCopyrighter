@@ -16,18 +16,19 @@ img_gg_matcher - Find the Greengenes ID for IMG IDs that miss it
 =head1 DESCRIPTION
 
 Given a file of correspondances between IMG IDs and Greengenes ID, remove
-eukaryotic IDs and try to find some of the missing Greengenes IDs using two
+eukaryotic IDs (Greengenes contains no eukaryotes), and try to find some of the
+missing Greengenes IDs using two
 methods:
 
 =over
 
 =item 1/
 
-By matching names. See the <desc> and <names> options.
+By matching names (fast). See the <desc> and <names> options.
 
 =item 2/
 
-By matching sequences very stringently (using BLAT). See the <rrna> option.
+By matching sequences very stringently (using BLAT, slower). See the <rrna> option.
 
 =back
 
@@ -48,9 +49,8 @@ correspondances can be extracted from IMG (http://img.jgi.doe.gov/) and GOLD
 =item -i <img_file>
 
 Provide an IMG metadata file can be obtained using the export function of IMG
-(http://img.jgi.doe.gov/). It should have 13 tab-delimited columns (in this
-order): taxon_oid, Domain, Status, Genome Name, Phylum, Class, Order, Family,
-Genus, Species, Genome Size, Gene Count, 16S rRNA Count.
+(http://img.jgi.doe.gov/). It should have tab-delimited columns, with at least
+these columns: taxon_oid, Domain, Genome Name.
 
 =for Euclid:
    img_file.type: readable
@@ -611,35 +611,24 @@ func read_metadata ( Str $file, $correlations, $missing ) {
    # Read IMG metadata file
    my %metadata;
    open my $fh, '<', $file or die "Error: Could not read file $file\n$!\n";
-   <$fh>; # burn headers
+   my $header = <$fh>;
+   chomp $header;
+   my ($idcol, $domcol, $namecol) = find_column_for($header, 'taxon_oid', 'Domain', 'Genome Name');
    my $num = 0;
    while (my $line = <$fh>) {
       chomp $line;
       next if $line =~ m/^#/;
       $num++;
       my @splitline = split /\t/, $line;
-      my $domain = $splitline[1];
-      my $img_id = $splitline[0];
+      my $img_id = $splitline[$idcol];
+      my $domain = $splitline[$domcol];
       if ( $domain !~ m/^(?:bacteria|archaea)$/i ) {
          # Keep only bacteria and archaea. Skip eukaryotes, etc.
          delete $correlations->{$img_id};
          delete $missing->{$img_id};
          next;
       }
-      #my $status = $splitline[2];
-      #if ($ARGV{'f'}) {
-      #   # Keep only finished genomes. Skip draft genomes, etc.
-      #   if (! ($status eq 'Finished')) {
-      #      next;
-      #   }
-      #}
-      my $img_name    = $splitline[3];
-      #my $img_tax     = join(';', @splitline[4..9]);
-      #my $gg_id       = $correlations{$img_id};
-      #my $gg_tax      = (defined($gg_id) && exists($gg_taxonomies{$gg_id})) ? $gg_taxonomies{$gg_id} : '-';
-      #my $rRNA_count  = $splitline[12];
-      #my $genome_size = $splitline[10];
-      #my $gene_count  = $splitline[11];
+      my $img_name = $splitline[$namecol];
       $metadata{$img_id} = $img_name;
       if (not exists $correlations->{$img_id}) {
          $missing->{$img_id} = $img_name;
@@ -669,4 +658,36 @@ func read_correspondances ( Str $file ) {
    close $fh;
    warn "Info: Read ".scalar(keys(%correlations))." entries from file $file.\n";
    return \%correlations, \%missing;
+}
+
+
+sub find_column_for {
+   my ($header_line, @names) = @_;
+   # Given a tab-separated header line, find which column matches the given name.
+   # Search is insensitive to case, spaces, underscores and dashes. Also, note
+   # that matches only need to be partial.
+   my @fields = split /\t/, $header_line;
+   # Make names and cols insensitive
+   for my $arr ( \@fields, \@names ) {
+      for my $i (0 .. scalar @$arr - 1) {
+         $arr->[$i] =~ s/[\s_-]//g;
+         $arr->[$i] = lc $arr->[$i];
+      }
+   }
+   # Look for names in column headers
+   my @col_nums;
+   for my $name (@names) {
+      my $col_num;
+      for ($col_num = 0; $col_num < scalar @fields; $col_num++) {
+         my $field = $fields[$col_num];
+         if ($field =~ m/$name/) {
+            push @col_nums, $col_num;
+            last;
+         }
+      }
+      if (not defined $col_num) {
+         die "Error: Could not find column holding '$name' data\n";
+      }
+   }
+   return @col_nums;
 }
