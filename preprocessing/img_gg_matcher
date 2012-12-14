@@ -75,9 +75,9 @@ downloaded from the SecondGenome website at L<ftp://greengenes.microbio.me/green
 =item -d <desc>
 
 Look up names of species in the Greengenes FASTA file (sequence description
-field) and if an organism similar enough (at least at species level, but maybe
-not quite at subspecies or strain level), take its Greengenes ID. The sequence
-headers should look like this:
+field) and if an organism's name is similar enough (at least at species level,
+but maybe not quite at subspecies or strain level), take its Greengenes ID. The
+sequence headers should look like this:
 
   >20 AF025822.1 Methanococcus infernus k__Archaea; p__Euryarchaeota; c__Methanococci; o__Methanococcales; f__Methanocaldococcaceae; g__Methanocaldococcus; otu_139
 
@@ -104,14 +104,24 @@ Use the output file as input for this option.
 Match the IMG 16S rRNA sequences in the provided file and compare them to
 sequences in the Greengenes database (<seq_file> option). Take the Greengenes ID
 of the first highly similar sequence. Using this option can increase runtime
-significantly.... be patient. Note that in addition to standard FASTA
-headers, this file can have a more specific header that includes an IMG genome
-ID, an underscore and an IMG gene ID, e.g.:
+significantly... be patient. Note that in addition to standard FASTA headers,
+this file can have a more specific header that includes an IMG genome ID, an
+underscore and an IMG gene ID, e.g.:
 
   >640753060_640862969
 
 =for Euclid:
    rrna.type: string
+
+=item -o <out_blat>
+
+When <rrna> is specified, this option is used to provide a name for the output
+BLAT file. If the file already exists, this is used again to avoid re-running
+the BLAT step and save time. Default: out_blat.default
+
+=for Euclid:
+   out_blat.type: writable
+   out_blat.default: 'blat_out.psl'
 
 =back
 
@@ -148,16 +158,19 @@ use warnings;
 use List::Util qw(min);
 use Method::Signatures;
 use Getopt::Euclid qw(:minimal_keys);
-use Bio::DB::Fasta;
 use Bio::SeqIO;
+use Bio::SearchIO;
+use Bio::DB::Fasta;
 
+my $DEBUG = 1;
 
-img_gg_matcher( $ARGV{'c'}, $ARGV{'i'}, $ARGV{'s'}, $ARGV{'d'}, $ARGV{'n'}, $ARGV{'r'} );
+img_gg_matcher( $ARGV{'c'}, $ARGV{'i'}, $ARGV{'s'}, $ARGV{'d'}, $ARGV{'n'},
+   $ARGV{'r'}, $ARGV{'o'} );
 exit;
 
 
 func img_gg_matcher ( Str $corr_file, Str $img_file, Str $seq_file,
-   $search_desc, $search_names, $search_seqs ) {
+   $search_desc, $search_names, $search_seqs, $out_blat ) {
 
    # Parse correspondance file, identify some missing IDs
    my ($correlations, $missing) = read_correspondances($corr_file);
@@ -173,10 +186,10 @@ func img_gg_matcher ( Str $corr_file, Str $img_file, Str $seq_file,
 
       # Index FASTA file and sort genome names by taxa
       my ($db, $ids) = index_fasta($seq_file);
-      my $gg_taxa    = gg_id_by_taxa($db, $search_desc, $search_names);
 
       # Find a matching name
       if ($search_desc || $search_names) {
+         my $gg_taxa = gg_id_by_taxa($db, $search_desc, $search_names);
          ($correlations, $missing) = match_names($names, $correlations, $missing,
             $gg_taxa);
          warn "Info: There are still ".scalar(keys(%$missing))." missing IDs\n";
@@ -185,7 +198,7 @@ func img_gg_matcher ( Str $corr_file, Str $img_file, Str $seq_file,
       # Find a perfectly matching sequence
       if ($search_seqs) {
          ($correlations, $missing) = match_sequences($correlations, $missing,
-             $search_seqs, $seq_file);
+             $search_seqs, $seq_file, $out_blat);
          warn "Info: There are still ".scalar(keys(%$missing))." missing IDs\n";
       }
 
@@ -197,7 +210,7 @@ func img_gg_matcher ( Str $corr_file, Str $img_file, Str $seq_file,
 }
 
 
-func match_sequences ($correlations, $missing, $img_fasta, $gg_fasta) {
+func match_sequences ($correlations, $missing, $img_fasta, $gg_fasta, $out_blat) {
    # Run BLAT and only get very stringent similarities (no more than a couple bp
    # different)
    #   query : Greengenes 16S sequences
@@ -207,29 +220,31 @@ func match_sequences ($correlations, $missing, $img_fasta, $gg_fasta) {
    my $min_coverage = 99.8;
 
    my $out_file = 'match_sequences.blat';
-   my $matches;
-   if (-e $out_file) {
-      warn "Info: Not re-running BLAT. Using existing BLAT results $out_file\n";
-      ($matches, undef) = read_correspondances($out_file);
+
+   my $report;
+   if (-e $out_blat) {
+      warn "Info: Re-using previous BLAT results...\n";
+      $report = Bio::SearchIO->new(-file => $out_blat, -format => 'psl');
    } else {
       warn "Info: Running BLAT...\n";
       my $db_fasta = $gg_fasta;
       my $query_fasta = filter_fasta($img_fasta, $missing);
-      my $report = run_blat($query_fasta, $db_fasta, $min_identity);
+      $report = run_blat($query_fasta, $db_fasta, $min_identity, $out_blat);
       unlink $query_fasta;
-      $matches = parse_blat_results($report, $min_identity, $min_coverage, $out_file);
-      warn "Info: Done running BLAT...\n";
    }
+
+   warn "Info: Parsing BLAT results in $out_blat...\n";
+   my $matches = parse_blat_results($report, $min_identity, $min_coverage, $out_file);
 
    my $num_matches = 0;
    while ( (my $img_id, undef) = each %{$missing} ) {
-      warn sprintf( "Info: Searching for sequence match for IMG ID %12s ... %s\n", $img_id, '');
+      warn sprintf( "Info: Searched for sequence match for IMG ID %12s ... %s\n", $img_id, '');
       if (exists $matches->{$img_id}) {
          my $gg_id = $matches->{$img_id};
          $correlations->{$img_id} = $gg_id;
          delete $missing->{$img_id};
          $num_matches++;
-         warn sprintf("Info: Found   great sequence match,     GG ID %12s ... %s\n", $gg_id, '');
+         warn sprintf("Info: Found  great sequence match,     GG ID %12s ... %s\n", $gg_id, '');
       }
    }
 
@@ -243,20 +258,25 @@ func filter_fasta ($in_fasta_file, $ids) {
    my $out_fasta_file = $in_fasta_file.'.temp';
    my $in  = Bio::SeqIO->new( -file => '<'.$in_fasta_file , -format => 'fasta' );
    my $out = Bio::SeqIO->new( -file => '>'.$out_fasta_file, -format => 'fasta' );
+   my $num = 0;
    while (my $seq = $in->next_seq) {
       my $id = extract_img_id( $seq->id );
       if (exists $ids->{$id}) {
          # Write this sequence
          $out->write_seq($seq);
+         $num++;
       }
    }
    $in->close;
    $out->close;
+   if ($num == 0) {
+      warn "Warn: 0 sequences in filtered FASTA file $out_fasta_file\n";
+   }
    return $out_fasta_file;
 }
 
 
-func run_blat ($query_fasta, $db_fasta, $min_identity) {
+func run_blat ($query_fasta, $db_fasta, $min_identity, $out_blat) {
    # Run Blat
    eval { require Bio::Tools::Run::Alignment::Blat; };
    if ($@) {
@@ -264,9 +284,10 @@ func run_blat ($query_fasta, $db_fasta, $min_identity) {
          "Bio::Tools::Run::Alignment::Blat. You need to install bioperl-run!\n";
    }
    my $factory = Bio::Tools::Run::Alignment::Blat->new(
-      -db          => $db_fasta,
-      -minIdentity => $min_identity,
-      #-fastMap    => 1, # not so good to find matches with a few errors
+      -db           => $db_fasta,
+      -minIdentity  => $min_identity,
+      #-fastMap     => 1, # not so good to find matches with a few errors
+      -outfile_name => $out_blat,
    );
    my $report = $factory->run($query_fasta);
    return $report;
@@ -276,61 +297,71 @@ func run_blat ($query_fasta, $db_fasta, $min_identity) {
 func parse_blat_results ( $report, $min_identity, $min_coverage, $out_file ) {
    # Parse BLAT results and save correspondances
    my %matches;
-   my ($genome_id, $genome_best_score, $genome_best_target);
+   my ($genome_id, $genome_best_raw_score, $genome_best_target, $genome_best_custom_score);
+
    open my $out, '>', $out_file or die "Error: Could not write results in file $out_file\n$!\n";
    QUERY: while (my $result = $report->next_result) {
- 
       my $query_id     = extract_img_id( $result->query_name );
       my $query_length = $result->query_length;
 
-      # Save results and reset some variables if we are looking at a new genome
-      if ( (not defined $genome_id) or (not $genome_id eq $query_id) ) {
-         $matches{$genome_id} = $genome_best_target;
-         print $out "$genome_id\t$genome_best_target\n";
-         ($genome_id, $genome_best_score, $genome_best_target) = ($query_id, undef, undef);
+      # If we are looking at a new genome
+      if ( (defined $genome_id) and (not $genome_id eq $query_id) ) {
+         warn "\n" if $DEBUG;
+         # If a suitable hit was found
+         if (defined $genome_best_target) {
+            # Save results and reset some variables
+            $matches{$genome_id} = $genome_best_target;
+            print $out "$genome_id\t$genome_best_target\n";
+            ($genome_id, $genome_best_raw_score, $genome_best_target, $genome_best_custom_score) =
+               ($query_id, undef, undef, undef);
+         }
       }
+      warn "Query ".$result->query_name." (IMG ID $query_id): $query_length bp\n" if $DEBUG;
 
       # Go through hits by decreasing bit score
       HIT: for my $hit ( sort { $b->raw_score <=> $a->raw_score } $result->hits ) {
-         my $target_length = $hit->length;
+         my $target_length = $hit->length('hit'); # length of _target_ seq?
          my $target_score  = $hit->raw_score;
-         #print "   Target ".$hit->name." (bitscore: ".$hit->raw_score ."): $target_length bp\n";
+         warn "   Target GG ".$hit->name." (score: ".($hit->raw_score||'-')."  ".
+            "bits: ".($hit->bits||'-')."  significance: ".($hit->significance||'-')."): ".
+            "$target_length bp\n" if $DEBUG;
+
+         # Consider hits with equal score (many of them have 100.00)
+         if ( (defined $genome_best_raw_score) && ($target_score < $genome_best_raw_score) ) {
+            last HIT;
+         }
 
          while ( my $hsp = $hit->next_hsp ) {
+            my $min_seq_len = min($query_length, $target_length);
 
             my $hsp_num_ident  = $hsp->num_identical;
-            my $hsp_perc_ident = $hsp_num_ident / min($query_length, $target_length) * 100;
-            #print "      NumIdentical=$hsp_num_ident  PercentId=$hsp_perc_ident\n";
+            my $hsp_perc_ident = $hsp_num_ident / $min_seq_len * 100;
+            warn "      NumIdentical=$hsp_num_ident  PercentId=$hsp_perc_ident\n" if $DEBUG;
             next if $hsp_perc_ident < $min_coverage;
 
             my $hsp_length     = min($hsp->length('query'), $hsp->length('hit'));
-            my $hsp_coverage   = $hsp_length / $query_length * 100;
-            #print "      Length=$hsp_length  Coverage=$hsp_coverage\n";
+            my $hsp_coverage   = $hsp_length / $min_seq_len * 100;
+            warn "      Length=$hsp_length  Coverage=$hsp_coverage\n" if $DEBUG;
             next if $hsp_coverage < $min_coverage;
 
-            if ( ($hsp_coverage >= $min_coverage) && ($hsp_perc_ident >= $min_identity) ) {
-               # Store hit
-               #print "      KEEP ME\n";
-               if ($target_score > $genome_best_score) {
-                  ($genome_best_target, $genome_best_score) = ($hit->name, $target_score);
-               }
-               last HIT;
-            }
+            warn "      Hit passed filtering\n" if $DEBUG;
 
-            if ( ($hsp_coverage < $min_coverage) && ($hsp_perc_ident < $min_identity) ) {
-               # All hits after this one will have a smaller bitscore.
-               # So, we're done. This query sequence has no satisfactory hit.
-               last HIT;
+            # Store hit
+            my $custom_score = $hsp->num_identical;
+            if ( (not defined $genome_best_custom_score) || ($custom_score > $genome_best_custom_score) ) {
+               warn "      Saving hit... $custom_score identical residues\n" if $DEBUG;
+               ($genome_id, $genome_best_target, $genome_best_raw_score, $genome_best_custom_score) =
+                  ( $query_id , $hit->name, $target_score, $custom_score);
             }
-
-         }  
+         }
       }
-      #print "\n";
    }
 
    # Save results for last genome
-   $matches{$genome_id} = $genome_best_target;
-   print $out "$genome_id\t$genome_best_target\n";
+   if (defined $genome_id) {
+      $matches{$genome_id} = $genome_best_target;
+      print $out "$genome_id\t$genome_best_target\n";
+   }
 
    close $out;
    return \%matches;
