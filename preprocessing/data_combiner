@@ -125,41 +125,16 @@ exit;
 
 func data_combiner ( $img_file, $gg_file, $corr_file, $finished, $species) {
    # Create GG taxonomies hash
-   my %gg_taxonomies;
-   open my $fh, '<', $gg_file or die "Error: Could not read file $gg_file\n$!\n";
-   while (my $line = <$fh>) {
-      chomp $line;
-      next if $line =~ m/^#/;
-      my ($id, $tax_string) = split /\t/, $line;
-      $gg_taxonomies{$id} = $tax_string;
-      my $species = (split /;/, $tax_string)[-1];
-      if ($species =~ s/^\s+//) {
-         $sep_space = ' ';
-      }
-      if ($species =~ m/ /) {
-         $spp_space = ' ';
-      }
-   }
-   close $fh;
-   warn "Info: Read ".scalar(keys(%gg_taxonomies))." entries from taxonomy file\n";
-
+   my $gg_taxonomy = read_gg_taxo( $gg_file );
+   warn "Info: Read ".scalar(keys %$gg_taxonomy)." entries from taxonomy file\n";
 
    # Create IMG-GG correlation hash
-   my %correlations;
-   open $fh, '<', $corr_file or die "Error: Could not read file $corr_file\n$!\n";
-   while (my $line = <$fh>) {
-      chomp $line;
-      next if $line =~ m/^#/;
-      my ($img_id, $gg_id) = split /\t/, $line;
-      $correlations{$img_id} = $gg_id;
-   }
-   close $fh;
-   warn "Info: Read ".scalar(keys(%correlations))." entries from correlation file\n";
-
+   my $correlations = read_correlations( $corr_file );
+   warn "Info: Read ".scalar(keys %$correlations)." entries from correlation file\n";
 
    # Substitutions
    print "#IMG ID\tIMG Name\tIMG Tax\tGG ID\tGG Tax\t16S Count\tGenome Length\tGene Count\n";
-   open $fh, '<', $img_file or die "Error: Could not read file $img_file\n$!\n";
+   open my $fh, '<', $img_file or die "Error: Could not read file $img_file\n$!\n";
    <$fh>; # burn headers
    my $num = 0;
    while (my $line = <$fh>) {
@@ -185,8 +160,8 @@ func data_combiner ( $img_file, $gg_file, $corr_file, $finished, $species) {
       my $img_id      = $splitline[0];
       my $img_name    = $splitline[3];
       my $img_tax     = join(';', @splitline[4..9]);
-      my $gg_id       = $correlations{$img_id};
-      my $gg_tax      = (defined($gg_id) && exists($gg_taxonomies{$gg_id})) ? $gg_taxonomies{$gg_id} : '-';
+      my $gg_id       = $correlations->{$img_id};
+      my $gg_tax      = (defined($gg_id) && exists($gg_taxonomy->{$gg_id})) ? $gg_taxonomy->{$gg_id} : '-';
       my $rRNA_count  = $splitline[12];
       my $genome_size = $splitline[10];
       my $gene_count  = $splitline[11];
@@ -214,6 +189,41 @@ func data_combiner ( $img_file, $gg_file, $corr_file, $finished, $species) {
    warn "Info: Fixed $num_fixed GG taxonomy strings\n";
 
    return 1;
+}
+
+
+func read_gg_taxo ($gg_file) {
+   my $gg_taxonomy;
+   open my $fh, '<', $gg_file or die "Error: Could not read file $gg_file\n$!\n";
+   while (my $line = <$fh>) {
+      chomp $line;
+      next if $line =~ m/^#/;
+      my ($id, $tax_string) = split /\t/, $line;
+      $gg_taxonomy->{$id} = $tax_string;
+      my $species = (split /;/, $tax_string)[-1];
+      if ($species =~ s/^\s+//) {
+         $sep_space = ' ';
+      }
+      if ($species =~ m/ /) {
+         $spp_space = ' ';
+      }
+   }
+   close $fh;
+   return $gg_taxonomy;
+}
+
+
+func read_correlations ($corr_file) {
+   my $correlations;
+   open my $fh, '<', $corr_file or die "Error: Could not read file $corr_file\n$!\n";
+   while (my $line = <$fh>) {
+      chomp $line;
+      next if $line =~ m/^#/;
+      my ($img_id, $gg_id) = split /\t/, $line;
+      $correlations->{$img_id} = $gg_id;
+   }
+   close $fh;
+   return $correlations;
 }
 
 
