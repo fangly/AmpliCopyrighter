@@ -27,10 +27,12 @@ ID, IMG Name, IMG Tax, GG ID, GG Tax, 16S Count, Genome Length, Gene Count.
 
 =item -i <img_file>
 
-Input IMG metadata file. The IMG metadata file can be obtained using the export
-function of IMG (http://img.jgi.doe.gov/). It should have 13 tab-delimited
-columns (in this order): taxon_oid, Domain, Status, Genome Name, Phylum, Class,
-Order, Family, Genus, Species, Genome Size, Gene Count, 16S rRNA Count.
+Input tab-delimited IMG metadata file. The IMG metadata file can be obtained
+using the export function of IMG (http://img.jgi.doe.gov/). The number and order
+of the columns is not important, but this script expects to find at least five
+columns, named 'taxon_oid', 'Status', 'Genome Name', '16S rRNA Count' and
+'18S rRNA Count'. Two columns named 'GG ID' and 'GG Tax' will be added and
+printed to screen.
 
 =for Euclid:
    img_file.type: readable
@@ -127,67 +129,67 @@ func data_combiner ( $img_file, $gg_file, $corr_file, $finished, $species) {
    # Create GG taxonomies hash
    my $gg_taxonomy = read_gg_taxo( $gg_file );
    warn "Info: Read ".scalar(keys %$gg_taxonomy)." entries from taxonomy file\n";
-
    # Create IMG-GG correlation hash
    my $correlations = read_correlations( $corr_file );
    warn "Info: Read ".scalar(keys %$correlations)." entries from correlation file\n";
-
    # Substitutions
-   print "#IMG ID\tIMG Name\tIMG Tax\tGG ID\tGG Tax\t16S Count\tGenome Length\tGene Count\n";
+   combine( $img_file, $gg_taxonomy, $correlations, $finished, $species );
+   return 1;
+}
+
+
+func combine ($img_file, $gg_taxonomy, $correlations, $finished, $species) {
    open my $fh, '<', $img_file or die "Error: Could not read file $img_file\n$!\n";
-   <$fh>; # burn headers
+   my $header = <$fh>;
+   chomp $header;
+   my ($idcol, $domcol, $statcol, $namecol, $s16col, $s18col) = find_column_for($header,
+      'taxon_oid', 'Domain', 'Status', 'Genome Name', '16S rRNA Count', '18S rRNA Count');
+
+   print join( "\t", $header, 'GG ID', 'GG Tax')."\n";
+
    my $num = 0;
+   my $written = 0;
    while (my $line = <$fh>) {
       chomp $line;
       next if $line =~ m/^#/;
       $num++;
       my @splitline = split /\t/, $line;
-      my $domain = $splitline[1];
-      my $status = $splitline[2];
 
-      if (! (($domain eq 'Bacteria') || ($domain eq 'Archaea'))) {
-         # Keep only bacteria and archaea. Skip eukaryotes, etc.
-         next;
-      }
+      #my $domain = $splitline[$idcol];
+      #if (! (($domain eq 'Bacteria') || ($domain eq 'Archaea'))) {
+      #   # Keep only bacteria and archaea. Skip eukaryotes, etc.
+      #   next;
+      #}
 
       if ($finished) {
          # Keep only finished genomes. Skip draft genomes, etc.
+         my $status = $splitline[$statcol];
          if (not $status eq 'Finished') {
             next;
          }
       }
     
-      my $img_id      = $splitline[0];
-      my $img_name    = $splitline[3];
-      my $img_tax     = join(';', @splitline[4..9]);
+      my $img_id      = $splitline[$idcol];
       my $gg_id       = $correlations->{$img_id};
-      my $gg_tax      = (defined($gg_id) && exists($gg_taxonomy->{$gg_id})) ? $gg_taxonomy->{$gg_id} : '-';
-      my $rRNA_count  = $splitline[12];
-      my $genome_size = $splitline[10];
-      my $gene_count  = $splitline[11];
-    
+      my $gg_tax      = (defined($gg_id) && exists($gg_taxonomy->{$gg_id})) ?
+                           $gg_taxonomy->{$gg_id} : '-';
+      my $rRNA_count  = $splitline[$s16col] || $splitline[$s18col]; # try 16S then 18S
+
       if ($species) {
+         my $img_name = $splitline[$namecol];
          $gg_tax = fix_gg_tax($gg_tax, $img_name);
       }
 
       if ((defined ($rRNA_count)) && ($rRNA_count > 0)) {
-         print join("\t",(
-                     $img_id,
-                     $img_name,
-                     $img_tax,
-                     (defined($gg_id) ? $gg_id : '-'),
-                     $gg_tax,
-                     $rRNA_count,
-                     $genome_size,
-                     $gene_count
-                     )), "\n";
+         print join("\t", $line, (defined($gg_id) ? $gg_id : '-'), $gg_tax)."\n";
+         $written++;
       }
 
    }
    close $fh;
    warn "Info: Read $num entries from metadata file\n";
    warn "Info: Fixed $num_fixed GG taxonomy strings\n";
-
+   warn "Info: Wrote $written metadata entries\n";
    return 1;
 }
 
@@ -232,11 +234,9 @@ func fix_gg_tax ($gg_tax, $img_name) {
     # name, add them to the GG taxonomy string. Abort if anything is suspicious,
     # e.g. lowercase genus, uppercase species, inconsistent genus, wrong number
     # of fields.
-
     my $tmp_name = $img_name;
     my $candidatus = ($tmp_name =~ s/^Candidatus\s+//i);
     my ($genus, $species, $strain) = split /\s+/, $tmp_name, 3;
-
     # Genus should be capitalized
     #my $msg = 'Not fixing the taxonomy string';
     if ($genus =~ /^[a-z]/) {
@@ -244,20 +244,16 @@ func fix_gg_tax ($gg_tax, $img_name) {
        #warn "Warning: Genus $genus is lowercase. $msg\n";
        return $gg_tax;
     }
-
     # Species should not be capitalized
     if ($species =~ /^[A-Z]/) {
        # Fishy species
        #warn "Warning: Species $species is uppercase. $msg\n";
        return $gg_tax;
     }
-
     my $names = [ split /;\s*/, $gg_tax ];
     if (scalar @$names == 7) { # Proper number of fields, not simply '-'
-
         my $tax_genus   = $names->[-2];
         my $tax_species = $names->[-1];
-
         if ( ($tax_genus eq 'g__') || ($tax_species eq 's__') ) {
             # Should try to fix, but check that it is safe
             if ( (not $tax_genus eq 'g__') &&
@@ -287,7 +283,37 @@ func fix_gg_tax ($gg_tax, $img_name) {
             }
         }
     }
-
     return $gg_tax;
 }
 
+
+sub find_column_for {
+   my ($header_line, @names) = @_;
+   # Given a tab-separated header line, find which column matches the given name.
+   # Search is insensitive to case, spaces, underscores and dashes. Also, note
+   # that matches only need to be partial.
+   my @fields = split /\t/, $header_line;
+   # Make names and cols insensitive
+   for my $arr ( \@fields, \@names ) {
+      for my $i (0 .. scalar @$arr - 1) {
+         $arr->[$i] =~ s/[\s_-]//g;
+         $arr->[$i] = lc $arr->[$i];
+      }
+   }
+   # Look for names in column headers
+   my @col_nums;
+   for my $name (@names) {
+      my $col_num;
+      for ($col_num = 0; $col_num < scalar @fields; $col_num++) {
+         my $field = $fields[$col_num];
+         if ($field =~ m/$name/) {
+            push @col_nums, $col_num;
+            last;
+         }
+      }
+      if (not defined $col_num) {
+         die "Error: Could not find column holding '$name' data\n";
+      }
+   }
+   return @col_nums;
+}
