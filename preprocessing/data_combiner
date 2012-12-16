@@ -1,7 +1,7 @@
 #! /usr/bin/env perl
 
 # data_combiner
-# Copyright 2012 Adam Skarshewski
+# Copyright 2012 Florent Angly and Adam Skarshewski
 # You may distribute this module under the terms of the GPLv3
 
 
@@ -80,7 +80,9 @@ possible: 1 is yes, 0 is no. Default: species.default
 
 =back
 
-=head1 AUTHOR
+=head1 AUTHORS
+
+Florent Angly <florent.angly@gmail.com>
 
 Adam Skarshewski
 
@@ -92,7 +94,7 @@ L<http://github.com/fangly/AmpliCopyrighter/issues>
 
 =head1 COPYRIGHT
 
-Copyright 2012 Adam Skarshewski
+Copyright 2012 Florent Angly and Adam Skarshewski
 
 Copyrighter is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -110,85 +112,91 @@ along with Copyrighter.  If not, see <http://www.gnu.org/licenses/>.
 
 use strict;
 use warnings;
+use Method::Signatures;
 use Getopt::Euclid qw(:minimal_keys);
 
-
-# Create GG taxonomies hash
+my $num_fixed = 0;
 my $spp_space = ''; # space in species name?
 my $sep_space = ''; # separator ';' followed by a space?
-my %gg_taxonomies;
-open(my $fh, '<', $ARGV{'g'}) or die "Error: Could not read file ".$ARGV{'g'}."\n$!\n";
-while (my $line = <$fh>) {
-    chomp $line;
-    next if $line =~ m/^#/;
-    my ($id, $tax_string) = split /\t/, $line;
-    $gg_taxonomies{$id} = $tax_string;
-    my $species = (split /;/, $tax_string)[-1];
-    if ($species =~ s/^\s+//) {
-        $sep_space = ' ';
-    }
-    if ($species =~ m/ /) {
-        $spp_space = ' ';
-    }
-}
-close($fh);
-warn "Info: Read ".scalar(keys(%gg_taxonomies))." entries from taxonomy file\n";
+
+data_combiner( $ARGV{'i'}, $ARGV{'g'}, $ARGV{'c'}, $ARGV{'f'}, $ARGV{'s'} );
+exit;
 
 
-# Create IMG-GG correlation hash
-my %correlations;
-open($fh, '<', $ARGV{'c'}) or die "Error: Could not read file ".$ARGV{'c'}."\n$!\n";
-while (my $line = <$fh>) {
-    chomp $line;
-    next if $line =~ m/^#/;
-    my ($img_id, $gg_id) = split /\t/, $line;
-    $correlations{$img_id} = $gg_id;
-}
-close($fh);
-warn "Info: Read ".scalar(keys(%correlations))." entries from correlation file\n";
+func data_combiner ( $img_file, $gg_file, $corr_file, $finished, $species) {
+   # Create GG taxonomies hash
+   my %gg_taxonomies;
+   open my $fh, '<', $gg_file or die "Error: Could not read file $gg_file\n$!\n";
+   while (my $line = <$fh>) {
+      chomp $line;
+      next if $line =~ m/^#/;
+      my ($id, $tax_string) = split /\t/, $line;
+      $gg_taxonomies{$id} = $tax_string;
+      my $species = (split /;/, $tax_string)[-1];
+      if ($species =~ s/^\s+//) {
+         $sep_space = ' ';
+      }
+      if ($species =~ m/ /) {
+         $spp_space = ' ';
+      }
+   }
+   close $fh;
+   warn "Info: Read ".scalar(keys(%gg_taxonomies))." entries from taxonomy file\n";
 
 
-# Substitutions
-my $num_fixed = 0;
-print "#IMG ID\tIMG Name\tIMG Tax\tGG ID\tGG Tax\t16S Count\tGenome Length\tGene Count\n";
-open($fh, '<', $ARGV{'i'}) or die "Error: Could not read file ".$ARGV{'i'}."\n$!\n";
-<$fh>; # burn headers
-my $num = 0;
-while (my $line = <$fh>) {
-    chomp $line;
-    next if $line =~ m/^#/;
-    $num++;
-    my @splitline = split /\t/, $line;
-    my $domain = $splitline[1];
-    my $status = $splitline[2];
-    
-    if (! (($domain eq 'Bacteria') || ($domain eq 'Archaea'))) {
-        # Keep only bacteria and archaea. Skip eukaryotes, etc.
-        next;
-    }
+   # Create IMG-GG correlation hash
+   my %correlations;
+   open $fh, '<', $corr_file or die "Error: Could not read file $corr_file\n$!\n";
+   while (my $line = <$fh>) {
+      chomp $line;
+      next if $line =~ m/^#/;
+      my ($img_id, $gg_id) = split /\t/, $line;
+      $correlations{$img_id} = $gg_id;
+   }
+   close $fh;
+   warn "Info: Read ".scalar(keys(%correlations))." entries from correlation file\n";
 
-    if ($ARGV{'f'}) {
-        # Keep only finished genomes. Skip draft genomes, etc.
-        if (! ($status eq 'Finished')) {
+
+   # Substitutions
+   print "#IMG ID\tIMG Name\tIMG Tax\tGG ID\tGG Tax\t16S Count\tGenome Length\tGene Count\n";
+   open $fh, '<', $img_file or die "Error: Could not read file $img_file\n$!\n";
+   <$fh>; # burn headers
+   my $num = 0;
+   while (my $line = <$fh>) {
+      chomp $line;
+      next if $line =~ m/^#/;
+      $num++;
+      my @splitline = split /\t/, $line;
+      my $domain = $splitline[1];
+      my $status = $splitline[2];
+
+      if (! (($domain eq 'Bacteria') || ($domain eq 'Archaea'))) {
+         # Keep only bacteria and archaea. Skip eukaryotes, etc.
+         next;
+      }
+
+      if ($finished) {
+         # Keep only finished genomes. Skip draft genomes, etc.
+         if (not $status eq 'Finished') {
             next;
-        }
-    }
+         }
+      }
     
-    my $img_id      = $splitline[0];
-    my $img_name    = $splitline[3];
-    my $img_tax     = join(';', @splitline[4..9]);
-    my $gg_id       = $correlations{$img_id};
-    my $gg_tax      = (defined($gg_id) && exists($gg_taxonomies{$gg_id})) ? $gg_taxonomies{$gg_id} : '-';
-    my $rRNA_count  = $splitline[12];
-    my $genome_size = $splitline[10];
-    my $gene_count  = $splitline[11];
+      my $img_id      = $splitline[0];
+      my $img_name    = $splitline[3];
+      my $img_tax     = join(';', @splitline[4..9]);
+      my $gg_id       = $correlations{$img_id};
+      my $gg_tax      = (defined($gg_id) && exists($gg_taxonomies{$gg_id})) ? $gg_taxonomies{$gg_id} : '-';
+      my $rRNA_count  = $splitline[12];
+      my $genome_size = $splitline[10];
+      my $gene_count  = $splitline[11];
     
-    if ($ARGV{'s'}) {
-        $gg_tax = fix_gg_tax($gg_tax, $img_name);
-    }
+      if ($species) {
+         $gg_tax = fix_gg_tax($gg_tax, $img_name);
+      }
 
-    if ((defined ($rRNA_count)) && ($rRNA_count > 0)) {
-            print(join("\t",(
+      if ((defined ($rRNA_count)) && ($rRNA_count > 0)) {
+         print join("\t",(
                      $img_id,
                      $img_name,
                      $img_tax,
@@ -197,24 +205,23 @@ while (my $line = <$fh>) {
                      $rRNA_count,
                      $genome_size,
                      $gene_count
-                     )), "\n");
-    }
+                     )), "\n";
+      }
 
+   }
+   close $fh;
+   warn "Info: Read $num entries from metadata file\n";
+   warn "Info: Fixed $num_fixed GG taxonomy strings\n";
+
+   return 1;
 }
-close $fh;
-warn "Info: Read $num entries from metadata file\n";
-warn "Info: Fixed $num_fixed GG taxonomy strings\n";
-
-exit;
 
 
-
-sub fix_gg_tax {
+func fix_gg_tax ($gg_tax, $img_name) {
     # If genus or species is missing from GG taxonomy string but present in IMG
     # name, add them to the GG taxonomy string. Abort if anything is suspicious,
     # e.g. lowercase genus, uppercase species, inconsistent genus, wrong number
     # of fields.
-    my ($gg_tax, $img_name) = @_;
 
     my $tmp_name = $img_name;
     my $candidatus = ($tmp_name =~ s/^Candidatus\s+//i);
@@ -223,16 +230,16 @@ sub fix_gg_tax {
     # Genus should be capitalized
     #my $msg = 'Not fixing the taxonomy string';
     if ($genus =~ /^[a-z]/) {
-        # Fishy genus
-        #warn "Warning: Genus $genus is lowercase. $msg\n";
-        return $gg_tax;
+       # Fishy genus
+       #warn "Warning: Genus $genus is lowercase. $msg\n";
+       return $gg_tax;
     }
 
     # Species should not be capitalized
     if ($species =~ /^[A-Z]/) {
-        # Fishy species
-        #warn "Warning: Species $species is uppercase. $msg\n";
-        return $gg_tax;
+       # Fishy species
+       #warn "Warning: Species $species is uppercase. $msg\n";
+       return $gg_tax;
     }
 
     my $names = [ split /;\s*/, $gg_tax ];
@@ -248,19 +255,20 @@ sub fix_gg_tax {
                 #warn "Warning: Genus disagreement for '$img_name'. Genus in taxonomy ".
                 #    "string is $tax_genus. $msg\n";
             } else {
-
                 my $fixed = 0;
  
                 # Fix genus if it is known
                 if ( (not $genus eq '') && ($tax_genus eq 'g__') ) {
-                    $names->[-2] = 'g__'.($candidatus?'Candidatus'.$spp_space:'').$genus;
-                    $fixed = 1;
+                   $names->[-2] = 'g__'.($candidatus?'Candidatus'.$spp_space:'').
+                      $genus;
+                   $fixed = 1;
                 }
 
                 # Fix species if it is known
                 if ( ($species !~ m/^sp\.?$/) && ($tax_species eq 's__') ) {
-                    $names->[-1] = 's__'.($candidatus?'Candidatus'.$spp_space:'').$genus.$spp_space.$species;
-                    $fixed = 1;
+                   $names->[-1] = 's__'.($candidatus?'Candidatus'.$spp_space:'').
+                      $genus.$spp_space.$species;
+                   $fixed = 1;
                 }
 
                 $num_fixed++ if $fixed;
