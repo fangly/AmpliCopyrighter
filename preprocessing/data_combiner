@@ -116,6 +116,9 @@ use strict;
 use warnings;
 use Method::Signatures;
 use Getopt::Euclid qw(:minimal_keys);
+use FindBin qw($Bin);
+use lib "$Bin";
+use PreprocUtils;
 
 my $num_fixed = 0;
 my $spp_space = ''; # space in species name?
@@ -127,10 +130,10 @@ exit;
 
 func data_combiner ( $img_file, $gg_file, $corr_file, $finished, $species) {
    # Create GG taxonomies hash
-   my $gg_taxonomy = read_gg_taxo( $gg_file );
+   my $gg_taxonomy = PreprocUtils::read_lookup($gg_file);
    warn "Info: Read ".scalar(keys %$gg_taxonomy)." entries from taxonomy file\n";
    # Create IMG-GG correlation hash
-   my $correlations = read_correlations( $corr_file );
+   my $correlations = PreprocUtils::read_lookup($corr_file);
    warn "Info: Read ".scalar(keys %$correlations)." entries from correlation file\n";
    # Substitutions
    combine( $img_file, $gg_taxonomy, $correlations, $finished, $species );
@@ -142,8 +145,8 @@ func combine ($img_file, $gg_taxonomy, $correlations, $finished, $species) {
    open my $fh, '<', $img_file or die "Error: Could not read file $img_file\n$!\n";
    my $header = <$fh>;
    chomp $header;
-   my ($idcol, $domcol, $statcol, $namecol, $s16col, $s18col) = find_column_for($header,
-      'taxon_oid', 'Domain', 'Status', 'Genome Name', '16S rRNA Count', '18S rRNA Count');
+   my @colnums = PreprocUtils::find_column_for($header, 'taxon_oid', 'Domain',
+      'Status', 'Genome Name', '16S rRNA Count', '18S rRNA Count');
 
    print join( "\t", $header, 'GG ID', 'GG Tax')."\n";
 
@@ -153,9 +156,9 @@ func combine ($img_file, $gg_taxonomy, $correlations, $finished, $species) {
       chomp $line;
       next if $line =~ m/^#/;
       $num++;
-      my @splitline = split /\t/, $line;
+      my @splitline = (split /\t/, $line);
+      my ($img_id, $domain, $status, $img_name, $s16, $s18) = @splitline[@colnums];
 
-      #my $domain = $splitline[$idcol];
       #if (! (($domain eq 'Bacteria') || ($domain eq 'Archaea'))) {
       #   # Keep only bacteria and archaea. Skip eukaryotes, etc.
       #   next;
@@ -163,20 +166,17 @@ func combine ($img_file, $gg_taxonomy, $correlations, $finished, $species) {
 
       if ($finished) {
          # Keep only finished genomes. Skip draft genomes, etc.
-         my $status = $splitline[$statcol];
          if (not $status eq 'Finished') {
             next;
          }
       }
     
-      my $img_id      = $splitline[$idcol];
-      my $gg_id       = $correlations->{$img_id};
-      my $gg_tax      = (defined($gg_id) && exists($gg_taxonomy->{$gg_id})) ?
-                           $gg_taxonomy->{$gg_id} : '-';
-      my $rRNA_count  = $splitline[$s16col] || $splitline[$s18col]; # try 16S then 18S
+      my $gg_id      = $correlations->{$img_id};
+      my $gg_tax     = (defined($gg_id) && exists($gg_taxonomy->{$gg_id})) ?
+                          $gg_taxonomy->{$gg_id} : '-';
+      my $rRNA_count = $s16 || $s18; # try 16S then 18S
 
       if ($species) {
-         my $img_name = $splitline[$namecol];
          $gg_tax = fix_gg_tax($gg_tax, $img_name);
       }
 
@@ -191,41 +191,6 @@ func combine ($img_file, $gg_taxonomy, $correlations, $finished, $species) {
    warn "Info: Fixed $num_fixed GG taxonomy strings\n";
    warn "Info: Wrote $written metadata entries\n";
    return 1;
-}
-
-
-func read_gg_taxo ($gg_file) {
-   my $gg_taxonomy;
-   open my $fh, '<', $gg_file or die "Error: Could not read file $gg_file\n$!\n";
-   while (my $line = <$fh>) {
-      chomp $line;
-      next if $line =~ m/^#/;
-      my ($id, $tax_string) = split /\t/, $line;
-      $gg_taxonomy->{$id} = $tax_string;
-      my $species = (split /;/, $tax_string)[-1];
-      if ($species =~ s/^\s+//) {
-         $sep_space = ' ';
-      }
-      if ($species =~ m/ /) {
-         $spp_space = ' ';
-      }
-   }
-   close $fh;
-   return $gg_taxonomy;
-}
-
-
-func read_correlations ($corr_file) {
-   my $correlations;
-   open my $fh, '<', $corr_file or die "Error: Could not read file $corr_file\n$!\n";
-   while (my $line = <$fh>) {
-      chomp $line;
-      next if $line =~ m/^#/;
-      my ($img_id, $gg_id) = split /\t/, $line;
-      $correlations->{$img_id} = $gg_id;
-   }
-   close $fh;
-   return $correlations;
 }
 
 
@@ -286,34 +251,3 @@ func fix_gg_tax ($gg_tax, $img_name) {
     return $gg_tax;
 }
 
-
-sub find_column_for {
-   my ($header_line, @names) = @_;
-   # Given a tab-separated header line, find which column matches the given name.
-   # Search is insensitive to case, spaces, underscores and dashes. Also, note
-   # that matches only need to be partial.
-   my @fields = split /\t/, $header_line;
-   # Make names and cols insensitive
-   for my $arr ( \@fields, \@names ) {
-      for my $i (0 .. scalar @$arr - 1) {
-         $arr->[$i] =~ s/[\s_-]//g;
-         $arr->[$i] = lc $arr->[$i];
-      }
-   }
-   # Look for names in column headers
-   my @col_nums;
-   for my $name (@names) {
-      my $col_num;
-      for ($col_num = 0; $col_num < scalar @fields; $col_num++) {
-         my $field = $fields[$col_num];
-         if ($field =~ m/$name/) {
-            push @col_nums, $col_num;
-            last;
-         }
-      }
-      if (not defined $col_num) {
-         die "Error: Could not find column holding '$name' data\n";
-      }
-   }
-   return @col_nums;
-}
