@@ -162,7 +162,7 @@ use Bio::SeqIO;
 use Bio::SearchIO;
 use Bio::DB::Fasta;
 
-my $DEBUG = 1;
+my $DEBUG = 0;
 
 img_gg_matcher( $ARGV{'c'}, $ARGV{'i'}, $ARGV{'s'}, $ARGV{'d'}, $ARGV{'n'},
    $ARGV{'r'}, $ARGV{'o'} );
@@ -216,10 +216,16 @@ func match_sequences ($correlations, $missing, $img_fasta, $gg_fasta, $out_blat)
    #   query : Greengenes 16S sequences
    #   target: IMG 16S sequences
 
-   my $min_identity = 99.8;
-   my $min_coverage = 99.8;
-
-   my $out_file = 'match_sequences.blat';
+   ####
+   #my $min_identity = 99.8;
+   #my $min_coverage = 99.8;
+   #my $min_identity = 99.6;
+   #my $min_coverage = 99.6;
+   my $min_identity = 99.4;
+   my $min_coverage = 99.4;
+   #my $min_identity = 99.0;
+   #my $min_coverage = 99.0;
+   ####
 
    my $report;
    if (-e $out_blat) {
@@ -234,7 +240,7 @@ func match_sequences ($correlations, $missing, $img_fasta, $gg_fasta, $out_blat)
    }
 
    warn "Info: Parsing BLAT results in $out_blat...\n";
-   my $matches = parse_blat_results($report, $min_identity, $min_coverage, $out_file);
+   my $matches = parse_blat_results($report, $min_identity, $min_coverage, $out_blat);
 
    my $num_matches = 0;
    while ( (my $img_id, undef) = each %{$missing} ) {
