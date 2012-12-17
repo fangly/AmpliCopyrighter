@@ -126,6 +126,9 @@ use Bio::PrimarySeq;
 use Bio::DB::Fasta;
 use File::Spec;
 use IPC::Run qw( run );
+use FindBin qw($Bin);
+use lib "$Bin";
+use PreprocUtils;
 
 my $stdout_mutex :shared;
 
@@ -587,7 +590,7 @@ sub read_kingdom {
    # Identify which column holds the domain
    my $header = <$fh>;
    chomp $header;
-   my ($idcol, $domcol) = find_column_for($header, 'taxon_oid', 'Domain');
+   my ($idcol, $domcol) = PreprocUtils::find_column_for($header, 'taxon_oid', 'Domain');
    # Parse file
    while (my $line = <$fh>) {
       chomp $line;
@@ -608,37 +611,5 @@ sub read_kingdom {
    }
    close $fh;
    return \%kingdoms;
-}
-
-
-sub find_column_for {
-   my ($header_line, @names) = @_;
-   # Given a tab-separated header line, find which column matches the given name.
-   # Search is insensitive to case, spaces, underscores and dashes. Also, note
-   # that matches only need to be partial.
-   my @fields = split /\t/, $header_line;
-   # Make names and cols insensitive
-   for my $arr ( \@fields, \@names ) {
-      for my $i (0 .. scalar @$arr - 1) {
-         $arr->[$i] =~ s/[\s_-]//g;
-         $arr->[$i] = lc $arr->[$i];
-      }
-   }
-   # Look for names in column headers
-   my @col_nums;
-   for my $name (@names) {
-      my $col_num;
-      for ($col_num = 0; $col_num < scalar @fields; $col_num++) {
-         my $field = $fields[$col_num];
-         if ($field =~ m/$name/) {
-            push @col_nums, $col_num;
-            last;
-         }
-      }
-      if (not defined $col_num) {
-         die "Error: Could not find column holding '$name' data\n";
-      }
-   }
-   return @col_nums;
 }
 

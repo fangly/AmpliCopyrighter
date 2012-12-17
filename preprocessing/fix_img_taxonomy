@@ -76,6 +76,9 @@ use strict;
 use warnings;
 use Method::Signatures;
 use Getopt::Euclid qw(:minimal_keys);
+use FindBin qw($Bin);
+use lib "$Bin";
+use PreprocUtils;
 
 fix_img_taxonomy($ARGV{'i'});
 
@@ -91,7 +94,7 @@ func fix_img_taxonomy ( Str $img_metadata ) {
    my $header = <$in>;
    chomp $header;
    my ($name_col, $domain_col, $phylum_col, $class_col, $order_col, $family_col, $genus_col, $species_col) =
-      find_column_for($header, 'Genome Name', 'Domain', 'Phylum', 'Class', 'Order', 'Family', 'Genus', 'Species');
+      PreprocUtils::find_column_for($header, 'Genome Name', 'Domain', 'Phylum', 'Class', 'Order', 'Family', 'Genus', 'Species');
 
    print "$header\n";
 
@@ -260,36 +263,5 @@ func fix_candidatus (Str $name, Str $genus) {
       }
    }
    return $new_name, $new_genus;
-}
-
-
-func find_column_for ( Str $header_line, @names ) {
-   # Given a tab-separated header line, find which column matches the given name.
-   # Search is insensitive to case, spaces, underscores and dashes. Also, note
-   # that matches only need to be partial.
-   my @fields = split /\t/, $header_line;
-   # Make names and cols insensitive
-   for my $arr ( \@fields, \@names ) {
-      for my $i (0 .. scalar @$arr - 1) {
-         $arr->[$i] =~ s/[\s_-]//g;
-         $arr->[$i] = lc $arr->[$i];
-      }
-   }
-   # Look for names in column headers
-   my @col_nums;
-   for my $name (@names) {
-      my $col_num;
-      for ($col_num = 0; $col_num < scalar @fields; $col_num++) {
-         my $field = $fields[$col_num];
-         if ($field =~ m/$name/) {
-            push @col_nums, $col_num;
-            last;
-         }
-      }
-      if (not defined $col_num) {
-         die "Error: Could not find column holding '$name' data\n";
-      }
-   }
-   return @col_nums;
 }
 

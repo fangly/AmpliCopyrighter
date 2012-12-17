@@ -175,6 +175,10 @@ use List::Util qw(max);
 use Method::Signatures;
 use Getopt::Euclid qw(:minimal_keys);
 use Statistics::Basic qw(mean stddev);
+use FindBin qw($Bin);
+use lib "$Bin";
+use PreprocUtils;
+
 $Statistics::Basic::IPRES = 8;
 
 fix_img_copy_number( $ARGV{'i'}, $ARGV{'g'}, $ARGV{'r'}, $ARGV{'f'}, $ARGV{'m'},
@@ -258,8 +262,8 @@ func write_img_metadata ($img, $input_meta, $output_meta) {
    # Take care of header
    my $header = <$in>;
    chomp $header;
-   my @cols = find_column_for($header, 'taxon_oid', 'Domain', '16S rRNA Count',
-      '18S rRNA Count');
+   my @cols = PreprocUtils::find_column_for($header, 'taxon_oid', 'Domain',
+      '16S rRNA Count', '18S rRNA Count');
    print $out "$header\n";
    # Now the rest of the file
    while (my $line = <$in>) {
@@ -736,8 +740,9 @@ func read_rrndb ( Str $rrndb_in, Str $rrndb_out ) {
    my $header = <$in>;
    chomp $header;
    print $out "$header\n";
-   my @cols = find_column_for($header, 'Genus', 'Species', 'Strain designation',
-      '16S', 'ITS', '23S', '5S', 'Status', 'Scaffold Count', 'Genome Size');
+   my @cols = PreprocUtils::find_column_for($header, 'Genus', 'Species',
+      'Strain designation', '16S', 'ITS', '23S', '5S', 'Status', 'Scaffold Count',
+      'Genome Size');
    # Parse file
    my $num = 0;
    while (my $line = <$in>) {
@@ -869,9 +874,10 @@ func read_img_metadata ( Str $img_metadata, Str $img_fasta, Str $completeness,
    # Identify which column holds the info we want
    my $header = <$in>;
    chomp $header;
-   my @cols = find_column_for($header, 'taxon_oid', 'Genome Name', 'Domain',
-      'Genus', 'Species', '5S rRNA Count', '16S rRNA Count', '18S rRNA Count',
-      '23S rRNA Count', '28S rRNA Count', 'Scaffold Count', 'Genome Size', 'Status');
+   my @cols = PreprocUtils::find_column_for($header, 'taxon_oid', 'Genome Name',
+      'Domain', 'Genus', 'Species', '5S rRNA Count', '16S rRNA Count',
+      '18S rRNA Count', '23S rRNA Count', '28S rRNA Count', 'Scaffold Count',
+      'Genome Size', 'Status');
    # Parse file
    my $num = 0;
    while (my $line = <$in>) {
@@ -945,36 +951,5 @@ func status_ok ( Str $status, Str $completeness ) {
       die "Error: unknown completeness value '$completeness'\n";
    }
    return $ok;
-}
-
-
-func find_column_for ( Str $header_line, @names ) {
-   # Given a tab-separated header line, find which column matches the given name.
-   # Search is insensitive to case, spaces, underscores and dashes. Also, note
-   # that matches only need to be partial.
-   my @fields = split /\t/, $header_line;
-   # Make names and cols insensitive
-   for my $arr ( \@fields, \@names ) {
-      for my $i (0 .. scalar @$arr - 1) {
-         $arr->[$i] =~ s/[\s_-]//g;
-         $arr->[$i] = lc $arr->[$i];
-      }
-   }
-   # Look for names in column headers
-   my @col_nums;
-   for my $name (@names) {
-      my $col_num;
-      for ($col_num = 0; $col_num < scalar @fields; $col_num++) {
-         my $field = $fields[$col_num];
-         if ($field =~ m/$name/) {
-            push @col_nums, $col_num;
-            last;
-         }
-      }
-      if (not defined $col_num) {
-         die "Error: Could not find column holding '$name' data\n";
-      }
-   }
-   return @col_nums;
 }
 
