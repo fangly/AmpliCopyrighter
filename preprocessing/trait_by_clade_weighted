@@ -43,12 +43,12 @@ script data_combiner. This script will use the columns called 'GG ID' and 'GG Ta
 =item -t <trait_name>
 
 If the input file contains several traits, select the name of the trait to use
-(case-insensitive), e.g. '16S count' or 'genome length'. Make sure this matches
+(case-insensitive), e.g. '16S rRNA Count' or 'Genome Size'. Make sure this matches
 the name of the trait as found in the input file. Default: trait_name.default
 
 =for Euclid:
    trait_name.type: string
-   trait_name.default: '16S Count'
+   trait_name.default: '16S rRNA Count'
 
 =item -a <advanced>
 
