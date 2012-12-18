@@ -130,7 +130,7 @@ when filtering BLAT sequence matches. Default: min_cov.default %
 
 =for Euclid:
    min_cov.type: num, min_cov >= 0 && min_cov <= 100
-   min_cov.default: 99.8
+   min_cov.default: 99.5
 
 =item -mi <min_idty>
 
@@ -139,7 +139,7 @@ when filtering BLAT sequence matches. Default: min_idty.default %
 
 =for Euclid:
    min_idty.type: num, min_idty >= 0 && min_idty <= 100
-   min_idty.default: 99.8
+   min_idty.default: 99.5
 
 =back
 
