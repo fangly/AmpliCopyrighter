@@ -18,7 +18,7 @@ phylogenetic independent contrasts
 
 This script takes a trait in different species and estimates the trait value
 at different taxonomic levels using the phylogenetic independent contrasts
-method.
+method: Felsenstein, "Phylogenies and the comparative method" (1985)
 
 =head1 REQUIRED ARGUMENTS
 
@@ -33,12 +33,6 @@ one specified by the option <trait_name>.
 =for Euclid:
    input_file.type: readable
 
-=back
-
-=head1 OPTIONAL ARGUMENTS
-
-=over
-
 =item -p <phylo_tree>
 
 Input Greengenes phylogenetic tree in Newick format.
@@ -52,6 +46,12 @@ Input Greengenes taxonomy file.
 
 =for Euclid:
    taxo_file.type: readable
+
+=back
+
+=head1 OPTIONAL ARGUMENTS
+
+=over
 
 =item -n <trait_name>
 
@@ -115,7 +115,7 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $trait_name ) {
    $id2trait = average_by_key($id2trait);
 
    # Our very own, special GG tree
-   my $tree = form_tree($phylo_tree, [keys %$id2trait], $id2trait);
+   my $tree = grow_tree($phylo_tree, [keys %$id2trait], $id2trait);
 
    # Calculate interior node trait value using PIC
    $id2trait = pic($tree, $id2trait);
@@ -125,7 +125,7 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $trait_name ) {
    my $tax2trait = convert_id_to_tax($id2trait, $gg_taxonomy);
 
    # Do average for each taxonomy string
-   #$tax2trait = average_by_key($tax2trait);
+   ###$tax2trait = average_by_key($tax2trait);
 
    # Print results
    print_results($tax2trait, $trait_name);
@@ -180,41 +180,74 @@ func convert_id_to_tax ($id_hash, $gg_taxonomy) {
 func pic ($tree, $id2trait) {
    # Use phylogenetic independent contrasts method to estimate trait value for
    # interior nodes of given $tree and save this in $id2trait
-   # Note: We're irremediably altering the tree!
+   # Note: We're irremediably altering the given tree!
    
+   warn "Info: Applying phylogenetic independent contrasts to tree\n";
+   my $nonzero_length = 1e-5;
+
+   warn "TREE: ".$tree->as_string."\n"; ###
+
    while ($tree->calc_number_of_cherries > 0) {
       my $cherries = get_cherries($tree);
-      while (my ($parent_id, $nodes) = each %$cherries) {
-         # Calculate trait value for parent as a weighted average of children
-         # trait where the weights are proportional to the inverse of the branch
-         # distance between parent and child. Hence, a child closer to the
-         # parent than another contributes more.
+      while (my ($pid, $nodes) = each %$cherries) {
+         # Calculate trait value for parent $pval as a weighted average of the
+         # children's trait value @cvals where the weights $weis are proportional
+         # to the inverse of the branch distance @dists between parent and
+         # children. Hence, the trait value of a child closer to the parent
+         # contributes more than the trait value of a childr that is farther away.
          my ($parent, @children) = @$nodes;
-         my @vals    = map { $_->get_generic('trait') } @children;
+         my @cvals  = map { $_->get_generic('trait') } @children;
+         my @cdists = map { 0+$_->get_branch_length || $nonzero_length } @children;
+         my @weis   = map { 1 / $_ } @cdists;
+         my $pval = ($cvals[0]*$weis[0] + $cvals[1]*$weis[1]) / ($weis[0]+$weis[1]);
 
-         ####
-         my @weights = map { 1 / $_->calc_patristic_distance($parent) } @children;
-         #### distance can be zero... maybe fix the tree upfront and replace zeroes by small values?
+         warn "CHILDREN: ".$children[0]->get_name."=".$cvals[0]."  ".$children[1]->get_name."=".$cvals[1]."\n"; ###
+         warn "PARENT: ".$pid."=".$pval."\n\n"; ###
 
-         my $parent_val = ($vals[0] * $weights[0] + $vals[1] * $weights[1]) /
-                          ($weights[0] + $weights[1]);
          # Save parent's trait value
-         if (exists $id2trait->{$parent_id}) {
-            die "Error: I don't think this should be set. There must be a problem...\n";
+         if (exists $id2trait->{$pid}) {
+            ####
+            if ($id2trait->{$pid} == $pval) {
+               warn "Warn: Parent already has a trait value (".$id2trait->{$pid}."), ".
+                    "but with the same value, so that's ok. May need to skip deleting children ".
+                    "and stretching parent branch though.\n";
+            } else {
+               die "Error: Parent already has a trait value (".$id2trait->{$pid}.
+                   ") that is different from the value that I want to set ($pval)\n";
+            }
+            ####
          } else {
-            $id2trait->{$parent_id} = $parent_val;
+            $id2trait->{$pid} = $pval;
          }
          # Delete children
-         $tree->delete($children[0]);
-         $tree->delete($children[1]);
+         $parent->prune_child($children[0]);
+         $parent->prune_child($children[1]);
+         
          # Stretch parent's branch
-
-         ####
-         my $new_length = 1.23;
-         ####
-
-         $parent->set_branch_length($new_length);
+         my $pdist = $parent->get_branch_length;
+         if ( ($cdists[0] > 0) && ($cdists[1] > 0) ) {
+            $pdist += $cdists[0]*$cdists[1] / ($cdists[0]+$cdists[1]);
+         }
+         $parent->set_branch_length($pdist);
       }
+   }
+
+   my $nof_nodes = $tree->calc_number_of_nodes;
+
+   if ($nof_nodes == 1) {
+      # Print trait value for remaining node
+      my $last_node = @{$tree->get_entities}[0];
+      my $last_val  = $last_node->get_generic('trait');
+      warn "Info: Last tree node (GG ID $last_node) has trait value $last_val\n";
+   } else {
+      # Error
+      my $out_file = 'tree_debug.nw';
+      open my $out, '>', $out_file or die "Error: Could not write file $out_file\n$!\n";
+      print $out unparse( -phylo => $tree, -format => 'newick' );
+      close $out;
+      die "Error: Internal problem. There should be only one node left but there ".
+          "are still $nof_nodes. Wrote what's left of the tree in the Newick ".
+          "file $out_file for debugging\n";
    }
 
    return $id2trait;
@@ -230,7 +263,7 @@ func get_cherries ($tree) {
          if ( $parent->is_preterminal ) {
             my $children = $parent->get_children;
             if ( scalar @{$children} == 2 ) {
-               $cherries{ $parent->get_id } = [$parent, @$children];
+               $cherries{ $parent->get_name } = [$parent, @$children];
             }
          }
       }
@@ -239,7 +272,7 @@ func get_cherries ($tree) {
 }
 
 
-func form_tree ($tree_file, $ids, $id2trait) {
+func grow_tree ($tree_file, $ids, $id2trait) {
    # Parse Newick tree, prune it and attach trait
 
    # Parse Newick tree
@@ -262,14 +295,14 @@ func form_tree ($tree_file, $ids, $id2trait) {
    }
 
    # Write pruned tree
-   #print unparse( -phylo  => $tree,
-   #               -format => 'newick' );
+   ###print unparse( -file => 'pruned_tree.nw', -phylo  => $tree, -format => 'newick' );
 
    # Attach trait to nodes
    for my $leaf ( @{$tree->get_terminals} ) {
-      my $id = $leaf->get_name;
-      my $trait_val = $id2trait->{$id} ||
-         die "Error: Could not find trait value for tree leaf with GG ID $id\n";
+      my $gg_id = $leaf->get_name;
+      my $trait_val = $id2trait->{$gg_id} ||
+         die "Error: Could not find trait value for tree leaf with GG ID $gg_id\n";
+      warn "Info: Setting trait value of GG ID $gg_id (internal ID ".$leaf->get_id." to $trait_val\n"; #####
       $leaf->set_generic( 'trait' => $trait_val );
    }
 
@@ -283,7 +316,8 @@ func read_metadata ( $file, $trait_name ) {
    my $header = <$fh>;
    chomp $header;
    my @cols = PreprocUtils::find_column_for($header, 'GG ID', $trait_name);
-   warn "Info: Found trait '$trait_name' in column ".($cols[-1]+1)."\n";
+   warn "Info: Found trait '$trait_name' in column ".($cols[-1]+1)." of input ".
+        "file $file\n";
    # Parse input file
    my $num = 0;
    while (my $line = <$fh>) {
