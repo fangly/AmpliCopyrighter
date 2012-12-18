@@ -123,6 +123,24 @@ the BLAT step and save time. Default: out_blat.default
    out_blat.type: writable
    out_blat.default: 'blat_out.psl'
 
+=item -mc <min_cov>
+
+When <rrna> is specified, this option is used to select the minimum coverage
+when filtering BLAT sequence matches. Default: min_cov.default %
+
+=for Euclid:
+   min_cov.type: num, min_cov >= 0 && min_cov <= 100
+   min_cov.default: 99.8
+
+=item -mi <min_idty>
+
+When <rrna> is specified, this option is used to select the minimum identity
+when filtering BLAT sequence matches. Default: min_idty.default %
+
+=for Euclid:
+   min_idty.type: num, min_idty >= 0 && min_idty <= 100
+   min_idty.default: 99.8
+
 =back
 
 =head1 AUTHOR
@@ -168,12 +186,12 @@ use PreprocUtils;
 my $DEBUG = 0;
 
 img_gg_matcher( $ARGV{'c'}, $ARGV{'i'}, $ARGV{'s'}, $ARGV{'d'}, $ARGV{'n'},
-   $ARGV{'r'}, $ARGV{'o'} );
+   $ARGV{'r'}, $ARGV{'o'}, $ARGV{'mc'}, $ARGV{'mi'} );
 exit;
 
 
 func img_gg_matcher ( Str $corr_file, Str $img_file, Str $seq_file,
-   $search_desc, $search_names, $search_seqs, $out_blat ) {
+   $search_desc, $search_names, $search_seqs, $out_blat, $min_cov, $min_idty ) {
 
    # Parse correspondance file, identify some missing IDs
    my ($correlations, $missing) = read_correspondances($corr_file);
@@ -198,10 +216,10 @@ func img_gg_matcher ( Str $corr_file, Str $img_file, Str $seq_file,
          warn "Info: There are still ".scalar(keys(%$missing))." missing IDs\n";
       }
 
-      # Find a perfectly matching sequence
+      # Find a matching sequence
       if ($search_seqs) {
          ($correlations, $missing) = match_sequences($correlations, $missing,
-             $search_seqs, $seq_file, $out_blat);
+             $search_seqs, $seq_file, $out_blat, $min_cov, $min_idty);
          warn "Info: There are still ".scalar(keys(%$missing))." missing IDs\n";
       }
 
@@ -213,22 +231,12 @@ func img_gg_matcher ( Str $corr_file, Str $img_file, Str $seq_file,
 }
 
 
-func match_sequences ($correlations, $missing, $img_fasta, $gg_fasta, $out_blat) {
+func match_sequences ($correlations, $missing, $img_fasta, $gg_fasta, $out_blat,
+   $min_coverage, $min_identity) {
    # Run BLAT and only get very stringent similarities (no more than a couple bp
    # different)
    #   query : Greengenes 16S sequences
    #   target: IMG 16S sequences
-
-   ####
-   #my $min_identity = 99.8;
-   #my $min_coverage = 99.8;
-   #my $min_identity = 99.6;
-   #my $min_coverage = 99.6;
-   my $min_identity = 99.4;
-   my $min_coverage = 99.4;
-   #my $min_identity = 99.0;
-   #my $min_coverage = 99.0;
-   ####
 
    my $report;
    if (-e $out_blat) {
@@ -241,8 +249,9 @@ func match_sequences ($correlations, $missing, $img_fasta, $gg_fasta, $out_blat)
       unlink $query_fasta;
    }
 
-   warn "Info: Parsing BLAT results in $out_blat...\n";
-   my $matches = parse_blat_results($report, $min_identity, $min_coverage, $out_blat);
+   warn "Info: Parsing BLAT results in $out_blat ($min_coverage % min coverage, ".
+        "$min_identity % min identity)...\n";
+   my $matches = parse_blat_results($report, $min_identity, $min_coverage);
 
    my $num_matches = 0;
    while ( (my $img_id, undef) = each %{$missing} ) {
