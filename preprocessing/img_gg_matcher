@@ -116,7 +116,7 @@ underscore and an IMG gene ID, e.g.:
 =item -o <out_blat>
 
 When <rrna> is specified, this option is used to provide a name for the output
-BLAT file. If the file already exists, this is used again to avoid re-running
+BLAT file. If the file already exists, it is used again to avoid re-running
 the BLAT step and save time. Default: out_blat.default
 
 =for Euclid:
@@ -233,12 +233,11 @@ func match_sequences ($correlations, $missing, $img_fasta, $gg_fasta, $out_blat)
    my $report;
    if (-e $out_blat) {
       warn "Info: Re-using previous BLAT results...\n";
-      $report = Bio::SearchIO->new(-file => $out_blat, -format => 'psl');
+      $report = Bio::SearchIO->new(-file => '<'.$out_blat, -format => 'psl');
    } else {
       warn "Info: Running BLAT...\n";
-      my $db_fasta = $gg_fasta;
       my $query_fasta = filter_fasta($img_fasta, $missing);
-      $report = run_blat($query_fasta, $db_fasta, $min_identity, $out_blat);
+      $report = run_blat($query_fasta, $gg_fasta, $min_identity, $out_blat);
       unlink $query_fasta;
    }
 
@@ -266,7 +265,7 @@ func filter_fasta ($in_fasta_file, $ids) {
    # Write a new FASTA file with only the sequence from the specified IDs in.
    my $out_fasta_file = $in_fasta_file.'.temp';
    my $in  = Bio::SeqIO->new( -file => '<'.$in_fasta_file , -format => 'fasta' );
-   my $out = Bio::SeqIO->new( -file => '>'.$out_fasta_file, -format => 'fasta' );
+   my $out = Bio::SeqIO->new( -file => '>'.$out_fasta_file, -format => 'fasta', -flush => 0 );
    my $num = 0;
    while (my $seq = $in->next_seq) {
       my $id = extract_img_id( $seq->id );
@@ -303,12 +302,11 @@ func run_blat ($query_fasta, $db_fasta, $min_identity, $out_blat) {
 }
 
 
-func parse_blat_results ( $report, $min_identity, $min_coverage, $out_file ) {
+func parse_blat_results ( $report, $min_identity, $min_coverage ) {
    # Parse BLAT results and save correspondances
    my %matches;
    my ($genome_id, $genome_best_raw_score, $genome_best_target, $genome_best_custom_score);
 
-   open my $out, '>', $out_file or die "Error: Could not write results in file $out_file\n$!\n";
    QUERY: while (my $result = $report->next_result) {
       my $query_id     = extract_img_id( $result->query_name );
       my $query_length = $result->query_length;
@@ -320,7 +318,6 @@ func parse_blat_results ( $report, $min_identity, $min_coverage, $out_file ) {
          if (defined $genome_best_target) {
             # Save results and reset some variables
             $matches{$genome_id} = $genome_best_target;
-            print $out "$genome_id\t$genome_best_target\n";
             ($genome_id, $genome_best_raw_score, $genome_best_target, $genome_best_custom_score) =
                ($query_id, undef, undef, undef);
          }
@@ -369,10 +366,8 @@ func parse_blat_results ( $report, $min_identity, $min_coverage, $out_file ) {
    # Save results for last genome
    if (defined $genome_id) {
       $matches{$genome_id} = $genome_best_target;
-      print $out "$genome_id\t$genome_best_target\n";
    }
 
-   close $out;
    return \%matches;
 }
 
