@@ -35,7 +35,8 @@ one specified by the option <trait_name>.
 
 =item -p <phylo_tree>
 
-Input Greengenes phylogenetic tree in Newick format.
+Input Greengenes phylogenetic tree in Newick format. Note that quoted named nodes
+like '100:s__Bacteroides dorei' will be converted to 's__Bacteroides dorei'
 
 =for Euclid:
    phylo_tree.type: readable
@@ -299,9 +300,7 @@ func write_tree ($tree, $file) {
 func grow_tree ($tree_file, $clip_file, $ids, $id2trait) {
    # Parse Newick tree, prune it and attach trait
 
-   ####
-   # Transform annotations to GG ID
-   ####
+   clean_newick($tree_file);
 
    # Parse Newick tree
    my $tree;
@@ -350,6 +349,22 @@ func grow_tree ($tree_file, $clip_file, $ids, $id2trait) {
    }
 
    return $tree;
+}
+
+
+func clean_newick ($file) {
+   # Take a tree in a Newick file, remove comment lines and cleans quoted
+   # node names like '100:s__Bacteroides dorei' to 's__Bacteroides dorei'
+   
+   ### note: the whitespaces might still be a problem?
+
+   open my $in, '<', $file or die "Error: Could not read file $file\n$!\n";
+   while (my $line = <$in>) {
+      $line =~ s/\[.*?\]//g;
+      ##$line =~ s/'(.+?:)?(.*?)'/'$2'/g;
+   }
+   close $in;
+   return 1;
 }
 
 
