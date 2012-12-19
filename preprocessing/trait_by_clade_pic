@@ -53,6 +53,15 @@ Input Greengenes taxonomy file.
 
 =over
 
+=item -c <clip_tree>
+
+Save the pruned tree in the given filename. Also, if the file already exists,
+re-use it to skip the pruning step. Default: clip_tree.default
+
+=for Euclid:
+   clip_tree.type: writable
+   clip_tree.default: 'pruned_tree.nw'
+
 =item -n <trait_name>
 
 If the input file contains several traits, select the name of the trait to use
@@ -99,14 +108,15 @@ use Method::Signatures;
 use Getopt::Euclid qw(:minimal_keys);
 use Statistics::Basic qw(mean);
 use Bio::Phylo::IO;
+use Bio::Community::TaxonomyUtils;
 use FindBin qw($Bin);
 use lib "$Bin";
 use PreprocUtils;
 
-trait_by_clade_pic( $ARGV{'i'}, $ARGV{'p'}, $ARGV{'t'}, $ARGV{'n'} );
+trait_by_clade_pic( $ARGV{'i'}, $ARGV{'p'}, $ARGV{'t'}, $ARGV{'c'}, $ARGV{'n'} );
 exit;
 
-func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $trait_name ) {
+func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $trait_name ) {
 
    # Read IMG metadata and extract gg IDs and the desired trait value
    my $id2trait = read_metadata($input_file, $trait_name);
@@ -115,7 +125,7 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $trait_name ) {
    $id2trait = average_by_key($id2trait);
 
    # Our very own, special GG tree
-   my $tree = grow_tree($phylo_tree, [keys %$id2trait], $id2trait);
+   my $tree = grow_tree($phylo_tree, $clip_tree, [keys %$id2trait], $id2trait);
 
    # Calculate interior node trait value using PIC
    $id2trait = pic($tree, $id2trait);
@@ -125,7 +135,7 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $trait_name ) {
    my $tax2trait = convert_id_to_tax($id2trait, $gg_taxonomy);
 
    # Do average for each taxonomy string
-   ###$tax2trait = average_by_key($tax2trait);
+   $tax2trait = average_by_key($tax2trait);
 
    # Print results
    print_results($tax2trait, $trait_name);
@@ -138,13 +148,17 @@ func print_results ($tax2trait, $trait_name) {
    # Print results, sorted by taxonomic level and alphabetically within each level
    # Sort results by taxonomic level
    my $max_level = 0;
-   for my $tax (keys %$tax2trait) {
-      my $level = scalar( split /;\s*/, $tax );
+   for my $tax_str (keys %$tax2trait) {
+      # Split and clean taxonomy string
+      my $lineage_arr = Bio::Community::TaxonomyUtils::split_lineage_string( $tax_str );
+      my $level = scalar @$lineage_arr;
       if ($level > $max_level) {
          $max_level = $level;
       }
-      $tax2trait->{$level}->{$tax} = $tax2trait->{$tax};
-      delete $tax2trait->{$tax};
+      # Re-assemble (cleaned) taxonomy string
+      my $clean_tax_str = Bio::Community::TaxonomyUtils::get_lineage_string( $lineage_arr );
+      $tax2trait->{$level}->{$clean_tax_str} = $tax2trait->{$tax_str};
+      delete $tax2trait->{$tax_str};
    }
    # Print results
    print "# taxonomy\t$trait_name\n";
@@ -165,11 +179,8 @@ func convert_id_to_tax ($id_hash, $gg_taxonomy) {
    while ( my ($id, $val) = each %$id_hash ) {
       my $tax = $gg_taxonomy->{$id};
       if (not defined $tax) {
-         warn "Warn: Missing GG taxonomy for GG ID $id\n";
+         warn "Warn: Missing GG taxonomy for GG ID '$id'\n";
          next;
-      }
-      if (exists $tax_hash->{$tax}) {
-         die "Error: There are duplicate taxonomic strings... Need to average\n";
       }
       $tax_hash->{$tax} = $val;
    }
@@ -189,7 +200,7 @@ func pic ($tree, $id2trait) {
 
    while ($tree->calc_number_of_cherries > 0) {
       my $cherries = get_cherries($tree);
-      while (my ($pid, $nodes) = each %$cherries) {
+      while (my ($uid, $nodes) = each %$cherries) {
          # Calculate trait value for parent $pval as a weighted average of the
          # children's trait value @cvals where the weights $weis are proportional
          # to the inverse of the branch distance @dists between parent and
@@ -201,11 +212,27 @@ func pic ($tree, $id2trait) {
          my @weis   = map { 1 / $_ } @cdists;
          my $pval = ($cvals[0]*$weis[0] + $cvals[1]*$weis[1]) / ($weis[0]+$weis[1]);
 
-         warn "CHILDREN: ".$children[0]->get_name."=".$cvals[0]."  ".$children[1]->get_name."=".$cvals[1]."\n"; ###
-         warn "PARENT: ".$pid."=".$pval."\n\n"; ###
+         my $pid = $parent->get_name; # GG ID
+
+         warn "CHILDREN: ".($children[0]->get_name||'?')."(uid ".$children[0]->get_id.")=".$cvals[0]."  ".($children[1]->get_name||'?')."(uid ".$children[1]->get_id.")=".$cvals[1]."\n"; ###
+         warn "PARENT: ".($pid||'?')."(uid $uid)=".$pval."\n\n"; ###
+
+         $parent->set_generic('trait' => $pval);
+
+         # Delete children
+         $parent->prune_child($children[0]);
+         $parent->prune_child($children[1]);
+
+         # Stretch parent's branch
+         my $pdist = $parent->get_branch_length;
+         if ( ($cdists[0] > 0) && ($cdists[1] > 0) ) {
+            $pdist += $cdists[0]*$cdists[1] / ($cdists[0]+$cdists[1]);
+         }
+         $parent->set_branch_length($pdist);
 
          # Save parent's trait value
-         if (exists $id2trait->{$pid}) {
+
+         if ( $pid && (exists $id2trait->{$pid}) ) {
             ####
             if ($id2trait->{$pid} == $pval) {
                warn "Warn: Parent already has a trait value (".$id2trait->{$pid}."), ".
@@ -219,34 +246,22 @@ func pic ($tree, $id2trait) {
          } else {
             $id2trait->{$pid} = $pval;
          }
-         # Delete children
-         $parent->prune_child($children[0]);
-         $parent->prune_child($children[1]);
-         
-         # Stretch parent's branch
-         my $pdist = $parent->get_branch_length;
-         if ( ($cdists[0] > 0) && ($cdists[1] > 0) ) {
-            $pdist += $cdists[0]*$cdists[1] / ($cdists[0]+$cdists[1]);
-         }
-         $parent->set_branch_length($pdist);
+
       }
    }
 
-   my $nof_nodes = $tree->calc_number_of_nodes;
-
-   if ($nof_nodes == 1) {
+   my $nof_leaves = $tree->calc_number_of_terminals;
+   if ($nof_leaves == 1) {
       # Print trait value for remaining node
       my $last_node = @{$tree->get_entities}[0];
       my $last_val  = $last_node->get_generic('trait');
-      warn "Info: Last tree node (GG ID $last_node) has trait value $last_val\n";
+      warn "Info: Last tree node had trait value $last_val\n";
    } else {
       # Error
       my $out_file = 'tree_debug.nw';
-      open my $out, '>', $out_file or die "Error: Could not write file $out_file\n$!\n";
-      print $out unparse( -phylo => $tree, -format => 'newick' );
-      close $out;
+      write_tree($tree, $out_file);
       die "Error: Internal problem. There should be only one node left but there ".
-          "are still $nof_nodes. Wrote what's left of the tree in the Newick ".
+          "are still $nof_leaves leaves. Wrote what's left of the tree in the Newick ".
           "file $out_file for debugging\n";
    }
 
@@ -263,7 +278,8 @@ func get_cherries ($tree) {
          if ( $parent->is_preterminal ) {
             my $children = $parent->get_children;
             if ( scalar @{$children} == 2 ) {
-               $cherries{ $parent->get_name } = [$parent, @$children];
+               warn "CHERRY: P ".$parent->get_name." C1 ".$children->[0]->get_name." C2 ".$children->[1]->get_name."\n";
+               $cherries{ $parent->get_id } = [$parent, @$children];
             }
          }
       }
@@ -272,37 +288,64 @@ func get_cherries ($tree) {
 }
 
 
-func grow_tree ($tree_file, $ids, $id2trait) {
+func write_tree ($tree, $file) {
+   open my $out, '>', $file or die "Error: Could not write file $file\n$!\n";
+   print $out Bio::Phylo::IO->unparse( -phylo => $tree, -format => 'newick' );
+   close $out;
+   return 1;
+}
+
+
+func grow_tree ($tree_file, $clip_file, $ids, $id2trait) {
    # Parse Newick tree, prune it and attach trait
 
-   # Parse Newick tree
-   warn "Info: Parsing and pruning tree $tree_file ...\n";
-   my $tree = Bio::Phylo::IO->parse(
-      -file   => $tree_file,
-      -format => 'newick',
-      -keep   => $ids, # remove some of the nodes we won't need
-   )->first;
-   warn "Info: Saw ".$tree->calc_number_of_terminals()." tree leaves\n";
+   ####
+   # Transform annotations to GG ID
+   ####
 
-   # Actual tree pruning
-   $tree->keep_tips($ids);
-   my $num_leaves = $tree->calc_number_of_terminals;
-   warn "Info: $num_leaves tree leaves left\n";
+   # Parse Newick tree
+   my $tree;
+   my $num_leaves;
+   if ((defined $clip_file) && (-f $clip_file)) {
+      warn "Info: Parsing already-pruned tree $clip_file ...\n";
+      $tree = Bio::Phylo::IO->parse(
+         -file   => $clip_file,
+         -format => 'newick',
+      )->first;
+      $num_leaves = $tree->calc_number_of_terminals();
+      warn "Info: Saw $num_leaves tree leaves\n";
+   } else {
+      warn "Info: Parsing and pruning tree $tree_file ...\n";
+      $tree = Bio::Phylo::IO->parse(
+         -file   => $tree_file,
+         -format => 'newick',
+         -keep   => $ids, # remove some of the nodes we won't need
+      )->first;
+      warn "Info: Saw ".$tree->calc_number_of_terminals()." tree leaves\n";
+
+      # Actual tree pruning
+      $tree->keep_tips($ids);
+      $num_leaves = $tree->calc_number_of_terminals;
+      warn "Info: $num_leaves tree leaves left\n";
+
+      # Write pruned tree if requested
+      if ($clip_file) {
+         warn "Info: Saving tree to $clip_file ...\n";
+         write_tree($tree, $clip_file);
+      }
+   }
 
    my $num_ids = scalar keys $ids;
    if ( $num_ids != $num_leaves ) {
       warn "Warn: Looks like the tree is missing ".($num_ids-$num_leaves)." GG IDs\n";
    }
 
-   # Write pruned tree
-   ###print unparse( -file => 'pruned_tree.nw', -phylo  => $tree, -format => 'newick' );
-
    # Attach trait to nodes
    for my $leaf ( @{$tree->get_terminals} ) {
       my $gg_id = $leaf->get_name;
       my $trait_val = $id2trait->{$gg_id} ||
          die "Error: Could not find trait value for tree leaf with GG ID $gg_id\n";
-      warn "Info: Setting trait value of GG ID $gg_id (internal ID ".$leaf->get_id." to $trait_val\n"; #####
+      warn "Info: Setting trait value of GG ID $gg_id (internal ID ".$leaf->get_id.") to $trait_val\n"; #####
       $leaf->set_generic( 'trait' => $trait_val );
    }
 
