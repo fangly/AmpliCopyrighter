@@ -150,7 +150,7 @@ func print_results ($tax2trait, $trait_name) {
    # Sort results by taxonomic level
    my $max_level = 0;
    for my $tax_str (keys %$tax2trait) {
-      # Split and clean taxonomy string
+      # Split and clean taxonomy string to find taxonomic level
       my $lineage_arr = Bio::Community::TaxonomyUtils::split_lineage_string( $tax_str );
       my $level = scalar @$lineage_arr;
       if ($level > $max_level) {
@@ -160,6 +160,9 @@ func print_results ($tax2trait, $trait_name) {
       my $clean_tax_str = Bio::Community::TaxonomyUtils::get_lineage_string( $lineage_arr );
       $tax2trait->{$level}->{$clean_tax_str} = $tax2trait->{$tax_str};
       delete $tax2trait->{$tax_str};
+
+      ### 
+
    }
    # Print results
    print "# taxonomy\t$trait_name\n";
@@ -197,7 +200,7 @@ func pic ($tree, $id2trait) {
    warn "Info: Applying phylogenetic independent contrasts to tree\n";
    my $nonzero_length = 1e-5;
 
-   warn "TREE: ".$tree->as_string."\n"; ###
+   #warn "TREE: ".$tree->as_string."\n"; ###
 
    while ($tree->calc_number_of_cherries > 0) {
       my $cherries = get_cherries($tree);
@@ -213,9 +216,9 @@ func pic ($tree, $id2trait) {
          my @weis   = map { 1 / $_ } @cdists;
          my $pval = ($cvals[0]*$weis[0] + $cvals[1]*$weis[1]) / ($weis[0]+$weis[1]);
 
-         my $pid = $parent->get_name; # GG ID
+         my $pid = get_clean_name($parent); # GG ID
 
-         warn "CHILDREN: ".($children[0]->get_name||'?')."(uid ".$children[0]->get_id.")=".$cvals[0]."  ".($children[1]->get_name||'?')."(uid ".$children[1]->get_id.")=".$cvals[1]."\n"; ###
+         warn "CHILDREN: ".(get_clean_name($children[0])||'?')."(uid ".$children[0]->get_id.")=".$cvals[0]."  ".(get_clean_name($children[1])||'?')."(uid ".$children[1]->get_id.")=".$cvals[1]."\n"; ###
          warn "PARENT: ".($pid||'?')."(uid $uid)=".$pval."\n\n"; ###
 
          $parent->set_generic('trait' => $pval);
@@ -279,7 +282,7 @@ func get_cherries ($tree) {
          if ( $parent->is_preterminal ) {
             my $children = $parent->get_children;
             if ( scalar @{$children} == 2 ) {
-               warn "CHERRY: P ".$parent->get_name." C1 ".$children->[0]->get_name." C2 ".$children->[1]->get_name."\n";
+               warn "CHERRY: P ".get_clean_name($parent)." C1 ".get_clean_name($children->[0])." C2 ".get_clean_name($children->[1])."\n";
                $cherries{ $parent->get_id } = [$parent, @$children];
             }
          }
@@ -300,8 +303,6 @@ func write_tree ($tree, $file) {
 func grow_tree ($tree_file, $clip_file, $ids, $id2trait) {
    # Parse Newick tree, prune it and attach trait
 
-   clean_newick($tree_file);
-
    # Parse Newick tree
    my $tree;
    my $num_leaves;
@@ -314,15 +315,21 @@ func grow_tree ($tree_file, $clip_file, $ids, $id2trait) {
       $num_leaves = $tree->calc_number_of_terminals();
       warn "Info: Saw $num_leaves tree leaves\n";
    } else {
-      warn "Info: Parsing and pruning tree $tree_file ...\n";
+      warn "Info: Cleaning tree $tree_file ...\n";
+      my $tree_string = clean_newick($tree_file);
+
+      open my $deb, '>', 'debug.nw' or die "$!\n"; print $deb $tree_string; close $deb; warn "TREE IS CLEAN\n"; ##### temp debug
+
+      warn "Info: Parsing tree...\n";
       $tree = Bio::Phylo::IO->parse(
-         -file   => $tree_file,
+         -string => $tree_string,
          -format => 'newick',
          -keep   => $ids, # remove some of the nodes we won't need
       )->first;
       warn "Info: Saw ".$tree->calc_number_of_terminals()." tree leaves\n";
 
       # Actual tree pruning
+      warn "Info: Pruning tree...\n";
       $tree->keep_tips($ids);
       $num_leaves = $tree->calc_number_of_terminals;
       warn "Info: $num_leaves tree leaves left\n";
@@ -341,7 +348,7 @@ func grow_tree ($tree_file, $clip_file, $ids, $id2trait) {
 
    # Attach trait to nodes
    for my $leaf ( @{$tree->get_terminals} ) {
-      my $gg_id = $leaf->get_name;
+      my $gg_id = get_clean_name($leaf);
       my $trait_val = $id2trait->{$gg_id} ||
          die "Error: Could not find trait value for tree leaf with GG ID $gg_id\n";
       warn "Info: Setting trait value of GG ID $gg_id (internal ID ".$leaf->get_id.") to $trait_val\n"; #####
@@ -353,18 +360,54 @@ func grow_tree ($tree_file, $clip_file, $ids, $id2trait) {
 
 
 func clean_newick ($file) {
-   # Take a tree in a Newick file, remove comment lines and cleans quoted
-   # node names like '100:s__Bacteroides dorei' to 's__Bacteroides dorei'
-   
-   ### note: the whitespaces might still be a problem?
+   # Take a tree in a Newick file, cleans quoted node names like '100:s__Bacteroides
+   # dorei' to 's__Bacteroides dorei', i.e. keep only the taxonomy name. Need to
+   # keep the single-quotes because some taxon names contain semicolons.
+   # Note: no need to replace whitespace by underscore '_'
 
+   ### note2: then convert node name to GG ID?
+
+   my $tree_string;
    open my $in, '<', $file or die "Error: Could not read file $file\n$!\n";
    while (my $line = <$in>) {
-      $line =~ s/\[.*?\]//g;
-      ##$line =~ s/'(.+?:)?(.*?)'/'$2'/g;
+      ###$line =~ s/\[.*?\]//g;
+      ###$line =~ s/'(.+?:)?(.*?)'/'$2'/g;
+      ###$line =~ s/'(.+?:)?(.*?)'/replace_ws($2)/ge;
+      $line =~ s/'(.+?:)?(.*?)'/replace_sc("'$2'")/ge;
+      $tree_string .= $line;
    }
    close $in;
-   return 1;
+   return $tree_string;
+}
+
+
+func replace_ws ($string) {
+   # Replace any whitespace in the given string by underscore '_'
+   $string =~ tr/ /_/;
+   return $string;
+}
+
+
+func replace_sc ($string) {
+   # Replace any semicolon in the given string by '.,'
+   $string =~ s/;/.,/g;
+   return $string;
+}
+
+
+func restore_sc ($string) {
+   # Restore any '.,' to semicolon
+   $string =~ s/.,/;/g;
+   return $string;
+}
+
+
+func get_clean_name ($node) {
+   # Get node name, replace semicolons and unquote it
+   my $name = restore_sc( $node->get_name );
+   $name =~ s/^'.*'$//;
+   $name =~ s/^".*"$//;
+   return $name;
 }
 
 
