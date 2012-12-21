@@ -160,9 +160,6 @@ func print_results ($tax2trait, $trait_name) {
       my $clean_tax_str = Bio::Community::TaxonomyUtils::get_lineage_string( $lineage_arr );
       $tax2trait->{$level}->{$clean_tax_str} = $tax2trait->{$tax_str};
       delete $tax2trait->{$tax_str};
-
-      ### 
-
    }
    # Print results
    print "# taxonomy\t$trait_name\n";
@@ -181,6 +178,9 @@ func print_results ($tax2trait, $trait_name) {
 func convert_id_to_tax ($id_hash, $gg_taxonomy) {
    my $tax_hash;
    while ( my ($id, $val) = each %$id_hash ) {
+
+      ### Skip this if we got a taxonomy string, not an ID
+
       my $tax = $gg_taxonomy->{$id};
       if (not defined $tax) {
          warn "Warn: Missing GG taxonomy for GG ID '$id'\n";
@@ -200,8 +200,6 @@ func pic ($tree, $id2trait) {
    warn "Info: Applying phylogenetic independent contrasts to tree\n";
    my $nonzero_length = 1e-5;
 
-   #warn "TREE: ".$tree->as_string."\n"; ###
-
    while ($tree->calc_number_of_cherries > 0) {
       my $cherries = get_cherries($tree);
       while (my ($uid, $nodes) = each %$cherries) {
@@ -215,13 +213,9 @@ func pic ($tree, $id2trait) {
          my @cdists = map { 0+$_->get_branch_length || $nonzero_length } @children;
          my @weis   = map { 1 / $_ } @cdists;
          my $pval = ($cvals[0]*$weis[0] + $cvals[1]*$weis[1]) / ($weis[0]+$weis[1]);
-
-         my $pid = get_clean_name($parent); # GG ID
-
-         warn "CHILDREN: ".(get_clean_name($children[0])||'?')."(uid ".$children[0]->get_id.")=".$cvals[0]."  ".(get_clean_name($children[1])||'?')."(uid ".$children[1]->get_id.")=".$cvals[1]."\n"; ###
-         warn "PARENT: ".($pid||'?')."(uid $uid)=".$pval."\n\n"; ###
-
          $parent->set_generic('trait' => $pval);
+
+         print_cherry($nodes); ####
 
          # Delete children
          $parent->prune_child($children[0]);
@@ -235,18 +229,15 @@ func pic ($tree, $id2trait) {
          $parent->set_branch_length($pdist);
 
          # Save parent's trait value
-
+         my $pid = get_clean_name($parent); # GG ID
          if ( $pid && (exists $id2trait->{$pid}) ) {
-            ####
             if ($id2trait->{$pid} == $pval) {
-               warn "Warn: Parent already has a trait value (".$id2trait->{$pid}."), ".
-                    "but with the same value, so that's ok. May need to skip deleting children ".
-                    "and stretching parent branch though.\n";
+               warn "Warn: Parent already has a trait value (".$id2trait->{$pid}.
+                    "), but with the same value. That may be alright.\n";
             } else {
                die "Error: Parent already has a trait value (".$id2trait->{$pid}.
                    ") that is different from the value that I want to set ($pval)\n";
             }
-            ####
          } else {
             $id2trait->{$pid} = $pval;
          }
@@ -292,6 +283,19 @@ func get_cherries ($tree) {
 }
 
 
+func print_cherry ($cherry) {
+   my ($parent, @children) = @$cherry;
+   my $msg = 
+      "CHILDREN: ".
+      (get_clean_name($children[0])||'?')."(uid ".$children[0]->get_id.")=".$children[0]->get_generic('trait')."  ".
+      (get_clean_name($children[1])||'?')."(uid ".$children[1]->get_id.")=".$children[1]->get_generic('trait')."\n".
+      "PARENT: ".
+      (get_clean_name($parent)||'?')."(uid ".$parent->get_id.")=".$parent->get_generic('trait')."\n\n";
+   warn $msg;
+   return 1;
+}
+
+
 func write_tree ($tree, $file) {
    open my $out, '>', $file or die "Error: Could not write file $file\n$!\n";
    print $out Bio::Phylo::IO->unparse( -phylo => $tree, -format => 'newick' );
@@ -318,8 +322,6 @@ func grow_tree ($tree_file, $clip_file, $ids, $id2trait) {
       warn "Info: Cleaning tree $tree_file ...\n";
       my $tree_string = clean_newick($tree_file);
 
-      open my $deb, '>', 'debug.nw' or die "$!\n"; print $deb $tree_string; close $deb; warn "TREE IS CLEAN\n"; ##### temp debug
-
       warn "Info: Parsing tree...\n";
       $tree = Bio::Phylo::IO->parse(
          -string => $tree_string,
@@ -328,7 +330,6 @@ func grow_tree ($tree_file, $clip_file, $ids, $id2trait) {
       )->first;
       warn "Info: Saw ".$tree->calc_number_of_terminals()." tree leaves\n";
 
-      # Actual tree pruning
       warn "Info: Pruning tree...\n";
       $tree->keep_tips($ids);
       $num_leaves = $tree->calc_number_of_terminals;
@@ -349,10 +350,10 @@ func grow_tree ($tree_file, $clip_file, $ids, $id2trait) {
    # Attach trait to nodes
    for my $leaf ( @{$tree->get_terminals} ) {
       my $gg_id = get_clean_name($leaf);
-      my $trait_val = $id2trait->{$gg_id} ||
+      my $val = $id2trait->{$gg_id} ||
          die "Error: Could not find trait value for tree leaf with GG ID $gg_id\n";
-      warn "Info: Setting trait value of GG ID $gg_id (internal ID ".$leaf->get_id.") to $trait_val\n"; #####
-      $leaf->set_generic( 'trait' => $trait_val );
+      #warn "Info: Setting trait of GG ID $gg_id (uID ".$leaf->get_id.") to $val\n";
+      $leaf->set_generic( 'trait' => $val );
    }
 
    return $tree;
@@ -363,28 +364,20 @@ func clean_newick ($file) {
    # Take a tree in a Newick file, cleans quoted node names like '100:s__Bacteroides
    # dorei' to 's__Bacteroides dorei', i.e. keep only the taxonomy name. Need to
    # keep the single-quotes because some taxon names contain semicolons.
+   # Actually, also convert semicolons to '.,' because it will confuse the -keep
+   # option of Bio::Phylo::IO->parse();
    # Note: no need to replace whitespace by underscore '_'
 
-   ### note2: then convert node name to GG ID?
+   #### for gg 2012, need a script to convert GG ID to ID of 99% cluster representative sequence
 
    my $tree_string;
    open my $in, '<', $file or die "Error: Could not read file $file\n$!\n";
    while (my $line = <$in>) {
-      ###$line =~ s/\[.*?\]//g;
-      ###$line =~ s/'(.+?:)?(.*?)'/'$2'/g;
-      ###$line =~ s/'(.+?:)?(.*?)'/replace_ws($2)/ge;
       $line =~ s/'(.+?:)?(.*?)'/replace_sc("'$2'")/ge;
       $tree_string .= $line;
    }
    close $in;
    return $tree_string;
-}
-
-
-func replace_ws ($string) {
-   # Replace any whitespace in the given string by underscore '_'
-   $string =~ tr/ /_/;
-   return $string;
 }
 
 
