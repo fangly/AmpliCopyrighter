@@ -1,0 +1,143 @@
+#!/usr/bin/env perl
+
+# use_cluster_repr
+# Copyright 2012 Florent Angly
+# You may distribute this module under the terms of the GPLv3
+
+
+=head1 NAME
+
+use_cluster_repr - Replace GG IDs by the ID of their cluster representative sequences
+
+=head1 SYNOPSIS
+
+  use_cluster_repr -f trait.txt -p gg.tree -t gg_taxo.txt > trait_summary.txt
+
+=head1 DESCRIPTION
+
+This script takes a tab-delimited text file containing (among others) a column
+of Greengenes IDs and replaces the IDs by that of their cluster representative
+sequence. The results are printed on screen.
+
+=head1 REQUIRED ARGUMENTS
+
+=over
+
+=item -i <input_file>
+
+Input file of tab-delimited traits. This script will use the column called 'GG ID'.
+
+=for Euclid:
+   input_file.type: readable
+
+=item -c <cluster_file>
+
+The tab-delimited file (OTU map) that defined what sequences are in what cluster
+and what their representative sequence is.
+
+=for Euclid:
+   cluster_file.type: readable
+
+=back
+
+=head1 AUTHOR
+
+Florent Angly <florent.angly@gmail.com>
+
+=head1 BUGS
+
+All complex software has bugs lurking in it, and this program is no exception.
+If you find a bug, please report it on the bug tracker:
+L<http://github.com/fangly/AmpliCopyrighter/issues>
+
+=head1 COPYRIGHT
+
+Copyright 2012 Florent Angly
+
+Copyrighter is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+Copyrighter is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+You should have received a copy of the GNU General Public License
+along with Copyrighter.  If not, see <http://www.gnu.org/licenses/>.
+
+=cut
+
+
+use strict;
+use warnings;
+use Method::Signatures;
+use Getopt::Euclid qw(:minimal_keys);
+use FindBin qw($Bin);
+use lib "$Bin";
+use PreprocUtils;
+
+use_cluster_repr( $ARGV{'i'}, $ARGV{'c'} );
+exit;
+
+func use_cluster_repr ( $input_file, $cluster_file ) {
+   my $id2repr = read_cluster_file($cluster_file);
+   use Data::Dumper; warn "ID2REPR: ".Dumper($id2repr);
+   read_metadata($input_file, $id2repr);
+   return 1;
+}
+
+
+func read_cluster_file ( $file ) {
+   my %id2repr;
+   my $num_seqs;
+   open my $in, '<', $file or die "Error: Could not read file $file\n$!\n";
+   while (my $line = <$in>) {
+      chomp $line;
+      my ($clust_id, $repr_id, @seq_ids) = split "\t", $line;
+      $id2repr{$repr_id} = $repr_id;
+      $num_seqs++; # repr_id
+      for my $seq_id (@seq_ids) {
+         $id2repr{$seq_id} = $repr_id;
+         $num_seqs++; # seq_id
+      }
+   }
+   close $in;
+   warn "Info: Read cluster info for $num_seqs sequences\n";
+   return \%id2repr;
+}
+
+
+func read_metadata ( $file, $id2repr ) {
+   open my $in, '<', $file or die "Error: Could not read file $file\n$!\n";
+   my $header = <$in>;
+   chomp $header;
+   print "$header\n";
+   my @cols = PreprocUtils::find_column_for($header, 'GG ID');
+   # Parse input file
+   my $num = 0;
+   my $num_failed = 0;
+   while (my $line = <$in>) {
+      chomp $line;
+      my @fields  = split /\t/, $line;
+      my ($gg_id) = @fields[@cols];
+      if ( defined($gg_id) && not($gg_id eq '-') ) {
+         my $repr_id = $id2repr->{$gg_id};
+         if (not defined $repr_id) {
+            warn "Warn: Could not find representative sequence for GG ID $gg_id\n";
+            # There are some dodgy GG IDs, like 136966:
+            # http://greengenes.lbl.gov/cgi-bin/show_one_record_v2.pl?prokMSA_id=136966
+            # It is present on the website, but not in taxonomy or cluster representative file
+            $num_failed++;
+         } else {
+            @fields[@cols] = ($gg_id);
+         }
+      }
+      print join("\t", @fields)."\n";
+      $num++;
+   }
+   close $in;
+   warn "Warn: Failed to find representative sequence for $num_failed GG IDs\n";
+   warn "Info: Reported $num entries\n";
+   return 1;
+}
+
