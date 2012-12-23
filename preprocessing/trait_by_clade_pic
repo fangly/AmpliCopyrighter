@@ -138,6 +138,8 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $tra
    # Do average for each taxonomy string
    $tax2trait = average_by_key($tax2trait);
 
+   #### need to add trait value for taxonomic strings that were pruned
+
    # Print results
    print_results($tax2trait, $trait_name);
 
@@ -178,13 +180,17 @@ func print_results ($tax2trait, $trait_name) {
 func convert_id_to_tax ($id_hash, $gg_taxonomy) {
    my $tax_hash;
    while ( my ($id, $val) = each %$id_hash ) {
-
-      ### Skip this if we got a taxonomy string, not an ID
-
-      my $tax = $gg_taxonomy->{$id};
-      if (not defined $tax) {
-         warn "Warn: Missing GG taxonomy for GG ID '$id'\n";
-         next;
+      my $tax;
+      if ( is_id($id) ) {
+         # Convert GG ID to GG full taxonomic string
+         $tax = $gg_taxonomy->{$id};
+         if (not defined $tax) {
+            warn "Warn: Missing GG taxonomy for GG ID '$id'\n";
+            next;
+         }
+      } else {
+         # Given string is already a GG full taxonomic string
+         $tax = $id;
       }
       $tax_hash->{$tax} = $val;
    }
@@ -229,14 +235,15 @@ func pic ($tree, $id2trait) {
          $parent->set_branch_length($pdist);
 
          # Save parent's trait value
-         my $pid = get_clean_name($parent); # GG ID
+         my $pid = get_clean_name($parent); # GG ID or full taxonomic string
          if ( $pid && (exists $id2trait->{$pid}) ) {
+            my $oval = $id2trait->{$pid}; # original trait value
+            my $uid  = $parent->get_id;   # unique node identifier
+            my $msg = "Parent '$pid' (uid $uid) already has a trait value ($oval)";
             if ($id2trait->{$pid} == $pval) {
-               warn "Warn: Parent already has a trait value (".$id2trait->{$pid}.
-                    "), but with the same value. That may be alright.\n";
+               warn "Warn: $msg, but with the same value. That may be alright.\n";
             } else {
-               die "Error: Parent already has a trait value (".$id2trait->{$pid}.
-                   ") that is different from the value that I want to set ($pval)\n";
+               die "Error: $msg that is different from the value to set ($pval)\n";
             }
          } else {
             $id2trait->{$pid} = $pval;
@@ -322,6 +329,8 @@ func grow_tree ($tree_file, $clip_file, $ids, $id2trait) {
       warn "Info: Cleaning tree $tree_file ...\n";
       my $tree_string = clean_newick($tree_file);
 
+      print_tree($tree_string, 'debug1.nw');        ###
+
       warn "Info: Parsing tree...\n";
       $tree = Bio::Phylo::IO->parse(
          -string => $tree_string,
@@ -330,10 +339,16 @@ func grow_tree ($tree_file, $clip_file, $ids, $id2trait) {
       )->first;
       warn "Info: Saw ".$tree->calc_number_of_terminals()." tree leaves\n";
 
+      print_tree($tree, 'debug2.nw');               ###
+      print_tree_nodes($tree, 'debug2_leaves.txt'); ###
+
       warn "Info: Pruning tree...\n";
       $tree->keep_tips($ids);
       $num_leaves = $tree->calc_number_of_terminals;
       warn "Info: $num_leaves tree leaves left\n";
+
+      print_tree($tree, 'debug3.nw');               ###
+      print_tree_nodes($tree, 'debug3_leaves.txt'); ###
 
       # Write pruned tree if requested
       if ($clip_file) {
@@ -357,6 +372,34 @@ func grow_tree ($tree_file, $clip_file, $ids, $id2trait) {
    }
 
    return $tree;
+}
+
+
+func print_tree_nodes ($tree, $file) {
+   # Given a Bio::Phylo::Forest::Tree, write the name of its node in the
+   # specified file name.
+   open my $out, '>', $file or die "Error: Could not write file $file\n$!\n";
+   for my $node (@{$tree->get_entities}) {
+      print $out get_clean_name($node)."\n";
+   }
+   close $out;
+   return 1;
+}
+
+
+func print_tree ($tree, $file) {
+   # Given a Bio::Phylo::Forest::Tree, write its Newick representation in the
+   # specified file name. Alternatively, you can pass a Newick string directly.
+   my $tree_string;
+   if ( ref($tree) eq 'Bio::Phylo::Forest::Tree' ) {
+      $tree_string = $tree->as_string;
+   } else {
+      $tree_string = $tree;
+   }
+   open my $out, '>', $file or die "Error: Could not write file $file\n$!\n";
+   print $out $tree_string;
+   close $out;
+   return 1;
 }
 
 
@@ -396,10 +439,34 @@ func restore_sc ($string) {
 
 
 func get_clean_name ($node) {
-   # Get node name, replace semicolons and unquote it
-   my $name = restore_sc( $node->get_name );
-   $name =~ s/^'.*'$//;
-   $name =~ s/^".*"$//;
+   # Get node name, replace semicolons and unquote it. If the name is not an ID
+   # but part of a taxonomic string, e.g. 'g__Bacteroides' or 's__Bacteroides salyersiae'
+   # reconstruct the full taxonomic string
+   my $name = $node->get_name;
+   $name = clean_name($name);
+   if ( not is_id($name) ) {
+      while (1) {
+         $node = $node->get_parent || last;
+         my $parent_name = clean_name($node->get_name);
+         if ( not is_id($parent_name) ) {
+            $name = $parent_name.'; '.$name;
+         }
+      }
+   }
+   return $name;
+}
+
+
+func is_id ($str) {
+   # Returns true is given string contains only numerals 0-9
+   return( ($str =~ m/[^0-9]/) ? 0 : 1 );
+}
+
+
+func clean_name ($name) {
+   $name = restore_sc($name);
+   $name =~ s/^'(.*)'$/$1/;
+   $name =~ s/^"(.*)"$/$1/;
    return $name;
 }
 
