@@ -107,9 +107,12 @@ use strict;
 use warnings;
 use Method::Signatures;
 use Getopt::Euclid qw(:minimal_keys);
-use Statistics::Basic qw(mean);
 use Bio::Phylo::IO;
 use Bio::Community::TaxonomyUtils;
+
+use Data::Dump qw(dump); ####
+use Data::Dumper;        ####
+
 use FindBin qw($Bin);
 use lib "$Bin";
 use PreprocUtils;
@@ -117,13 +120,14 @@ use PreprocUtils;
 trait_by_clade_pic( $ARGV{'i'}, $ARGV{'p'}, $ARGV{'t'}, $ARGV{'c'}, $ARGV{'n'} );
 exit;
 
+
 func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $trait_name ) {
 
    # Read IMG metadata and extract gg IDs and the desired trait value
    my $id2trait = read_metadata($input_file, $trait_name);
 
    # Make average for GG IDs that have several trait values (several genomes)
-   $id2trait = average_by_key($id2trait);
+   $id2trait = PreprocUtils::average_by_key($id2trait);
 
    # Our very own, special GG tree
    my $tree = grow_tree($phylo_tree, $clip_tree, [keys %$id2trait], $id2trait);
@@ -131,12 +135,12 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $tra
    # Calculate interior node trait value using PIC
    $id2trait = pic($tree, $id2trait);
 
-   # Read GG taxonomy and convert GG IDs to GG taxonomy string
+   # Calculate leaf node trait value: read GG taxonomy, convert GG IDs to GG
+   # taxonomy string and make average for genomes that belong to the same species
+   warn "Info: Processing tree leaves\n";
    my $gg_taxonomy = PreprocUtils::read_lookup($taxo_file);
    my $tax2trait = convert_id_to_tax($id2trait, $gg_taxonomy);
-
-   # Do average for each taxonomy string
-   $tax2trait = average_by_key($tax2trait);
+   $tax2trait = PreprocUtils::average_by_key($tax2trait);
 
    #### need to add trait value for taxonomic strings that were pruned
 
@@ -234,24 +238,23 @@ func pic ($tree, $id2trait) {
          }
          $parent->set_branch_length($pdist);
 
-         # Save parent's trait value
+         # Skip anonymous internal nodes
          my $pid = get_clean_name($parent); # GG ID or full taxonomic string
-         if ( $pid && (exists $id2trait->{$pid}) ) {
-            my $oval = $id2trait->{$pid}; # original trait value
-            my $uid  = $parent->get_id;   # unique node identifier
-            my $msg = "Parent '$pid' (uid $uid) already has a trait value ($oval)";
-            if ($id2trait->{$pid} == $pval) {
-               warn "Warn: $msg, but with the same value. That may be alright.\n";
-            } else {
-               die "Error: $msg that is different from the value to set ($pval)\n";
-            }
-         } else {
-            $id2trait->{$pid} = $pval;
-         }
+         next if $pid eq '';
+
+         # Save parent's trait value
+         # Due to the imperfection of matching a taxonomy on a tree, the
+         # taxonomy name can be on several nodes of the tree. Save all trait
+         # values to make an average in these cases.
+         push @{$id2trait->{$pid}}, $pval;
 
       }
    }
 
+   # Calculate average taxa that have several trait values
+   $id2trait = PreprocUtils::average_by_key($id2trait);
+
+   # Wrap up and hope for a happy ending (single leaf remaining)
    my $nof_leaves = $tree->calc_number_of_terminals;
    if ($nof_leaves == 1) {
       # Print trait value for remaining node
@@ -279,9 +282,9 @@ func get_cherries ($tree) {
       if ( my $parent = $tip->get_parent ) {
          if ( $parent->is_preterminal ) {
             my $children = $parent->get_children;
-            if ( scalar @{$children} == 2 ) {
-               warn "CHERRY: P ".get_clean_name($parent)." C1 ".get_clean_name($children->[0])." C2 ".get_clean_name($children->[1])."\n";
-               $cherries{ $parent->get_id } = [$parent, @$children];
+            my $pid = $parent->get_id;
+            if ( (scalar @{$children} == 2) && (not exists $cherries{$pid}) ) {
+               $cherries{$pid} = [$parent, @$children];
             }
          }
       }
@@ -292,12 +295,13 @@ func get_cherries ($tree) {
 
 func print_cherry ($cherry) {
    my ($parent, @children) = @$cherry;
-   my $msg = 
-      "CHILDREN: ".
-      (get_clean_name($children[0])||'?')."(uid ".$children[0]->get_id.")=".$children[0]->get_generic('trait')."  ".
-      (get_clean_name($children[1])||'?')."(uid ".$children[1]->get_id.")=".$children[1]->get_generic('trait')."\n".
-      "PARENT: ".
-      (get_clean_name($parent)||'?')."(uid ".$parent->get_id.")=".$parent->get_generic('trait')."\n\n";
+   my $msg =
+      "PARENT: '".
+      (get_clean_name($parent)||'?')."'(uid ".$parent->get_id.")=".$parent->get_generic('trait')."\n".
+      "CHILDREN: '".
+      (get_clean_name($children[0])||'?')."'(uid ".$children[0]->get_id.")=".$children[0]->get_generic('trait')."  '".
+      (get_clean_name($children[1])||'?')."'(uid ".$children[1]->get_id.")=".$children[1]->get_generic('trait')."\n\n";
+      
    warn $msg;
    return 1;
 }
@@ -319,6 +323,7 @@ func grow_tree ($tree_file, $clip_file, $ids, $id2trait) {
    my $num_leaves;
    if ((defined $clip_file) && (-f $clip_file)) {
       warn "Info: Parsing already-pruned tree $clip_file ...\n";
+      die "Error: Re-using pruned tree not possible because the saved tree is buggy\n";
       $tree = Bio::Phylo::IO->parse(
          -file   => $clip_file,
          -format => 'newick',
@@ -380,7 +385,7 @@ func print_tree_nodes ($tree, $file) {
    # specified file name.
    open my $out, '>', $file or die "Error: Could not write file $file\n$!\n";
    for my $node (@{$tree->get_entities}) {
-      print $out get_clean_name($node)."\n";
+      print $out $node->get_id.":  ".(get_clean_name($node)||"''")."\n";
    }
    close $out;
    return 1;
@@ -408,15 +413,24 @@ func clean_newick ($file) {
    # dorei' to 's__Bacteroides dorei', i.e. keep only the taxonomy name. Need to
    # keep the single-quotes because some taxon names contain semicolons.
    # Actually, also convert semicolons to '.,' because it will confuse the -keep
-   # option of Bio::Phylo::IO->parse();
-   # Note: no need to replace whitespace by underscore '_'
+   # option of Bio::Phylo::IO->parse(). Also the -keep option will remove spaces
+   # in an inconvenient way, e.g., 'Halorhabdus utahensis' becomes 'Halorhabdusutahensis'
 
    #### for gg 2012, need a script to convert GG ID to ID of 99% cluster representative sequence
 
    my $tree_string;
    open my $in, '<', $file or die "Error: Could not read file $file\n$!\n";
    while (my $line = <$in>) {
-      $line =~ s/'(.+?:)?(.*?)'/replace_sc("'$2'")/ge;
+      # Replace semicolons and whitespaces in node names
+
+      ####$line =~ s/'(.+?:)?(.*?)'/replace_chars("'$2'")/ge;
+      # Remove bootstrap values from internal node name (they get confused with a GG ID)
+      #   (570306:0.00512,574579:0.00227)63:0.00228
+      # becomes
+      #   (570306:0.00512,574579:0.00227):0.00228
+
+      $line =~ s/'(.*?)'/replace_chars("'$1'")/ge;
+      $line =~ s/\)\d+/)/g;
       $tree_string .= $line;
    }
    close $in;
@@ -424,16 +438,18 @@ func clean_newick ($file) {
 }
 
 
-func replace_sc ($string) {
-   # Replace any semicolon in the given string by '.,'
+func replace_chars ($string) {
+   # Replace any semicolon in the given string by '.,' and any space by '\s'
    $string =~ s/;/.,/g;
+   $string =~ s/ /\\s/g;
    return $string;
 }
 
 
-func restore_sc ($string) {
-   # Restore any '.,' to semicolon
+func restore_chars ($string) {
+   # Restore any '.,' to semicolon and any '\s' to space
    $string =~ s/.,/;/g;
+   $string =~ s/\\s/ /g;
    return $string;
 }
 
@@ -444,15 +460,36 @@ func get_clean_name ($node) {
    # reconstruct the full taxonomic string
    my $name = $node->get_name;
    $name = clean_name($name);
+
+   warn $node->get_id.":  ".($node->get_name||"''")."  $name\n"; ###
+
    if ( not is_id($name) ) {
       while (1) {
-         $node = $node->get_parent || last;
+         $node = $node->get_parent;
+         if (not defined $node) {
+            warn "No more parents...\n"; ###
+            last;
+         }
+
          my $parent_name = clean_name($node->get_name);
+
+         warn $node->get_id.":  ".($node->get_name||"''")."  $parent_name\n"; ###
+
          if ( not is_id($parent_name) ) {
             $name = $parent_name.'; '.$name;
          }
       }
    }
+
+   ###
+   if ( not($name eq '') && not(is_id($name)) && not($name =~ m/^k__/) ) {
+
+      warn "Warn: Taxonomic string ".dump($name)." is suspicious; it does not start with 'k__'\n";
+   }
+   ###
+
+   warn "Name: $name\n"; ###
+
    return $name;
 }
 
@@ -464,7 +501,7 @@ func is_id ($str) {
 
 
 func clean_name ($name) {
-   $name = restore_sc($name);
+   $name = restore_chars($name);
    $name =~ s/^'(.*)'$/$1/;
    $name =~ s/^"(.*)"$/$1/;
    return $name;
@@ -498,10 +535,3 @@ func read_metadata ( $file, $trait_name ) {
    return \%id2trait;
 }
 
-
-func average_by_key ( $hash ) {
-   for my $key (keys %$hash) {
-      $hash->{$key} = mean($hash->{$key})->query;
-   }
-   return $hash;
-}
