@@ -147,8 +147,16 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $tra
    # taxonomy string and make average for genomes that belong to the same species
    warn "Info: Processing tree leaves\n";
    my $gg_id2taxo = PreprocUtils::read_lookup($taxo_file);
+
+   warn "ID2TRAIT: ".Dumper($id2trait); ###
+
    my $tax2trait = convert_id_to_tax($id2trait, $gg_id2taxo);
+
+   warn "TAX2TRAIT: ".Dumper($id2trait); ###
+
    $tax2trait = PreprocUtils::average_by_key($tax2trait);
+
+   warn "TAX2TRAIT: ".Dumper($id2trait); ###
 
    #### 1/ Need to have trait value for Cyano and other missing taxa
    #### 2/ Need to add reinflat trait value for taxonomic strings that were pruned
@@ -173,7 +181,7 @@ func print_results ($tax2trait, $trait_name) {
          $max_level = $level;
       }
       # Re-assemble (cleaned) taxonomy string
-      my $clean_tax_str = Bio::Community::TaxonomyUtils::get_lineage_string( $lineage_arr );
+      my $clean_tax_str = Bio::Community::TaxonomyUtils::get_lineage_string($lineage_arr, 'space');
       $tax2trait->{$level}->{$clean_tax_str} = $tax2trait->{$tax_str};
       delete $tax2trait->{$tax_str};
    }
@@ -192,7 +200,7 @@ func print_results ($tax2trait, $trait_name) {
 
 
 func convert_id_to_tax ($id_hash, $gg_taxonomy) {
-   my $tax_hash;
+   my %tax_hash;
    my $num_missing = 0;
    while ( my ($id, $val) = each %$id_hash ) {
       my $tax;
@@ -208,12 +216,15 @@ func convert_id_to_tax ($id_hash, $gg_taxonomy) {
          # Given string is already a GG full taxonomic string
          $tax = $id;
       }
-      $tax_hash->{$tax} = $val;
+
+      warn $id." -> ".$tax."\n"; ###
+
+      push @{$tax_hash{$tax}}, $val;
    }
    if ($num_missing > 0) {
       warn "Warn: Failed to convert $num_missing IDs to taxonomy\n";
    }
-   return $tax_hash;
+   return \%tax_hash;
 }
 
 
@@ -504,7 +515,8 @@ func get_clean_name ($node) {
       if ( scalar @matches == 1 ) {
          my $taxon_id   = $matches[-1];
          my $taxon      = $gg_taxonomy->get_taxon($taxon_id);
-         my $taxon_name = Bio::Tree::Tree->new->get_lineage_string($taxon, 'space');
+         my $taxon_name = Bio::Tree::Tree->new->get_lineage_string($taxon); ###
+         $taxon_name =~ s/;\s*/; /g;
          $name = $taxon_name;
       } elsif ( scalar @matches > 1 ) {
          warn "Warn: Multiple matching GG taxa for $name: ".dump(@matches)."\n";
