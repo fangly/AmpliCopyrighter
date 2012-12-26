@@ -173,15 +173,10 @@ func read_gg_id2taxo ($file) {
    my $id2taxo = PreprocUtils::read_lookup($file);
    for my $id (keys %$id2taxo) {
       my $taxo = $id2taxo->{$id};
-      # Remove ambiguous taxons, i.e. go from:
-      #    k__Archaea; p__pMC2A384; c__; o__; f__; g__; s__
-      # to:
-      #    k__Archaea; p__pMC2A384
-      my $names = [split /;\s*/, $taxo];
-      while ( ($names->[-1] || '') =~ m/__$/ ) {
-         pop @$names;
-      }
-      $taxo = join '; ', @$names;
+      # Parse and clean lineage
+      my $lineage_arr = Bio::Community::TaxonomyUtils::split_lineage_string($taxo);
+      $taxo = Bio::Community::TaxonomyUtils::get_lineage_string($lineage_arr, 'space');
+      $id2taxo->{$id} = $taxo;
    }
    return $id2taxo;
 }
