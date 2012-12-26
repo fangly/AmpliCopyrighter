@@ -125,7 +125,7 @@ exit;
 
 func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $trait_name ) {
 
-   # Read GG taxonomy
+   # Read GG taxonomy (needed by get_clean_name)
    $gg_taxonomy = Bio::DB::Taxonomy->new(
       -source   => 'greengenes',
       -taxofile => $taxo_file,
@@ -133,8 +133,7 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $tra
 
    # Read IMG metadata and extract gg IDs and the desired trait value
    my $id2trait = read_metadata($input_file, $trait_name);
-
-   # Make average for GG IDs that have several trait values (several genomes)
+   # Make average for GG IDs that have several genomes (several trait values)
    $id2trait = PreprocUtils::average_by_key($id2trait);
 
    # Our very own, special GG tree
@@ -284,14 +283,13 @@ func pic ($tree, $id2trait) {
          # Save parent's trait value
          # Due to the imperfection of matching a taxonomy on a tree, the
          # taxonomy name can be on several nodes of the tree. Save all trait
-         # values to make an average in these cases.
+         # values to make an average in these cases. We'll need to average later,
+         # but not before all IDs have been converted to taxonomic strings (we
+         # don't want to do averages of averages).
          push @{$id2trait->{$pid}}, $pval;
 
       }
    }
-
-   # Calculate average for taxa that have several trait values
-   $id2trait = PreprocUtils::average_by_key($id2trait);
 
    # Wrap up and hope for a happy ending (single leaf remaining)
    my $nof_leaves = $tree->calc_number_of_terminals;
