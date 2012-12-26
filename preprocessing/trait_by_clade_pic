@@ -103,25 +103,33 @@ along with Copyrighter.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
 
+use Data::Dump qw(dump); ####
+use Data::Dumper;        ####
+
 use strict;
 use warnings;
 use Method::Signatures;
 use Getopt::Euclid qw(:minimal_keys);
+use Bio::Tree::Tree;
+use Bio::DB::Taxonomy;
 use Bio::Phylo::IO;
 use Bio::Community::TaxonomyUtils;
-
-use Data::Dump qw(dump); ####
-use Data::Dumper;        ####
-
 use FindBin qw($Bin);
 use lib "$Bin";
 use PreprocUtils;
 
+my $gg_taxonomy;
 trait_by_clade_pic( $ARGV{'i'}, $ARGV{'p'}, $ARGV{'t'}, $ARGV{'c'}, $ARGV{'n'} );
 exit;
 
 
 func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $trait_name ) {
+
+   # Read GG taxonomy
+   $gg_taxonomy = Bio::DB::Taxonomy->new(
+      -source   => 'greengenes',
+      -taxofile => $taxo_file,
+   );
 
    # Read IMG metadata and extract gg IDs and the desired trait value
    my $id2trait = read_metadata($input_file, $trait_name);
@@ -138,11 +146,13 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $tra
    # Calculate leaf node trait value: read GG taxonomy, convert GG IDs to GG
    # taxonomy string and make average for genomes that belong to the same species
    warn "Info: Processing tree leaves\n";
-   my $gg_taxonomy = PreprocUtils::read_lookup($taxo_file);
-   my $tax2trait = convert_id_to_tax($id2trait, $gg_taxonomy);
+   my $gg_id2taxo = PreprocUtils::read_lookup($taxo_file);
+   my $tax2trait = convert_id_to_tax($id2trait, $gg_id2taxo);
    $tax2trait = PreprocUtils::average_by_key($tax2trait);
 
-   #### need to add trait value for taxonomic strings that were pruned
+   #### 1/ Need to have trait value for Cyano and other missing taxa
+   #### 2/ Need to add reinflat trait value for taxonomic strings that were pruned
+   #### 3/ Take care of 400+ GG IDs that are not in the GG taxonomy
 
    # Print results
    print_results($tax2trait, $trait_name);
@@ -183,12 +193,14 @@ func print_results ($tax2trait, $trait_name) {
 
 func convert_id_to_tax ($id_hash, $gg_taxonomy) {
    my $tax_hash;
+   my $num_missing = 0;
    while ( my ($id, $val) = each %$id_hash ) {
       my $tax;
       if ( is_id($id) ) {
          # Convert GG ID to GG full taxonomic string
          $tax = $gg_taxonomy->{$id};
          if (not defined $tax) {
+            $num_missing++;
             warn "Warn: Missing GG taxonomy for GG ID '$id'\n";
             next;
          }
@@ -197,6 +209,9 @@ func convert_id_to_tax ($id_hash, $gg_taxonomy) {
          $tax = $id;
       }
       $tax_hash->{$tax} = $val;
+   }
+   if ($num_missing > 0) {
+      warn "Warn: Failed to convert $num_missing IDs to taxonomy\n";
    }
    return $tax_hash;
 }
@@ -416,19 +431,19 @@ func clean_newick ($file) {
    # option of Bio::Phylo::IO->parse(). Also the -keep option will remove spaces
    # in an inconvenient way, e.g., 'Halorhabdus utahensis' becomes 'Halorhabdusutahensis'
 
-   #### for gg 2012, need a script to convert GG ID to ID of 99% cluster representative sequence
-
    my $tree_string;
    open my $in, '<', $file or die "Error: Could not read file $file\n$!\n";
    while (my $line = <$in>) {
       # Replace semicolons and whitespaces in node names
 
-      ####$line =~ s/'(.+?:)?(.*?)'/replace_chars("'$2'")/ge;
-      # Remove bootstrap values from internal node name (they get confused with a GG ID)
+      # In gg prior to 2012, also remove bootstrap values from internal node name
+      # (they get confused with a GG ID)
       #   (570306:0.00512,574579:0.00227)63:0.00228
       # becomes
       #   (570306:0.00512,574579:0.00227):0.00228
+      ####$line =~ s/'(.+?:)?(.*?)'/replace_chars("'$2'")/ge;
 
+      # For GG >= 2012
       $line =~ s/'(.*?)'/replace_chars("'$1'")/ge;
       $line =~ s/\)\d+/)/g;
       $tree_string .= $line;
@@ -461,19 +476,19 @@ func get_clean_name ($node) {
    my $name = $node->get_name;
    $name = clean_name($name);
 
-   warn $node->get_id.":  ".($node->get_name||"''")."  $name\n"; ###
+   ###warn $node->get_id.":  ".($node->get_name||"''")."  $name\n"; ###
 
    if ( not is_id($name) ) {
       while (1) {
          $node = $node->get_parent;
          if (not defined $node) {
-            warn "No more parents...\n"; ###
+            ###warn "No more parents...\n"; ###
             last;
          }
 
          my $parent_name = clean_name($node->get_name);
 
-         warn $node->get_id.":  ".($node->get_name||"''")."  $parent_name\n"; ###
+         ###warn $node->get_id.":  ".($node->get_name||"''")."  $parent_name\n"; ###
 
          if ( not is_id($parent_name) ) {
             $name = $parent_name.'; '.$name;
@@ -481,14 +496,26 @@ func get_clean_name ($node) {
       }
    }
 
-   ###
    if ( not($name eq '') && not(is_id($name)) && not($name =~ m/^k__/) ) {
-
-      warn "Warn: Taxonomic string ".dump($name)." is suspicious; it does not start with 'k__'\n";
+      # Taxonomic string is malformed, not sure why. Search for a fix in the GG taxonomy
+      my @name_elems = split /;\s*/, $name;
+      my $query = $name_elems[-1];
+      my @matches = $gg_taxonomy->get_taxonids($query);
+      if ( scalar @matches == 1 ) {
+         my $taxon_id   = $matches[-1];
+         my $taxon      = $gg_taxonomy->get_taxon($taxon_id);
+         my $taxon_name = Bio::Tree::Tree->new->get_lineage_string($taxon, 'space');
+         $name = $taxon_name;
+      } elsif ( scalar @matches > 1 ) {
+         warn "Warn: Multiple matching GG taxa for $name: ".dump(@matches)."\n";
+      } # else no match
+      if ( not $name =~ m/^k__/ ) {
+         warn "Warn: Taxonomic string $name is suspicious; it does not start ".
+              "with 'k__' and did not match anything in the GG taxonomy\n";
+      }
    }
-   ###
 
-   warn "Name: $name\n"; ###
+   ###warn "Name: $name\n"; ###
 
    return $name;
 }
