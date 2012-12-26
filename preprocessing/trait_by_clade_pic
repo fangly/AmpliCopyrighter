@@ -231,7 +231,11 @@ func convert_id_to_tax ($id_hash, $gg_taxonomy) {
 
       warn $id." -> ".$tax."\n"; ###
 
-      push @{$tax_hash{$tax}}, $val;
+      if (not ref $val) {
+         $val = [$val];
+      }
+
+      push @{$tax_hash{$tax}}, @$val;
    }
    if ($num_missing > 0) {
       warn "Warn: Failed to convert $num_missing IDs to taxonomy\n";
