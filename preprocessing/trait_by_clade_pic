@@ -146,26 +146,44 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $tra
    # Calculate leaf node trait value: read GG taxonomy, convert GG IDs to GG
    # taxonomy string and make average for genomes that belong to the same species
    warn "Info: Processing tree leaves\n";
-   my $gg_id2taxo = PreprocUtils::read_lookup($taxo_file);
+   my $gg_id2taxo = read_gg_id2taxo($taxo_file);
 
    warn "ID2TRAIT: ".Dumper($id2trait); ###
 
    my $tax2trait = convert_id_to_tax($id2trait, $gg_id2taxo);
 
-   warn "TAX2TRAIT: ".Dumper($id2trait); ###
+   warn "TAX2TRAIT: ".Dumper($tax2trait); ###
 
    $tax2trait = PreprocUtils::average_by_key($tax2trait);
 
-   warn "TAX2TRAIT: ".Dumper($id2trait); ###
+   warn "TAX2TRAIT: ".Dumper($tax2trait); ###
 
    #### 1/ Need to have trait value for Cyano and other missing taxa
-   #### 2/ Need to add reinflat trait value for taxonomic strings that were pruned
+   #### 2/ Need to add reinflated trait value for taxonomic strings that were pruned
    #### 3/ Take care of 400+ GG IDs that are not in the GG taxonomy
 
    # Print results
    print_results($tax2trait, $trait_name);
 
    return 1;
+}
+
+
+func read_gg_id2taxo ($file) {
+   my $id2taxo = PreprocUtils::read_lookup($file);
+   for my $id (keys %$id2taxo) {
+      my $taxo = $id2taxo->{$id};
+      # Remove ambiguous taxons, i.e. go from:
+      #    k__Archaea; p__pMC2A384; c__; o__; f__; g__; s__
+      # to:
+      #    k__Archaea; p__pMC2A384
+      my $names = [split /;\s*/, $taxo];
+      while ( ($names->[-1] || '') =~ m/__$/ ) {
+         pop @$names;
+      }
+      $taxo = join '; ', @$names;
+   }
+   return $id2taxo;
 }
 
 
@@ -277,7 +295,7 @@ func pic ($tree, $id2trait) {
       }
    }
 
-   # Calculate average taxa that have several trait values
+   # Calculate average for taxa that have several trait values
    $id2trait = PreprocUtils::average_by_key($id2trait);
 
    # Wrap up and hope for a happy ending (single leaf remaining)
