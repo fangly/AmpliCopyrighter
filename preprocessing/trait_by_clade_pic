@@ -148,7 +148,7 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $tra
 
    # Calculate leaf node trait value: read GG taxonomy, convert GG IDs to GG
    # taxonomy string and make average for genomes that belong to the same species
-   warn "Info: Processing tree leaves\n";
+   warn "Info: Converting GG IDs to taxonomic strings\n";
    my $gg_id2taxo = read_gg_id2taxo($taxo_file);
 
    warn "ID2TRAIT: ".Dumper($id2trait); ###
@@ -386,7 +386,7 @@ func write_tree ($tree, $file) {
 }
 
 
-func grow_tree ($tree_file, $clip_file, $ids, $id2trait) {
+func grow_tree ($tree_file, $clip_file, $gg_ids, $id2trait) {
    # Parse Newick tree, prune it and attach trait
 
    # Parse Newick tree
@@ -410,20 +410,21 @@ func grow_tree ($tree_file, $clip_file, $ids, $id2trait) {
       $tree = Bio::Phylo::IO->parse(
          -string => $tree_string,
          -format => 'newick',
-         -keep   => $ids, # remove some of the nodes we won't need
+         -keep   => $gg_ids, # remove some of the nodes we won't need
       )->first;
       warn "Info: Saw ".$tree->calc_number_of_terminals()." tree leaves\n";
 
       #print_tree($tree, 'debug2.nw');               ###
-      #print_tree_nodes($tree, 'debug2_leaves.txt'); ###
+      print_tree_nodes($tree, 'debug2_leaves.txt'); ###
 
       warn "Info: Pruning tree...\n";
-      $tree->keep_tips($ids);
+      $tree = keep_tips_custom($tree, $gg_ids);
+
       $num_leaves = $tree->calc_number_of_terminals;
       warn "Info: $num_leaves tree leaves left\n";
 
       #print_tree($tree, 'debug3.nw');               ###
-      #print_tree_nodes($tree, 'debug3_leaves.txt'); ###
+      print_tree_nodes($tree, 'debug3_leaves.txt'); ###
 
       # Write pruned tree if requested
       if ($clip_file) {
@@ -432,7 +433,7 @@ func grow_tree ($tree_file, $clip_file, $ids, $id2trait) {
       }
    }
 
-   my $num_ids = scalar keys $ids;
+   my $num_ids = scalar keys $gg_ids;
    if ( $num_ids != $num_leaves ) {
       warn "Warn: Looks like the tree is missing ".($num_ids-$num_leaves)." GG IDs\n";
    }
@@ -442,10 +443,56 @@ func grow_tree ($tree_file, $clip_file, $ids, $id2trait) {
       my $gg_id = get_clean_name($leaf);
       my $val = $id2trait->{$gg_id} ||
          die "Error: Could not find trait value for tree leaf with GG ID $gg_id\n";
-      #warn "Info: Setting trait of GG ID $gg_id (uID ".$leaf->get_id.") to $val\n";
+      ###warn "Info: Setting trait of GG ID $gg_id (uID ".$leaf->get_id.") to $val\n";
       $leaf->set_generic( 'trait' => $val );
    }
 
+   return $tree;
+}
+
+
+func keep_tips_custom ($tree, $tip_names) {
+   # Essentially the same as Bio::Phylo::Forest::Tree::keep_tips() but do not
+   # remove internal tree nodes that are named.
+   # get node objects for tips
+   my @tips = @{ $tree->_get_tip_objects($tip_names) };
+   # identify nodes that are somewhere on the path from tip to root
+   my %seen;
+   for my $tip ( @tips ) {
+      my $node = $tip;
+      PARENT: while ( $node ) {
+         my $id = $node->get_id;
+         if ( not $seen{$id} ) {
+            $seen{$id} = $node;
+            $node = $node->get_parent;
+         } else {
+            last PARENT;
+         }            
+      }
+   }
+   # now do the pruning
+   $tree->visit_depth_first(
+      '-post' => sub {
+         my $n = shift;
+         my $p = $n->get_parent;
+         if ( not $seen{$n->get_id} ) {
+            $p->delete($n) if $p;
+            $tree->delete($n);
+            return;
+         }
+         my @children = @{ $n->get_children };
+         if ( (scalar @children == 1) && (($n->get_name eq '') || ($n->get_name =~ m/^Node\d+$/)) ) {
+            # Anonymous node with a single child
+            my ($c) = @children;
+            my $bl  = $n->get_branch_length;
+            my $cbl = $c->get_branch_length;                
+            $c->set_branch_length( $bl + $cbl ) if defined $cbl && defined $bl;
+            $tree->delete($n);                              
+            $c->set_parent($p);
+            $p->delete($n) if $p;
+         }
+      }
+   );      
    return $tree;
 }
 
@@ -554,6 +601,8 @@ func get_clean_name ($node) {
       }
    }
 
+
+   #### DO NOT NEED THIS ANYMORE...
    if ( not($name eq '') && not(is_id($name)) && not($name =~ m/^k__/) ) {
       # Taxonomic string is malformed, not sure why. Search for a fix in the GG taxonomy
       my @name_elems = split /;\s*/, $name;
