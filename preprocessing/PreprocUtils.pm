@@ -3,6 +3,7 @@ package PreprocUtils;
 use strict;
 use warnings;
 use Method::Signatures;
+use Statistics::Basic qw(mean);
 
 
 func find_column_for ($header_line, @field_names) {
@@ -49,6 +50,18 @@ func read_lookup ($file) {
    }
    close $fh;
    return $lookup;
+}
+
+
+func average_by_key ( $hash ) {
+   # Given a hash of arrays, make the average of the arrays by key
+   for my $key (keys %$hash) {
+      my $vals = $hash->{$key};
+      if (ref($vals) eq 'ARRAY') {
+         $hash->{$key} = mean($vals)->query;
+      } # else do nothing
+   }
+   return $hash;
 }
 
 
