@@ -113,6 +113,7 @@ use Getopt::Euclid qw(:minimal_keys);
 use Bio::Tree::Tree;
 use Bio::DB::Taxonomy;
 use Bio::Phylo::IO;
+use Bio::Phylo::Treedrawer;
 use Bio::Community::TaxonomyUtils;
 use FindBin qw($Bin);
 use lib "$Bin";
@@ -136,6 +137,9 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $tra
    # Make average for GG IDs that have several genomes (several trait values)
    $id2trait = PreprocUtils::average_by_key($id2trait);
 
+   #### Do I need to average here or not. Is it the same genome or not?
+   #### Assume it is a different genome... because we do 99% clustering
+
    # Our very own, special GG tree
    my $tree = grow_tree($phylo_tree, $clip_tree, [keys %$id2trait], $id2trait);
 
@@ -157,9 +161,11 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $tra
 
    warn "TAX2TRAIT: ".Dumper($tax2trait); ###
 
-   #### 1/ Need to have trait value for Cyano and other missing taxa
-   #### 2/ Need to add reinflated trait value for taxonomic strings that were pruned
-   #### 3/ Take care of 400+ GG IDs that are not in the GG taxonomy
+   #### 1/ Why so many nodes remaining after pic()?
+   #### 2/ check why pruning removes internal nodes
+   #### 3/ Need to have trait value for Cyano and other missing taxa
+   #### 4/ Need to add reinflated trait value for taxonomic strings that were pruned
+   #### 5/ Take care of 400+ GG IDs that are not in the GG taxonomy
 
    # Print results
    print_results($tax2trait, $trait_name);
@@ -252,7 +258,10 @@ func pic ($tree, $id2trait) {
    warn "Info: Applying phylogenetic independent contrasts to tree\n";
    my $nonzero_length = 1e-5;
 
+   my $num = 0;
    while ($tree->calc_number_of_cherries > 0) {
+      $num++;
+      warn "Info: round $num\n";
       my $cherries = get_cherries($tree);
       while (my ($uid, $nodes) = each %$cherries) {
          # Calculate trait value for parent $pval as a weighted average of the
@@ -284,7 +293,7 @@ func pic ($tree, $id2trait) {
          my $pid = get_clean_name($parent); # GG ID or full taxonomic string
          next if $pid eq '';
 
-         # Save parent's trait value
+         # Save parent's trait value:
          # Due to the imperfection of matching a taxonomy on a tree, the
          # taxonomy name can be on several nodes of the tree. Save all trait
          # values to make an average in these cases. We'll need to average later,
@@ -302,6 +311,7 @@ func pic ($tree, $id2trait) {
       my $last_node = @{$tree->get_entities}[0];
       my $last_val  = $last_node->get_generic('trait');
       warn "Info: Last tree node had trait value $last_val\n";
+      draw_tree($tree, 'debug_last.svg'); ###
    } else {
       # Error
       my $out_file = 'tree_debug.nw';
@@ -348,9 +358,29 @@ func print_cherry ($cherry) {
 }
 
 
+func draw_tree ( Bio::Phylo::Forest::Tree $tree, $file) {
+   my $treedrawer = Bio::Phylo::Treedrawer->new(
+      -width  => 1200,
+      -height =>  800,
+      -shape  => 'rect',
+      -mode   => 'phylo',
+      -format => 'svg'
+   );
+   $treedrawer->set_tree($tree);
+   open my $out, '>', $file or die "Error: Could not write file $file\n$!\n";
+   print $out $treedrawer->draw;
+   close $out;
+   return 1;
+}
+
+
 func write_tree ($tree, $file) {
    open my $out, '>', $file or die "Error: Could not write file $file\n$!\n";
-   print $out Bio::Phylo::IO->unparse( -phylo => $tree, -format => 'newick' );
+   print $out Bio::Phylo::IO->unparse(
+      -phylo      => $tree,
+      -format     => 'newick',
+      -nodelabels => 1, # report name of internal nodes
+   );
    close $out;
    return 1;
 }
@@ -364,7 +394,6 @@ func grow_tree ($tree_file, $clip_file, $ids, $id2trait) {
    my $num_leaves;
    if ((defined $clip_file) && (-f $clip_file)) {
       warn "Info: Parsing already-pruned tree $clip_file ...\n";
-      die "Error: Re-using pruned tree not possible because the saved tree is buggy\n";
       $tree = Bio::Phylo::IO->parse(
          -file   => $clip_file,
          -format => 'newick',
@@ -385,16 +414,16 @@ func grow_tree ($tree_file, $clip_file, $ids, $id2trait) {
       )->first;
       warn "Info: Saw ".$tree->calc_number_of_terminals()." tree leaves\n";
 
-      print_tree($tree, 'debug2.nw');               ###
-      print_tree_nodes($tree, 'debug2_leaves.txt'); ###
+      #print_tree($tree, 'debug2.nw');               ###
+      #print_tree_nodes($tree, 'debug2_leaves.txt'); ###
 
       warn "Info: Pruning tree...\n";
       $tree->keep_tips($ids);
       $num_leaves = $tree->calc_number_of_terminals;
       warn "Info: $num_leaves tree leaves left\n";
 
-      print_tree($tree, 'debug3.nw');               ###
-      print_tree_nodes($tree, 'debug3_leaves.txt'); ###
+      #print_tree($tree, 'debug3.nw');               ###
+      #print_tree_nodes($tree, 'debug3_leaves.txt'); ###
 
       # Write pruned tree if requested
       if ($clip_file) {
@@ -500,6 +529,9 @@ func get_clean_name ($node) {
    # but part of a taxonomic string, e.g. 'g__Bacteroides' or 's__Bacteroides salyersiae'
    # reconstruct the full taxonomic string
    my $name = $node->get_name;
+   if ($name =~ m/^Node\d+$/) {
+      $name = '';
+   }
    $name = clean_name($name);
 
    ###warn $node->get_id.":  ".($node->get_name||"''")."  $name\n"; ###
