@@ -262,6 +262,8 @@ func pic ($tree, $id2trait) {
    while ($tree->calc_number_of_cherries > 0) {
       $num++;
       warn "Info: round $num\n";
+
+      # Process and remove cherries
       my $cherries = get_cherries($tree);
       while (my ($uid, $nodes) = each %$cherries) {
          # Calculate trait value for parent $pval as a weighted average of the
@@ -302,6 +304,21 @@ func pic ($tree, $id2trait) {
          push @{$id2trait->{$pid}}, $pval;
 
       }
+
+      # Process and remove singleton leaves
+      for my $leaf (@{$tree->get_terminals}) {
+         my $parent = $leaf->get_parent;
+         next if not $parent;
+         if (scalar @{$parent->get_children} == 1) {
+            my $pval = $leaf->get_generic('trait');
+            $parent->set_generic('trait' => $pval);
+            $parent->prune_child($leaf);
+            my $pid = get_clean_name($parent); # GG ID or full taxonomic string
+            next if $pid eq '';
+            push @{$id2trait->{$pid}}, $pval;
+         }
+      }
+
    }
 
    # Wrap up and hope for a happy ending (single leaf remaining)
@@ -310,8 +327,10 @@ func pic ($tree, $id2trait) {
       # Print trait value for remaining node
       my $last_node = @{$tree->get_entities}[0];
       my $last_val  = $last_node->get_generic('trait');
-      warn "Info: Last tree node had trait value $last_val\n";
+      warn "Info: Last tree leaf had trait value $last_val. ".
+         $tree->calc_number_of_internals." internal nodes left\n";
       draw_tree($tree, 'debug_last.svg'); ###
+      write_tree($tree, 'debug_last.nw'); ###
    } else {
       # Error
       my $out_file = 'tree_debug.nw';
@@ -325,7 +344,7 @@ func pic ($tree, $id2trait) {
 }
 
 
-func get_cherries ($tree) {
+func get_cherries (Bio::Phylo::Forest::Tree $tree) {
    # Find the cherries in the tree and report them in a hash, keyed by the ID of
    # their parent
    my %cherries;
@@ -462,7 +481,7 @@ func keep_tips_custom ($tree, $tip_names) {
       my $node = $tip;
       PARENT: while ( $node ) {
          my $id = $node->get_id;
-         if ( not $seen{$id} ) {
+         if ( not exists $seen{$id} ) {
             $seen{$id} = $node;
             $node = $node->get_parent;
          } else {
@@ -475,24 +494,27 @@ func keep_tips_custom ($tree, $tip_names) {
       '-post' => sub {
          my $n = shift;
          my $p = $n->get_parent;
-         if ( not $seen{$n->get_id} ) {
+         if ( not exists $seen{$n->get_id} ) {
             $p->delete($n) if $p;
             $tree->delete($n);
             return;
          }
-         my @children = @{ $n->get_children };
-         if ( (scalar @children == 1) && (($n->get_name eq '') || ($n->get_name =~ m/^Node\d+$/)) ) {
-            # Anonymous node with a single child
-            my ($c) = @children;
-            my $bl  = $n->get_branch_length;
-            my $cbl = $c->get_branch_length;                
-            $c->set_branch_length( $bl + $cbl ) if defined $cbl && defined $bl;
-            $tree->delete($n);                              
-            $c->set_parent($p);
-            $p->delete($n) if $p;
+         if ( ($n->get_name eq '') || ($n->get_name =~ m/^Node\d+$/) ) {
+            # This is an anonymous node
+            my @children = @{ $n->get_children };
+            if ( scalar @children == 1 ) {
+               # Node has a single child
+               my ($c) = @children;
+               my $bl  = $n->get_branch_length;
+               my $cbl = $c->get_branch_length;
+               $c->set_branch_length( $bl + $cbl ) if defined $cbl && defined $bl;
+               $tree->delete($n);
+               $c->set_parent($p);
+               $p->delete($n) if $p;
+            }
          }
       }
-   );      
+   );
    return $tree;
 }
 
@@ -601,8 +623,7 @@ func get_clean_name ($node) {
       }
    }
 
-
-   #### DO NOT NEED THIS ANYMORE...
+   #### DO NOT NEED THIS ANYMORE... ####
    if ( not($name eq '') && not(is_id($name)) && not($name =~ m/^k__/) ) {
       # Taxonomic string is malformed, not sure why. Search for a fix in the GG taxonomy
       my @name_elems = split /;\s*/, $name;
