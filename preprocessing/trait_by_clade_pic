@@ -111,7 +111,6 @@ use warnings;
 use Method::Signatures;
 use Getopt::Euclid qw(:minimal_keys);
 use Bio::Tree::Tree;
-use Bio::DB::Taxonomy;
 use Bio::Phylo::IO;
 use Bio::Phylo::Treedrawer;
 use Bio::Community::TaxonomyUtils;
@@ -125,12 +124,6 @@ exit;
 
 
 func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $trait_name ) {
-
-   # Read GG taxonomy (needed by get_clean_name)
-   $gg_taxonomy = Bio::DB::Taxonomy->new(
-      -source   => 'greengenes',
-      -taxofile => $taxo_file,
-   );
 
    # Read IMG metadata and extract gg IDs and the desired trait value
    my $id2trait = read_metadata($input_file, $trait_name);
@@ -161,9 +154,14 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $tra
 
    warn "TAX2TRAIT: ".Dumper($tax2trait); ###
 
-   #### 1/ Why so many nodes remaining after pic()?
-   #### 2/ check why pruning removes internal nodes
-   #### 3/ Need to have trait value for Cyano and other missing taxa
+   #### 1/ Restore proper node name in tree (non-escaped characters)
+   #### 2/ Convert tree node from GG ID to GG taxonomy early on (and use s__ part only).
+   #### 3/ Compare:
+   ####       k__Archaea	1.6541404157126
+   ####    to:
+   ####       k__Archaea; p__Crenarchaeota	1
+   ####       k__Archaea; p__Euryarchaeota	1.60412505642777
+   ####    Even more pronounced for Bacilli
    #### 4/ Need to add reinflated trait value for taxonomic strings that were pruned
    #### 5/ Take care of 400+ GG IDs that are not in the GG taxonomy
 
@@ -278,7 +276,7 @@ func pic ($tree, $id2trait) {
          my $pval = ($cvals[0]*$weis[0] + $cvals[1]*$weis[1]) / ($weis[0]+$weis[1]);
          $parent->set_generic('trait' => $pval);
 
-         print_cherry($nodes); ####
+         print_nodes($parent, @children); ####
 
          # Delete children
          $parent->prune_child($children[0]);
@@ -303,6 +301,19 @@ func pic ($tree, $id2trait) {
          # don't want to do averages of averages).
          push @{$id2trait->{$pid}}, $pval;
 
+         # If GG label name $pid contains several taxonomic levels e.g.
+         # 'o__Rhizobiales; f__Rhodobiaceae', record them all.
+         my $num_levels = scalar (split /\.,/, $parent->get_name);
+         if ($num_levels > 1) {
+            my $lineage = Bio::Community::TaxonomyUtils::split_lineage_string($pid);
+            my $max_idx = scalar @$lineage - 1;
+            for my $level (1 .. $num_levels-1) {
+               my @arr = @{$lineage}[0..$max_idx-$level];
+               my $name = Bio::Community::TaxonomyUtils::get_lineage_string(\@arr, 'space');
+               push @{$id2trait->{$name}}, $pval;
+            }
+         }
+
       }
 
       # Process and remove singleton leaves
@@ -312,32 +323,42 @@ func pic ($tree, $id2trait) {
          if (scalar @{$parent->get_children} == 1) {
             my $pval = $leaf->get_generic('trait');
             $parent->set_generic('trait' => $pval);
+            print_nodes($parent, $leaf); ###
             $parent->prune_child($leaf);
             my $pid = get_clean_name($parent); # GG ID or full taxonomic string
             next if $pid eq '';
             push @{$id2trait->{$pid}}, $pval;
+            my $num_levels = scalar (split /\.,/, $parent->get_name);
+            if ($num_levels > 1) {
+               my $lineage = Bio::Community::TaxonomyUtils::split_lineage_string($pid);
+               my $max_idx = scalar @$lineage - 1;
+               for my $level (1 .. $num_levels-1) {
+                  my @arr = @{$lineage}[0..$max_idx-$level];
+                  my $name = Bio::Community::TaxonomyUtils::get_lineage_string(\@arr, 'space');
+                  push @{$id2trait->{$name}}, $pval;
+               }
+            }
          }
       }
 
    }
 
    # Wrap up and hope for a happy ending (single leaf remaining)
-   my $nof_leaves = $tree->calc_number_of_terminals;
-   if ($nof_leaves == 1) {
+   my $nof_leaves  = $tree->calc_number_of_terminals;
+   my $nof_interns = $tree->calc_number_of_internals;
+   if ( ($nof_leaves == 1) && ($nof_interns == 0) ) {
       # Print trait value for remaining node
       my $last_node = @{$tree->get_entities}[0];
       my $last_val  = $last_node->get_generic('trait');
-      warn "Info: Last tree leaf had trait value $last_val. ".
-         $tree->calc_number_of_internals." internal nodes left\n";
-      draw_tree($tree, 'debug_last.svg'); ###
-      write_tree($tree, 'debug_last.nw'); ###
+      warn "Info: No internal nodes remaining. The last tree leaf had trait value $last_val\n.";
    } else {
       # Error
       my $out_file = 'tree_debug.nw';
       write_tree($tree, $out_file);
-      die "Error: Internal problem. There should be only one node left but there ".
-          "are still $nof_leaves leaves. Wrote what's left of the tree in the Newick ".
-          "file $out_file for debugging\n";
+      die "Error: Internal problem. There should be only one lead left and no ".
+          "internal nodes but there are still $nof_leaves leaves and $nof_interns ".
+          "internal nodes. Wrote what's left of the tree in the Newick file ".
+          "$out_file for debugging\n";
    }
 
    return $id2trait;
@@ -363,16 +384,17 @@ func get_cherries (Bio::Phylo::Forest::Tree $tree) {
 }
 
 
-func print_cherry ($cherry) {
-   my ($parent, @children) = @$cherry;
-   my $msg =
-      "PARENT: '".
-      (get_clean_name($parent)||'?')."'(uid ".$parent->get_id.")=".$parent->get_generic('trait')."\n".
-      "CHILDREN: '".
-      (get_clean_name($children[0])||'?')."'(uid ".$children[0]->get_id.")=".$children[0]->get_generic('trait')."  '".
-      (get_clean_name($children[1])||'?')."'(uid ".$children[1]->get_id.")=".$children[1]->get_generic('trait')."\n\n";
-      
-   warn $msg;
+func print_nodes ($parent, $child1?, $child2?) {
+   # Print node info for parent and optional two children
+   my $msg;
+   if ($child1) {
+      $msg .= "CHILD1: '".(get_clean_name($child1)||'?')."' (uid ".$child1->get_id.") = ".$child1->get_generic('trait')."\n";
+   }
+   if ($child2) {
+      $msg .= "CHILD2: '".(get_clean_name($child2)||'?')."' (uid ".$child2->get_id.") = ".$child2->get_generic('trait')."\n";
+   }
+   $msg    .= "PARENT: '".(get_clean_name($parent)||'?')."' (uid ".$parent->get_id.") = ".$parent->get_generic('trait')."\n";
+   warn "$msg\n";
    return 1;
 }
 
@@ -417,6 +439,7 @@ func grow_tree ($tree_file, $clip_file, $gg_ids, $id2trait) {
          -file   => $clip_file,
          -format => 'newick',
       )->first;
+      $tree = rename_anon_nodes($tree);
       $num_leaves = $tree->calc_number_of_terminals();
       warn "Info: Saw $num_leaves tree leaves\n";
    } else {
@@ -470,6 +493,17 @@ func grow_tree ($tree_file, $clip_file, $gg_ids, $id2trait) {
 }
 
 
+func rename_anon_nodes (Bio::Phylo::Forest::Tree $tree) {
+   # Remove anonymous nodes (called Node1234 by Bio::Phylo)
+   for my $node (@{$tree->get_internals}) {
+      if ($node->get_name =~ m/^Node\d+$/i) {
+         $node->set_name('');
+      }
+   }
+   return $tree;
+}
+
+
 func keep_tips_custom ($tree, $tip_names) {
    # Essentially the same as Bio::Phylo::Forest::Tree::keep_tips() but do not
    # remove internal tree nodes that are named.
@@ -499,7 +533,7 @@ func keep_tips_custom ($tree, $tip_names) {
             $tree->delete($n);
             return;
          }
-         if ( ($n->get_name eq '') || ($n->get_name =~ m/^Node\d+$/) ) {
+         if ( $n->get_name eq '' ) {
             # This is an anonymous node
             my @children = @{ $n->get_children };
             if ( scalar @children == 1 ) {
@@ -597,11 +631,7 @@ func get_clean_name ($node) {
    # Get node name, replace semicolons and unquote it. If the name is not an ID
    # but part of a taxonomic string, e.g. 'g__Bacteroides' or 's__Bacteroides salyersiae'
    # reconstruct the full taxonomic string
-   my $name = $node->get_name;
-   if ($name =~ m/^Node\d+$/) {
-      $name = '';
-   }
-   $name = clean_name($name);
+   my $name = clean_name($node->get_name);
 
    ###warn $node->get_id.":  ".($node->get_name||"''")."  $name\n"; ###
 
@@ -623,25 +653,9 @@ func get_clean_name ($node) {
       }
    }
 
-   #### DO NOT NEED THIS ANYMORE... ####
    if ( not($name eq '') && not(is_id($name)) && not($name =~ m/^k__/) ) {
-      # Taxonomic string is malformed, not sure why. Search for a fix in the GG taxonomy
-      my @name_elems = split /;\s*/, $name;
-      my $query = $name_elems[-1];
-      my @matches = $gg_taxonomy->get_taxonids($query);
-      if ( scalar @matches == 1 ) {
-         my $taxon_id   = $matches[-1];
-         my $taxon      = $gg_taxonomy->get_taxon($taxon_id);
-         my $taxon_name = Bio::Tree::Tree->new->get_lineage_string($taxon); ###
-         $taxon_name =~ s/;\s*/; /g;
-         $name = $taxon_name;
-      } elsif ( scalar @matches > 1 ) {
-         warn "Warn: Multiple matching GG taxa for $name: ".dump(@matches)."\n";
-      } # else no match
-      if ( not $name =~ m/^k__/ ) {
-         warn "Warn: Taxonomic string $name is suspicious; it does not start ".
-              "with 'k__' and did not match anything in the GG taxonomy\n";
-      }
+      warn "Warn: Taxonomic string $name is suspicious; it does not start ".
+           "with 'k__' and did not match anything in the GG taxonomy\n";
    }
 
    ###warn "Name: $name\n"; ###
