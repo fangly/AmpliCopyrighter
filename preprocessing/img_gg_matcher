@@ -462,27 +462,28 @@ func parse_name ( Str $name ) {
          'CCUG|CDBB|CECT|CFBP|CGMCC|CIP|CNCTC|DSM|DSMZ|GIFU|GISK|GTC|HAMBI|HSCC|HTCC|IAM|'.
          'ICMP|ICS|IFO|IMAU|IMCC|IMET|JCM|KACC|KCTC|KS|LMD|LMG|MIT|NBRC|NCAIM|NCCB|NCDO|NCFB|NCIB|'.
          'NCIM|NCIMB|NCTC|NRRL|NRRL NRSNRS|PCC|PCM|PZH|RCC|RH|TSNRS|USCC|USDA|VTT E';
-      $tmp_name   =~ s/\b($catalogs)(?:-|_|\.|)(\d+)/$1__$2/gi;  #  Add the separator, remove it later, after massage
+      $tmp_name     =~ s/\b($catalogs)(?:-|_|\.|)(\d+)/$1__$2/gi;  #  Add the separator, remove it later, after massage
 
       # Candidatus
-      $tmp_name   =~ s/^(Candidatus)\s+//gi;
-      $candidatus = $1 || '';
+      $tmp_name     =~ s/^(Candidatus)\s+//gi;
+      $candidatus   = $1 || '';
 
       # Genus
-      $tmp_name   =~ s/^(\S+)\s*//gi;
-      $genus      = $1 || '';
+      $tmp_name     =~ s/^(\S+)\s*//gi;
+      $genus        = $1 || '';
 
       # Species
-      if ($tmp_name  =~ m/^\s*(?:subspecies|strain|var|serovar|biovar|pathovar|cultivar|genomovar|morphovar)\s*/gi) {
-         $species    = ''
+      if ($tmp_name =~ m/^\s*(?:subspecies|strain|var|serovar|biovar|pathovar|cultivar|genomovar|morphovar)\s*/gi) {
+         $species   = ''
       } else {
-         $tmp_name   =~ s/^(\S+)\s*//gi;
-         $species    = $1 || '';
-         $species    =~ s/^\s*species\s*$//gi;
+         $tmp_name  =~ s/^(\S+)\s*//gi;
+         $species   = $1 || '';
+         $species   =~ s/^\s*species\s*$//gi;
       }
 
       # Strain (in a broad sense)
-      $strain     = $tmp_name || '';
+      $strain       = $tmp_name || '';
+      $strain       =~ s/^'(.*)'$/$1/;
 
    }
    return $candidatus, $genus, $species, $strain;
