@@ -212,7 +212,7 @@ func img_gg_matcher ( Str $corr_file, Str $img_file, Str $seq_file, Str $taxo_fi
 
    warn "Info: There are ".(scalar keys %$missing)." IMG IDs with missing GG ID.\n";
 
-   # Exclude anything that is not a bacteria or archaea
+   # Exclude anything that is not bacterial or archaeal
    if ( (scalar keys %$missing > 0) && ($search_desc || $search_names || $search_seqs) ) {
 
       # Index FASTA file and sort genome names by taxa
@@ -221,6 +221,12 @@ func img_gg_matcher ( Str $corr_file, Str $img_file, Str $seq_file, Str $taxo_fi
       # Find a matching name
       if ($search_desc || $search_names) {
          my $gg_taxa = gg_id_by_taxa($db, $search_desc, $search_names);
+
+         ####
+         # why is Bacillus anthracis CDC 684 not in $gg_taxa? Actually it is...
+         use Data::Dumper; warn "GG_TAXA: ".Dumper($gg_taxa);
+         ####
+
          ($correlations, $missing) = match_names($names, $correlations, $missing,
             $gg_taxa);
          warn "Info: There are still ".scalar(keys(%$missing))." missing IDs\n";
@@ -505,16 +511,19 @@ func match_name ( Str $img_name, $genera ) {
 
    my ($candidatus, $genus, $species, $strain) = parse_name($img_name);
    my $strain_clean = massage_strain( $strain );
-   #warn "                                                    ".
-   #     "| $genus | $species | $strain | $strain_clean |\n";
+   warn "                                                         ".
+        "| $genus | $species | $strain | $strain_clean |\n" if $DEBUG;
 
    # Look for perfect genus, species and strain match
-   while ( my ($gg_id, $gg_names) = each %{$genera->{$genus}->{$species}->{$strain}} ) {
-      my ($gg_scientific, $gg_strain_clean) = @$gg_names;
-      $good_id = $gg_id;
-      $good_scientific = $gg_scientific;
-      $msg = sprintf "Info: Found perfect name match,     GG ID %12s ... %s\n", $good_id, $good_scientific;
-      last;
+   PREFIX: for my $prefix ('', 'strain ') {
+      my $strain_name = $prefix.$strain;
+      while ( my ($gg_id, $gg_names) = each %{$genera->{$genus}->{$species}->{$strain_name}} ) {
+         my ($gg_scientific, $gg_strain_clean) = @$gg_names;
+         $good_id = $gg_id;
+         $good_scientific = $gg_scientific;
+         $msg = sprintf "Info: Found perfect name match,     GG ID %12s ... %s\n", $good_id, $good_scientific;
+         last PREFIX;
+      }
    }
 
 
@@ -533,8 +542,8 @@ func match_name ( Str $img_name, $genera ) {
                last LOOKUP;
             }
 
-            #warn "                                                    ".
-            #     "+ $genus + $species + $gg_strain + $gg_strain_clean +\n";
+            warn "                                                         ".
+                 "+ $genus + $species + $gg_strain + $gg_strain_clean +\n" if $DEBUG;
 
             # Match one part of the strain name only
             # Example: Prochlorococcus marinus MIT9202
@@ -619,6 +628,9 @@ func gg_id_by_taxa ($gg_db, $search_desc, $search_names) {
       my ($gg_candidatus, $gg_genus, $gg_species, $gg_strain) = parse_name($gg_scientific);
       next if not $gg_genus; # Organisms without genus are useless for us
       my $gg_strain_clean = massage_strain( $gg_strain );
+      warn "gg_scientific: $gg_scientific\n".     ####
+           "strain       : $gg_strain\n".         ####
+           "strain_clean : $gg_strain_clean\n\n"; ####
       $gg_taxa->{$gg_genus}->{$gg_species}->{$gg_strain}->{$gg_id} = [$gg_scientific, $gg_strain_clean];
    }
    return $gg_taxa;
