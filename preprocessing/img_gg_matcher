@@ -483,7 +483,7 @@ func parse_name ( Str $name ) {
 
       # Strain (in a broad sense)
       $strain       = $tmp_name || '';
-      ###$strain       =~ s/^\s*:\s*//;
+      $strain       =~ s/^\s*:\s*//;
       $strain       =~ s/'(.*)'/$1/g;
       $strain       =~ s/^strain //;
 
