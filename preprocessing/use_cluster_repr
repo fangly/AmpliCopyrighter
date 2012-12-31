@@ -81,8 +81,7 @@ exit;
 
 func use_cluster_repr ( $input_file, $cluster_file ) {
    my $id2repr = read_cluster_file($cluster_file);
-   use Data::Dumper; warn "ID2REPR: ".Dumper($id2repr);
-   read_metadata($input_file, $id2repr);
+   correct_metadata($input_file, $id2repr);
    return 1;
 }
 
@@ -107,7 +106,7 @@ func read_cluster_file ( $file ) {
 }
 
 
-func read_metadata ( $file, $id2repr ) {
+func correct_metadata ( $file, $id2repr ) {
    open my $in, '<', $file or die "Error: Could not read file $file\n$!\n";
    my $header = <$in>;
    chomp $header;
@@ -129,7 +128,7 @@ func read_metadata ( $file, $id2repr ) {
             # It is present on the website, but not in taxonomy or cluster representative file
             $num_failed++;
          } else {
-            @fields[@cols] = ($gg_id);
+            @fields[@cols] = ($repr_id);
          }
       }
       print join("\t", @fields)."\n";
