@@ -53,13 +53,19 @@ func read_lookup ($file) {
 }
 
 
-func average_by_key ( $hash ) {
-   # Given a hash of arrays, make the average of the arrays by key
+func average_by_key ( $hash, Int $digits? ) {
+   # Given a hash of arrays, make the average of the arrays by key. When the
+   # average of more than one value, use the specified optional number of decimal
+   # digits.
    for my $key (keys %$hash) {
       my $vals = $hash->{$key};
       if (ref($vals) eq 'ARRAY') {
-         $hash->{$key} = mean($vals)->query;
-      } # else do nothing
+         my $mean = mean($vals)->query;
+         if ( (scalar @$vals > 1) && (defined $digits) ) {
+            $mean = sprintf( "%.".$digits."f" , $mean );
+         }
+         $hash->{$key} = $mean;
+      } # else do nothing, keep the single value
    }
    return $hash;
 }
