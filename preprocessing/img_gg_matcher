@@ -483,7 +483,7 @@ func parse_name ( Str $name ) {
 
       # Strain (in a broad sense)
       $strain       = $tmp_name || '';
-      $strain       =~ s/^'(.*)'$/$1/;
+      $strain       =~ s/'(.*)'/$1/g;
 
    }
    return $candidatus, $genus, $species, $strain;
@@ -519,7 +519,7 @@ func match_name ( Str $img_name, $genera ) {
         "| $genus | $species | $strain | $strain_clean |\n" if $DEBUG;
 
    # Look for perfect genus, species and strain match
-   PREFIX: for my $prefix ('', 'strain ') {
+   PREFIX: for my $prefix ('', 'strain ') {  #### hackish... parse_name should strip ^strain
       my $strain_name = $prefix.$strain;
       while ( my ($gg_id, $gg_names) = each %{$genera->{$genus}->{$species}->{$strain_name}} ) {
          my ($gg_scientific, $gg_strain_clean) = @$gg_names;
@@ -619,6 +619,10 @@ func gg_id_by_taxa ($gg_db, $search_desc, $search_names) {
       $named_isolates = read_named_isolates($search_names);
    }
 
+   ####
+   use Data::Dumper; warn "NAMED_ISOLATES: ".Dumper($named_isolates);
+   ####
+
    my $gg_taxa;
    my $stream = $gg_db->get_PrimarySeq_stream;
    while (my $gg_seq = $stream->next_seq) {
@@ -629,11 +633,12 @@ func gg_id_by_taxa ($gg_db, $search_desc, $search_names) {
       } elsif ($search_names) {
          $gg_scientific = $named_isolates->{$gg_id} || '';
       }
+      warn "gg_id        : $gg_id\n".             ####
+           "gg_scientific: $gg_scientific\n";     ####
       my ($gg_candidatus, $gg_genus, $gg_species, $gg_strain) = parse_name($gg_scientific);
       next if not $gg_genus; # Organisms without genus are useless for us
       my $gg_strain_clean = massage_strain( $gg_strain );
-      warn "gg_scientific: $gg_scientific\n".     ####
-           "strain       : $gg_strain\n".         ####
+      warn "strain       : $gg_strain\n".         ####
            "strain_clean : $gg_strain_clean\n\n"; ####
       $gg_taxa->{$gg_genus}->{$gg_species}->{$gg_strain}->{$gg_id} = [$gg_scientific, $gg_strain_clean];
    }
