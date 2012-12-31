@@ -529,7 +529,6 @@ func match_name ( Str $img_name, $genera ) {
       last;
    }
 
-
    # Look for perfect genus and species match, but approximate strain match
    if (not defined $good_id) {
       LOOKUP: while ( my ($gg_strain, $gg_hash) = each %{$genera->{$genus}->{$species}} ) {
@@ -548,36 +547,15 @@ func match_name ( Str $img_name, $genera ) {
             warn "                                                         ".
                  "+ $genus + $species + $gg_strain + $gg_strain_clean +\n" if $DEBUG;
 
-            # Match one part of the strain name only
-            # Example: Prochlorococcus marinus MIT9202
-            #          Prochlorococcus marinus MIT 9202 str. MIT9202 str.
-            for my $gg_elem ( split ' ', $gg_strain_clean ) {
-               next if length $gg_elem < 4; # Skip short elements
-               for my $elem ( split ' ', $strain_clean ) {
-                  next if length $elem < 4;
-                  if ($gg_elem eq $elem) {
-                     $good_id = $gg_id;
-                     $good_scientific = $gg_scientific;
-                     $msg = sprintf "Info: Found    good name match,     GG ID %12s ... %s\n", $good_id, $good_scientific;
-                     last LOOKUP;
-                  }
-               }
-            }
-
-            # Match one part of the strain name only, this time without ATCC and co
-            for my $gg_elem ( split ' ', $gg_strain_clean ) {
-               $gg_elem =~ s/\S+__//g;
-               next if length $gg_elem < 4; # Skip short elements
-               for my $elem ( split ' ', $strain_clean ) {
-                  $elem =~ s/\S+__//g;
-                  next if length $elem < 4;
-                  if ($gg_elem eq $elem) {
-                     $good_id = $gg_id;
-                     $good_scientific = $gg_scientific;
-                     $msg = sprintf "Info: Found    good name match,     GG ID %12s ... %s\n", $good_id, $good_scientific;
-                     last LOOKUP;
-                  }
-               }
+            for my $min_len (5,4) {
+               # Match one part of the strain name only
+               # Example: Prochlorococcus marinus MIT9202
+               #          Prochlorococcus marinus MIT 9202 str. MIT9202 str.
+               ($good_id, $good_scientific, $msg) = match_strain_part($gg_strain_clean, $strain_clean, $gg_id, $gg_scientific, $min_len);
+               last LOOKUP if defined $good_id;
+               # Match one part of the strain name only, this time without ATCC and co
+               ($good_id, $good_scientific, $msg) = match_strain_part($gg_strain_clean, $strain_clean, $gg_id, $gg_scientific, $min_len, 'strip');
+               last LOOKUP if defined $good_id;
             }
 
          }
@@ -585,6 +563,40 @@ func match_name ( Str $img_name, $genera ) {
    }
    warn $msg if $msg;
    return $good_id, $good_scientific;
+}
+
+
+func match_strain_part ($gg_strain, $strain, $gg_id, $gg_scientific, $min_len, $strip?) {
+   my ($good_id, $good_scientific, $msg);
+   if ($min_len <= 0) {
+      die "Error: minimum length should be at least 1\n";
+   }
+   my %levels = (
+      '4' => 'good',
+      '3' => 'fair',
+      '2' => '  ok',
+      '1' => 'poor',
+   );
+   for my $gg_elem ( split ' ', $gg_strain ) {
+      if ($strip) {
+         $gg_elem =~ s/\S+__//g;
+      }
+      next if length $gg_elem < $min_len; # Skip elements shorter than required
+      for my $elem ( split ' ', $strain ) {
+         if ($strip) {
+            $elem =~ s/\S+__//g;
+         }
+         next if length $elem < $min_len;
+         if ($gg_elem eq $elem) {
+            $good_id = $gg_id;
+            $good_scientific = $gg_scientific;
+            $min_len = $min_len > 4 ? 4 : $min_len;
+            my $level = $levels{$min_len};
+            $msg = sprintf "Info: Found    $level name match,     GG ID %12s ... %s\n", $good_id, $good_scientific;
+         }
+      }
+   }
+   return $good_id, $good_scientific, $msg;
 }
 
 
