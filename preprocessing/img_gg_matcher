@@ -16,9 +16,8 @@ img_gg_matcher - Find the Greengenes ID for IMG IDs that miss it
 =head1 DESCRIPTION
 
 Given a file of correspondances between IMG IDs and Greengenes ID, remove
-eukaryotic IDs (Greengenes contains no eukaryotes), and try to find some of the
-missing Greengenes IDs using two
-methods:
+eukaryotic IDs (Greengenes contains no eukaryotes), remove invalid Greengenes IDs
+and try to find some of the missing Greengenes IDs using two methods:
 
 =over
 
@@ -72,6 +71,13 @@ downloaded from the SecondGenome website at L<ftp://greengenes.microbio.me/green
 
 =over
 
+=item -t <taxo_file>
+
+Provide the Greengenes taxonomy and remove any unfound (invalid) Greengenes ID
+from the <corr_file>. Try to find the matching Greengenes ID as for any other
+IMG genome without match.
+   taxo_file.type: readable
+
 =item -d <desc>
 
 Look up names of species in the Greengenes FASTA file (sequence description
@@ -90,9 +96,9 @@ no. Default: desc.default
 
 =item -n <names>
 
-Similar to <desc> but provide a file that has the names of the Greengenes
-isolates. This is suitable for Greengenes 2012 and later. Get the GG SQL file, 
-convert it to Sqlite using mysql2sqlite.pl from L<http://stackoverflow.com/a/9857906/1050730>.
+Instead of <desc>, provide a file that has the names of the Greengenes isolates.
+This is suitable for Greengenes 2012 and later. Get the GG SQL file, convert it
+to Sqlite using mysql2sqlite.pl from L<http://stackoverflow.com/a/9857906/1050730>.
 Then run: sqlite -header gg_12_10.sqlite "select gg_id, organism, strain from greengenes where decision='named_isolate';" > gg_named_isolates.txt
 Use the output file as input for this option.
 
@@ -130,7 +136,7 @@ when filtering BLAT sequence matches. Default: min_cov.default %
 
 =for Euclid:
    min_cov.type: num, min_cov >= 0 && min_cov <= 100
-   min_cov.default: 99.5
+   min_cov.default: 99.0
 
 =item -mi <min_idty>
 
@@ -139,7 +145,7 @@ when filtering BLAT sequence matches. Default: min_idty.default %
 
 =for Euclid:
    min_idty.type: num, min_idty >= 0 && min_idty <= 100
-   min_idty.default: 99.5
+   min_idty.default: 99.0
 
 =back
 
@@ -179,22 +185,26 @@ use Getopt::Euclid qw(:minimal_keys);
 use Bio::SeqIO;
 use Bio::SearchIO;
 use Bio::DB::Fasta;
+use Bio::Tools::Run::Alignment::Blat;
 use FindBin qw($Bin);
 use lib "$Bin";
 use PreprocUtils;
 
 my $DEBUG = 0;
 
-img_gg_matcher( $ARGV{'c'}, $ARGV{'i'}, $ARGV{'s'}, $ARGV{'d'}, $ARGV{'n'},
-   $ARGV{'r'}, $ARGV{'o'}, $ARGV{'mc'}, $ARGV{'mi'} );
+img_gg_matcher( $ARGV{'c'}, $ARGV{'i'}, $ARGV{'s'}, $ARGV{'t'}, $ARGV{'d'},
+   $ARGV{'n'}, $ARGV{'r'}, $ARGV{'o'}, $ARGV{'mc'}, $ARGV{'mi'} );
 exit;
 
 
-func img_gg_matcher ( Str $corr_file, Str $img_file, Str $seq_file,
+func img_gg_matcher ( Str $corr_file, Str $img_file, Str $seq_file, Str $taxo_file,
    $search_desc, $search_names, $search_seqs, $out_blat, $min_cov, $min_idty ) {
 
    # Parse correspondance file, identify some missing IDs
    my ($correlations, $missing) = read_correspondances($corr_file);
+
+   # Remove invalid GG IDs
+   ($correlations, $missing) = remove_invalid_ids($taxo_file, $correlations, $missing);
 
    # Parse metadata, update list of missing IDs
    (my $names, $correlations, $missing) = read_metadata($img_file, $correlations,
@@ -228,6 +238,23 @@ func img_gg_matcher ( Str $corr_file, Str $img_file, Str $seq_file,
    write_correspondances($correlations);
 
    return 1;
+}
+
+
+func remove_invalid_ids ($taxo_file, $correlations, $missing) {
+   my $id2taxo = PreprocUtils::read_lookup($taxo_file);
+   my $num_invalid = 0;
+   for my $img_id (keys %$correlations) {
+      my $gg_id = $correlations->{$img_id};
+      if (not exists $id2taxo->{$gg_id}) {
+         # This GG ID is invalid, remove it from correlations
+         delete $correlations->{$img_id};
+         $missing->{$img_id} = undef;
+         $num_invalid++;
+      }
+   }
+   warn "Info: Found and removed $num_invalid invalid Greengenes IDs.\n";
+   return $correlations, $missing;
 }
 
 
