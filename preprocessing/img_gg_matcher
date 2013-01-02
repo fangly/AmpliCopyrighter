@@ -549,7 +549,7 @@ func match_name ( Str $img_name, $genera ) {
 
                warn "                                                            $min_len chars\n" if $DEBUG;
 
-               for my $char ('', '-') {
+               for my $char ('', '-', '/') {
 
                   my $gg_string = $gg_strain_clean;
                   my $string    = $strain_clean;
