@@ -192,7 +192,7 @@ use FindBin qw($Bin);
 use lib "$Bin";
 use PreprocUtils;
 
-my $DEBUG = 0;
+my $DEBUG = 1;
 
 img_gg_matcher( $ARGV{'c'}, $ARGV{'i'}, $ARGV{'s'}, $ARGV{'w'}, $ARGV{'d'},
    $ARGV{'n'}, $ARGV{'r'}, $ARGV{'o'}, $ARGV{'mc'}, $ARGV{'mi'} );
@@ -546,14 +546,29 @@ func match_name ( Str $img_name, $genera ) {
             }
 
             for my $min_len (5,4,3,2) {
-               # Match one part of the strain name only
-               # Example: Prochlorococcus marinus MIT9202
-               #          Prochlorococcus marinus MIT 9202 str. MIT9202 str.
-               ($good_id, $good_scientific, $msg) = match_strain_part($gg_strain_clean, $strain_clean, $gg_id, $gg_scientific, $min_len);
-               last LOOKUP if defined $good_id;
-               # Match one part of the strain name only, this time without ATCC and co
-               ($good_id, $good_scientific, $msg) = match_strain_part($gg_strain_clean, $strain_clean, $gg_id, $gg_scientific, $min_len, 'strip');
-               last LOOKUP if defined $good_id;
+
+               for my $char ('', '-') {
+
+                  my $gg_string = $gg_strain_clean;
+                  my $string    = $strain_clean;
+
+                  if ($char) {
+                     # Replace char by whitespace
+                     $gg_string =~ s/$char/ /g;
+                     $string    =~ s/$char/ /g;
+                  }
+
+                  # Match one part of the strain name only
+                  # Example: Prochlorococcus marinus MIT9202
+                  #          Prochlorococcus marinus MIT 9202 str. MIT9202 str.
+                  ($good_id, $good_scientific, $msg) = match_strain_part($gg_string, $string, $gg_id, $gg_scientific, $min_len);
+                  last LOOKUP if defined $good_id;
+                  # Match one part of the strain name only, this time without ATCC and co
+                  ($good_id, $good_scientific, $msg) = match_strain_part($gg_string, $string, $gg_id, $gg_scientific, $min_len, 'strip');
+                  last LOOKUP if defined $good_id;
+ 
+               }
+
             }
 
          }
@@ -585,6 +600,10 @@ func match_strain_part ($gg_strain, $strain, $gg_id, $gg_scientific, $min_len, $
             $elem =~ s/\S+__//g;
          }
          next if length $elem < $min_len;
+
+         warn "                                                         ".
+              "   $gg_elem <-> $elem\n" if $DEBUG;
+
          if ($gg_elem eq $elem) {
             $good_id = $gg_id;
             $good_scientific = $gg_scientific;
