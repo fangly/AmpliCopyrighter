@@ -515,7 +515,8 @@ func match_name ( Str $img_name, $genera ) {
         "| $genus | $species | $strain | $strain_clean |\n" if $DEBUG;
 
    # Look for perfect genus, species and strain match
-   while ( my ($gg_id, $gg_names) = each %{$genera->{$genus}->{$species}->{$strain}} ) {
+   my $sp_hash = $genera->{$genus}->{$species};
+   while ( my ($gg_id, $gg_names) = each %{$sp_hash->{$strain}} ) {
       my ($gg_scientific, $gg_strain_clean) = @$gg_names;
       $good_id = $gg_id;
       $good_scientific = $gg_scientific;
@@ -525,9 +526,15 @@ func match_name ( Str $img_name, $genera ) {
 
    # Look for perfect genus and species match, but approximate strain match
    if (not defined $good_id) {
-      LOOKUP: while ( my ($gg_strain, $gg_hash) = each %{$genera->{$genus}->{$species}} ) {
-         while ( my ($gg_id, $gg_names) = each %{$gg_hash} ) {
+      LOOKUP: for my $gg_strain (keys %{$sp_hash}) { # cannot use while loops in this code
+         my $gg_hash = $sp_hash->{$gg_strain};
+         for my $gg_id (keys %$gg_hash) {
+            my $gg_names = $gg_hash->{$gg_id};
             my ($gg_scientific, $gg_strain_clean) = @$gg_names;
+
+            warn "                                                         ".
+                 "+ $genus + $species + $gg_strain + $gg_strain_clean +\n" if $DEBUG;
+
             # Try matching massaged strain name
             # Example: Lactobacillus casei LC2W
             #          Lactobacillus casei str. LC2W 
@@ -537,9 +544,6 @@ func match_name ( Str $img_name, $genera ) {
                $msg = sprintf "Info: Found   great name match,     GG ID %12s ... %s\n", $good_id, $good_scientific;
                last LOOKUP;
             }
-
-            warn "                                                         ".
-                 "+ $genus + $species + $gg_strain + $gg_strain_clean +\n" if $DEBUG;
 
             for my $min_len (5,4,3,2) {
                # Match one part of the strain name only
