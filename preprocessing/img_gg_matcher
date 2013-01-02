@@ -192,7 +192,7 @@ use FindBin qw($Bin);
 use lib "$Bin";
 use PreprocUtils;
 
-my $DEBUG = 1;
+my $DEBUG = 0;
 
 img_gg_matcher( $ARGV{'c'}, $ARGV{'i'}, $ARGV{'s'}, $ARGV{'w'}, $ARGV{'d'},
    $ARGV{'n'}, $ARGV{'r'}, $ARGV{'o'}, $ARGV{'mc'}, $ARGV{'mi'} );
@@ -433,30 +433,30 @@ func parse_name ( Str $name ) {
       # Other names are not, e.g. 'contaminated aquifer clone WCHD3-33'
 
       # Remove trailing spaces (if any)
-      $tmp_name   =~ s/\s*$//;
-      $tmp_name   =~ s/^\s*//;
+      $tmp_name     =~ s/\s*$//;
+      $tmp_name     =~ s/^\s*//;
 
       # Fix missing spaces, as in 'Rhodobacterales sp.HTCC2255' or 'Halobacterium sp.Ch2'
-      $tmp_name   =~ s/\b((?:genomo)?(?:sp|spp|species|cf)\.)([a-z0-9])/species $2/gi;
+      $tmp_name     =~ s/\b((?:genomo)?(?:sp|spp|species|cf)\.)([a-z0-9])/species $2/gi;
 
       # Expand some acronyms
-      $tmp_name   =~ s/\b(?:genomo)?(?:sp|spp|species|cf)\.?\s/species /gi;
-      $tmp_name   =~ s/\b(?:sub|ssp|subsp|subspecies)\.?\s/subspecies /gi;
-      $tmp_name   =~ s/\b(?:str|st|strain)\.?\s/strain /gi;
-      $tmp_name   =~ s/\b(?:var)\.?\s/var /gi;
-      $tmp_name   =~ s/\b(?:sv|serovar)\.?\s/serovar /gi;
-      $tmp_name   =~ s/\b(?:bv|biovar)\.?\s/biovar /gi;
-      $tmp_name   =~ s/\b(?:pv|pathovar)\.?\s/pathovar /gi;
-      $tmp_name   =~ s/\b(?:cv|cultivar)\.?\s/cultivar /gi;
-      $tmp_name   =~ s/\b(?:gv|genomovar)\.?\s/genomovar /gi;
-      $tmp_name   =~ s/\b(?:mv|morphovar)\.?\s/morphovar /gi;
+      $tmp_name     =~ s/\b(?:genomo)?(?:sp|spp|species|cf)\.?\s/species /gi;
+      $tmp_name     =~ s/\b(?:sub|ssp|subsp|subspecies)\.?\s/subspecies /gi;
+      $tmp_name     =~ s/\b(?:str|st|strain)\.?\s/strain /gi;
+      $tmp_name     =~ s/\b(?:var)\.?\s/var /gi;
+      $tmp_name     =~ s/\b(?:sv|serovar)\.?\s/serovar /gi;
+      $tmp_name     =~ s/\b(?:bv|biovar)\.?\s/biovar /gi;
+      $tmp_name     =~ s/\b(?:pv|pathovar)\.?\s/pathovar /gi;
+      $tmp_name     =~ s/\b(?:cv|cultivar)\.?\s/cultivar /gi;
+      $tmp_name     =~ s/\b(?:gv|genomovar)\.?\s/genomovar /gi;
+      $tmp_name     =~ s/\b(?:mv|morphovar)\.?\s/morphovar /gi;
 
-      # Replace 'ATCC1234' or 'ATCC_1234'by 'ATCC 1234', etc
-      our $catalogs = 'ACM|AJ|ATCC|BCRC|BKME|CBMAI|CCEB|CCM|CCMP|CCRC|CCRI|CCT|CCTM|'.
+      # Replace 'ATCC1234' or 'ATCC_1234' etc. by 'ATCC__1234'
+      my $catalogs_re = 'ACM|AJ|ATCC|BCRC|BKME|CBMAI|CCEB|CCM|CCMP|CCRC|CCRI|CCT|CCTM|'.
          'CCUG|CDBB|CECT|CFBP|CGMCC|CIP|CNCTC|DSM|DSMZ|GIFU|GISK|GTC|HAMBI|HSCC|HTCC|IAM|'.
          'ICMP|ICS|IFO|IMAU|IMCC|IMET|JCM|KACC|KCTC|KS|LMD|LMG|MIT|NBRC|NCAIM|NCCB|NCDO|NCFB|NCIB|'.
          'NCIM|NCIMB|NCTC|NRRL|NRRL NRSNRS|PCC|PCM|PZH|RCC|RH|TSNRS|USCC|USDA|VTT E';
-      $tmp_name     =~ s/\b($catalogs)(?:-|_|\.|)(\d+)/$1__$2/gi;  #  Add the separator, remove it later, after massage
+      $tmp_name     =~ s/\b($catalogs_re)(?:-|_|\.|\s|)(\d+)/$1__$2/gi;  #  Add the separator, remove it later, after massage
 
       # Candidatus
       $tmp_name     =~ s/^(Candidatus)\s+//gi;
@@ -489,7 +489,7 @@ func parse_name ( Str $name ) {
 func massage_strain ( Str $strain ) {
    # Remove some common strings from strain name
    $strain =~ s/\b(?:strain|subspecies|var|serovar|biovar|pathovar|cultivar|genomovar|morphovar)\s*//gi;
-   our $catalogs = 'ACM|AJ|ATCC|BCRC|BKME|CBMAI|CCEB|CCM|CCMP|CCRC|CCRI|CCT|CCTM|'.
+   my $catalogs = 'ACM|AJ|ATCC|BCRC|BKME|CBMAI|CCEB|CCM|CCMP|CCRC|CCRI|CCT|CCTM|'.
       'CCUG|CDBB|CECT|CFBP|CGMCC|CIP|CNCTC|DSM|DSMZ|GIFU|GISK|GTC|HAMBI|HSCC|HTCC|IAM|'.
       'ICMP|ICS|IFO|IMAU|IMCC|IMET|JCM|KACC|KCTC|KS|LMD|LMG|MIT|NBRC|NCAIM|NCCB|NCDO|NCFB|NCIB|'.
       'NCIM|NCIMB|NCTC|NRRL|NRRL NRSNRS|PCC|PCM|PZH|RCC|RH|TSNRS|USCC|USDA|VTT E';
@@ -546,6 +546,8 @@ func match_name ( Str $img_name, $genera ) {
             }
 
             for my $min_len (5,4,3,2) {
+
+               warn "                                                            $min_len chars\n" if $DEBUG;
 
                for my $char ('', '-') {
 
