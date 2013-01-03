@@ -250,6 +250,9 @@ func img_gg_matcher ( Str $corr_file, Str $img_file, Str $seq_file, Bool $wrong_
          warn "Info: There are still ".scalar(keys(%$missing))." missing IDs\n";
       }
 
+      warn "Info: Missing IDs can be from Eukaryotes, have no match to Bacteria ".
+           "or Archaea in Greengenes, or be genuinely missing.\n";
+
    }
 
    write_correspondances($correlations);
