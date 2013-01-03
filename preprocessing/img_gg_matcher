@@ -82,7 +82,7 @@ the matching Greengenes ID as for any other IMG genome without match. Default: w
 
 =item -d <desc>
 
-Look up names of species in the Greengenes FASTA file (sequence description
+Look up names of organisms in the Greengenes FASTA file (sequence description
 field) and if an organism's name is similar enough (at least at species level,
 but maybe not quite at subspecies or strain level), take its Greengenes ID. The
 sequence headers should look like this:
@@ -106,6 +106,18 @@ Use the output file as input for this option.
 
 =for Euclid:
    names.type: readable
+
+=item -l <sp_level>
+
+When matching genomes by organism name (see <desc> and <names>) and that no
+matching strain is found, decrease the search stringency and match at the
+species level only. Values: 1 for yes, 0 for no. Note that close to 100% of the
+genomes will have a match and that the sequence match (<rrna> option) step might
+therefore not be needed. Default: sp_level.default
+
+=for Euclid:
+   sp_level.type: integer, sp_level == 0 || sp_level == 1
+   sp_level.default: 1
 
 =item -r <rrna>
 
@@ -195,12 +207,13 @@ use PreprocUtils;
 my $DEBUG = 0;
 
 img_gg_matcher( $ARGV{'c'}, $ARGV{'i'}, $ARGV{'s'}, $ARGV{'w'}, $ARGV{'d'},
-   $ARGV{'n'}, $ARGV{'r'}, $ARGV{'o'}, $ARGV{'mc'}, $ARGV{'mi'} );
+   $ARGV{'n'}, $ARGV{'l'}, $ARGV{'r'}, $ARGV{'o'}, $ARGV{'mc'}, $ARGV{'mi'} );
 exit;
 
 
 func img_gg_matcher ( Str $corr_file, Str $img_file, Str $seq_file, Bool $wrong_rm,
-   $search_desc, $search_names, $search_seqs, $out_blat, $min_cov, $min_idty ) {
+   Bool $search_desc, $search_names, Bool $sp_level, $search_seqs, $out_blat,
+   $min_cov, $min_idty ) {
 
    # Parse correspondance file, identify some missing IDs
    my ($correlations, $missing) = read_correspondances($corr_file);
@@ -226,7 +239,7 @@ func img_gg_matcher ( Str $corr_file, Str $img_file, Str $seq_file, Bool $wrong_
       if ($search_desc || $search_names) {
          my $gg_taxa = gg_id_by_taxa($db, $search_desc, $search_names);
          ($correlations, $missing) = match_names($names, $correlations, $missing,
-            $gg_taxa);
+            $gg_taxa, $sp_level);
          warn "Info: There are still ".scalar(keys(%$missing))." missing IDs\n";
       }
 
@@ -506,7 +519,7 @@ func massage_strain ( Str $strain ) {
 }
 
 
-func match_name ( Str $img_name, $genera ) {
+func match_name ( Str $img_name, $genera, Bool $sp_level ) {
    my ($msg, $good_id, $good_scientific);
 
    my ($candidatus, $genus, $species, $strain) = parse_name($img_name);
@@ -516,7 +529,8 @@ func match_name ( Str $img_name, $genera ) {
 
    # Look for perfect genus, species and strain match
    my $sp_hash = $genera->{$genus}->{$species};
-   while ( my ($gg_id, $gg_names) = each %{$sp_hash->{$strain}} ) {
+   for my $gg_id (keys %{$sp_hash->{$strain}}) {
+      my $gg_names = $sp_hash->{$strain}->{$gg_id};
       my ($gg_scientific, $gg_strain_clean) = @$gg_names;
       $good_id = $gg_id;
       $good_scientific = $gg_scientific;
@@ -576,6 +590,22 @@ func match_name ( Str $img_name, $genera ) {
          }
       }
    }
+
+   # Look for genus and species but ignore strain if specified
+   if (not defined $good_id) {
+      LOOKUP: for my $gg_strain (keys %{$sp_hash}) {
+         my $gg_hash = $sp_hash->{$gg_strain};
+         for my $gg_id (keys %$gg_hash) {
+            my $gg_names = $gg_hash->{$gg_id};
+            my ($gg_scientific, $gg_strain_clean) = @$gg_names;
+            $good_id = $gg_id;
+            $good_scientific = $gg_scientific;
+            $msg = sprintf "Info: Found species name match,     GG ID %12s ... %s\n", $good_id, $good_scientific;
+            last; # accept first strain of that species
+         }
+      }
+   }
+
    warn $msg if $msg;
    return $good_id, $good_scientific;
 }
@@ -664,11 +694,12 @@ func gg_id_by_taxa ($gg_db, $search_desc, $search_names) {
       my $gg_strain_clean = massage_strain( $gg_strain );
       $gg_taxa->{$gg_genus}->{$gg_species}->{$gg_strain}->{$gg_id} = [$gg_scientific, $gg_strain_clean];
    }
+
    return $gg_taxa;
 }
 
 
-func match_names ( $names, $correlations, $missing, $gg_genera ) {
+func match_names ( $names, $correlations, $missing, $gg_genera, $sp_level ) {
    # Find matching names
    my $num_matches = 0;
    while ( (my $img_id, undef) = each %$missing ) {
@@ -676,7 +707,7 @@ func match_names ( $names, $correlations, $missing, $gg_genera ) {
       next if not defined $img_name;
       #warn "\n";
       warn sprintf( "Info: Searching for name match for IMG ID %12s ... %s\n", $img_id, $img_name);
-      my ($gg_id, $gg_name) = match_name($img_name, $gg_genera);
+      my ($gg_id, $gg_name) = match_name($img_name, $gg_genera, $sp_level);
       if ($gg_id) {
          # Found a matching GG ID
          delete $missing->{$img_id};
