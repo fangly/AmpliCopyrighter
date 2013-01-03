@@ -150,14 +150,24 @@ func fix_img_taxonomy ( Str $img_metadata ) {
 func clean_name (Str $name) {
    my $new_name = $name;
    $new_name =~ s/ \(.*draft.*\)//i;
+   $new_name =~ s/thermoautotrophicus/thermautotrophicus/;
+   $new_name =~ s/polysaccharolyticum/polysaccharolyticus/;
+   $new_name =~ s/biprosthecum/biprosthecium/;
+   $new_name =~ s/clostridiiforme/clostridioforme/;
+   $new_name =~ s/glucuronalyticum/glucuronolyticum/;
    $new_name =~ s/^SAR/sar/;
    $new_name =~ s/^Candidate /candidate /;
    $new_name =~ s/Pelagibacter-like \(SAR11\) /Pelagibacter ubique SAR11 /;
    $new_name =~ s/^Marine /marine /;
    $new_name =~ s/^Gamma /gamma /;
    $new_name =~ s/^Bacterium /bacterium /;
-   $new_name =~ s/^Cyanobacterium /Cyanobacteria /;
-   $new_name =~ s/sp\.(\S)/sp. $1/;
+   $new_name =~ s/moribillum/morbillorum/;
+   $new_name =~ s/Halanaerobium hydrogenoformans/Halanaerobium hydrogeniformans/;
+   $new_name =~ s/forsythensis/forsythia/;
+   #$new_name =~ s/^Cyanobacterium /Cyanobacteria /; ####
+   $new_name =~ s/Cyanobacteria stanieri/Cyanobacterium stanieri/;
+   $new_name =~ s/ sp\.(\S)/ sp. $1/;
+   $new_name =~ s/ sp, / sp. /;
    $new_name =~ s/ bacterium\.? (\S*?sp\.?)?/ sp. /i;
    if ( not $new_name eq $name ) {
       warn "Info: Cleaned name '$name' to '$new_name'\n";
