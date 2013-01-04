@@ -109,6 +109,7 @@ use Data::Dumper;        ####
 use strict;
 use warnings;
 use Method::Signatures;
+use Statistics::Basic qw(mean);
 use Getopt::Euclid qw(:minimal_keys);
 use Bio::Tree::Tree;
 use Bio::Phylo::IO;
@@ -126,47 +127,49 @@ exit;
 func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $trait_name ) {
 
    # Read IMG metadata and extract gg IDs and the desired trait value
+   # Do not average trait for IMG ID with several traits: because of the
+   # clustering at 99%, assume that they come from different genomes
    my $id2trait = read_metadata($input_file, $trait_name);
-   # Make average for GG IDs that have several genomes (several trait values)
-   $id2trait = PreprocUtils::average_by_key($id2trait);
 
-   #### Do I need to average here or not. Is it the same genome or not?
-   #### Assume it is a different genome... because we do 99% clustering
+   warn "ID2TRAIT: ".Dumper($id2trait); ###
 
    # Our very own, special GG tree
    my $tree = grow_tree($phylo_tree, $clip_tree, [keys %$id2trait], $id2trait);
 
+   # Read GG taxonomy, convert GG IDs to GG taxonomic string
+   $id2trait = convert_id_to_tax($id2trait, $taxo_file);
+
+   warn "TAX2TRAIT leaves: ".Dumper($id2trait); ###
+
    # Calculate interior node trait value using PIC
    $id2trait = pic($tree, $id2trait);
 
-   # Calculate leaf node trait value: read GG taxonomy, convert GG IDs to GG
-   # taxonomy string and make average for genomes that belong to the same species
-   warn "Info: Converting GG IDs to taxonomic strings\n";
-   my $gg_id2taxo = read_gg_id2taxo($taxo_file);
+   warn "TAX2TRAIT all nodes: ".Dumper($id2trait); ###
 
-   warn "ID2TRAIT: ".Dumper($id2trait); ###
+   $id2trait = PreprocUtils::average_by_key($id2trait);
 
-   my $tax2trait = convert_id_to_tax($id2trait, $gg_id2taxo);
+   warn "TAX2TRAIT average: ".Dumper($id2trait); ###
 
-   warn "TAX2TRAIT: ".Dumper($tax2trait); ###
-
-   $tax2trait = PreprocUtils::average_by_key($tax2trait);
-
-   warn "TAX2TRAIT: ".Dumper($tax2trait); ###
-
-   #### 1/ Restore proper node name in tree (non-escaped characters)
-   #### 2/ Convert tree node from GG ID to GG taxonomy early on (and use s__ part only).
-   #### 3/ Compare:
-   ####       k__Archaea	1.6541404157126
-   ####    to:
-   ####       k__Archaea; p__Crenarchaeota	1
-   ####       k__Archaea; p__Euryarchaeota	1.60412505642777
-   ####    Even more pronounced for Bacilli
-   #### 4/ Need to add reinflated trait value for taxonomic strings that were pruned
-   #### 5/ Take care of 400+ GG IDs that are not in the GG taxonomy
+##   ####-1/ some IMG genomes have disparate trait values, e.g. 
+##          '137936' => [
+##                        '5',
+##                        '1',
+##                        '5'
+##                      ],
+##        Do 99% clustering early and remove dubious genomes with fix_img_copy_number script
+##   #### 1/ Make sure that averages get at least 1 decimal digit, i.e. 1.0
+##   ####    Maybe give them all 2 or 3 decimal digits. Use option from PreprocUtils::average_by_
+##   #### 3/ Compare:
+##   ####       k__Archaea	1.6541404157126
+##   ####    to:
+##   ####       k__Archaea; p__Crenarchaeota	1
+##   ####       k__Archaea; p__Euryarchaeota	1.60412505642777
+##   ####    Even more pronounced for Bacilli
+##   #### 4/ Need to add reinflated trait value for taxonomic strings that were pruned
+##   #### 5/ Take care of 400+ GG IDs that are not in the GG taxonomy
 
    # Print results
-   print_results($tax2trait, $trait_name);
+   print_results($id2trait, $trait_name);
 
    return 1;
 }
@@ -215,42 +218,30 @@ func print_results ($tax2trait, $trait_name) {
 }
 
 
-func convert_id_to_tax ($id_hash, $gg_taxonomy) {
-   my %tax_hash;
+func convert_id_to_tax ($id_hash, $taxo_file) {
+   warn "Info: Converting GG IDs to taxonomic strings\n";
+   my $gg_taxonomy = read_gg_id2taxo($taxo_file);
    my $num_missing = 0;
-   while ( my ($id, $val) = each %$id_hash ) {
-      my $tax;
-      if ( is_id($id) ) {
-         # Convert GG ID to GG full taxonomic string
-         $tax = $gg_taxonomy->{$id};
-         if (not defined $tax) {
-            $num_missing++;
-            warn "Warn: Missing GG taxonomy for GG ID '$id'\n";
-            next;
-         }
-      } else {
-         # Given string is already a GG full taxonomic string
-         $tax = $id;
+   for my $id (keys %$id_hash) {
+      my $tax = $gg_taxonomy->{$id};
+      if (not defined $tax) {
+         $num_missing++;
+         warn "Warn: Missing GG taxonomy for GG ID '$id'\n";
+         next;
       }
-
-      warn $id." -> ".$tax."\n"; ###
-
-      if (not ref $val) {
-         $val = [$val];
-      }
-
-      push @{$tax_hash{$tax}}, @$val;
+      my $vals = delete $id_hash->{$id};
+      push @{$id_hash->{$tax}}, @$vals;
    }
    if ($num_missing > 0) {
       warn "Warn: Failed to convert $num_missing IDs to taxonomy\n";
    }
-   return \%tax_hash;
+   return $id_hash;
 }
 
 
-func pic ($tree, $id2trait) {
+func pic ($tree, $tax2trait) {
    # Use phylogenetic independent contrasts method to estimate trait value for
-   # interior nodes of given $tree and save this in $id2trait
+   # interior nodes of given $tree and save this in $tax2trait
    # Note: We're irremediably altering the given tree!
    
    warn "Info: Applying phylogenetic independent contrasts to tree\n";
@@ -299,7 +290,7 @@ func pic ($tree, $id2trait) {
          # values to make an average in these cases. We'll need to average later,
          # but not before all IDs have been converted to taxonomic strings (we
          # don't want to do averages of averages).
-         push @{$id2trait->{$pid}}, $pval;
+         push @{$tax2trait->{$pid}}, $pval;
 
          # If GG label name $pid contains several taxonomic levels e.g.
          # 'o__Rhizobiales; f__Rhodobiaceae', record them all.
@@ -310,7 +301,7 @@ func pic ($tree, $id2trait) {
             for my $level (1 .. $num_levels-1) {
                my @arr = @{$lineage}[0..$max_idx-$level];
                my $name = Bio::Community::TaxonomyUtils::get_lineage_string(\@arr, 'space');
-               push @{$id2trait->{$name}}, $pval;
+               push @{$tax2trait->{$name}}, $pval;
             }
          }
 
@@ -327,7 +318,7 @@ func pic ($tree, $id2trait) {
             $parent->prune_child($leaf);
             my $pid = get_clean_name($parent); # GG ID or full taxonomic string
             next if $pid eq '';
-            push @{$id2trait->{$pid}}, $pval;
+            push @{$tax2trait->{$pid}}, $pval;
             my $num_levels = scalar (split /\.,/, $parent->get_name);
             if ($num_levels > 1) {
                my $lineage = Bio::Community::TaxonomyUtils::split_lineage_string($pid);
@@ -335,7 +326,7 @@ func pic ($tree, $id2trait) {
                for my $level (1 .. $num_levels-1) {
                   my @arr = @{$lineage}[0..$max_idx-$level];
                   my $name = Bio::Community::TaxonomyUtils::get_lineage_string(\@arr, 'space');
-                  push @{$id2trait->{$name}}, $pval;
+                  push @{$tax2trait->{$name}}, $pval;
                }
             }
          }
@@ -361,7 +352,7 @@ func pic ($tree, $id2trait) {
           "$out_file for debugging\n";
    }
 
-   return $id2trait;
+   return $tax2trait;
 }
 
 
@@ -483,8 +474,9 @@ func grow_tree ($tree_file, $clip_file, $gg_ids, $id2trait) {
    # Attach trait to nodes
    for my $leaf ( @{$tree->get_terminals} ) {
       my $gg_id = get_clean_name($leaf);
-      my $val = $id2trait->{$gg_id} ||
+      my $vals = $id2trait->{$gg_id} ||
          die "Error: Could not find trait value for tree leaf with GG ID $gg_id\n";
+      my $val = mean($vals)->query;
       ###warn "Info: Setting trait of GG ID $gg_id (uID ".$leaf->get_id.") to $val\n";
       $leaf->set_generic( 'trait' => $val );
    }
