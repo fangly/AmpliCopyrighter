@@ -209,7 +209,7 @@ func print_results ($tax2trait, $trait_name) {
    for my $level (1 .. $max_level) {
       my $entries = $tax2trait->{$level};
       for my $tax ( sort keys %$entries ) {
-         my $val = $entries->{$tax};
+         my $val = sprintf('%.5f', $entries->{$tax});
          print "$tax\t$val\n";
       }
       print "\n";
