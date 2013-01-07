@@ -35,8 +35,9 @@ one specified by the option <trait_name>.
 
 =item -p <phylo_tree>
 
-Input Greengenes phylogenetic tree in Newick format. Note that quoted named nodes
-like '100:s__Bacteroides dorei' will be converted to 's__Bacteroides dorei'
+Input Greengenes phylogenetic tree in Newick format. Note that tree leaf names
+should be a Greengenes ID and that internal node names should be annotated
+with Greengenes taxonomic information, e.g. 'g__Sphingomonas', where appropriate.
 
 =for Euclid:
    phylo_tree.type: readable
@@ -150,23 +151,22 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $tra
 
    warn "TAX2TRAIT average: ".Dumper($id2trait); ###
 
-##   ####-1/ some IMG genomes have disparate trait values, e.g. 
-##          '137936' => [
-##                        '5',
-##                        '1',
-##                        '5'
-##                      ],
-##        Do 99% clustering early and remove dubious genomes with fix_img_copy_number script
-##   #### 1/ Make sure that averages get at least 1 decimal digit, i.e. 1.0
-##   ####    Maybe give them all 2 or 3 decimal digits. Use option from PreprocUtils::average_by_
-##   #### 3/ Compare:
-##   ####       k__Archaea	1.6541404157126
-##   ####    to:
-##   ####       k__Archaea; p__Crenarchaeota	1
-##   ####       k__Archaea; p__Euryarchaeota	1.60412505642777
-##   ####    Even more pronounced for Bacilli
-##   #### 4/ Need to add reinflated trait value for taxonomic strings that were pruned
-##   #### 5/ Take care of 400+ GG IDs that are not in the GG taxonomy
+   ### 1/ some IMG genomes have disparate trait values, e.g. 
+   ###    '137936' => [
+   ###                  '5',
+   ###                  '1',
+   ###                  '5'
+   ###                ],
+   ###  Do 99% clustering early and remove dubious genomes with fix_img_copy_number script
+
+   ### 2/ Compare:
+   ###       k__Archaea	1.6541404157126
+   ###    to:
+   ###       k__Archaea; p__Crenarchaeota	1
+   ###       k__Archaea; p__Euryarchaeota	1.60412505642777
+   ###    Even more pronounced for Bacilli
+
+   ### 3/ Need to add reinflated trait value for taxonomic strings that were pruned
 
    # Print results
    print_results($id2trait, $trait_name);
