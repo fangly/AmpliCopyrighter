@@ -112,9 +112,9 @@ exit;
 
 func draw_trait_dist ($input_file, $max_level, $max_width, $out_file) {
    # Parse input file
-   my ($tax2trait, $trait_name) = parse_file($input_file);
+   my ($tax2trait, $trait_name, $num_levels) = parse_file($input_file);
    # Make a tree from taxonomy and attach trait value
-   my $tree = taxo2tree($tax2trait, $trait_name, $max_level);
+   my $tree = taxo2tree($tax2trait, $trait_name, $num_levels, $max_level);
 
    #### use detected number of levels instead of harcoded value
 
@@ -311,18 +311,26 @@ func parse_file ($file) {
    # Read taxo and trait values
    my $tax2trait = PreprocUtils::read_lookup($file);
    warn "Info: Read ".(scalar keys %$tax2trait)." taxonomic strings and trait values\n";
-   return $tax2trait, $trait_name;
+   # Determine number of taxonomic levels
+   my $num_levels = 0;
+   while ( (my $tax, undef) = each %$tax2trait ) {
+      my $lineage_arr = Bio::Community::TaxonomyUtils::split_lineage_string($tax);
+      my $nof_elems = scalar @$lineage_arr;
+      if ($nof_elems > $num_levels) {
+         $num_levels = $nof_elems;
+      }
+   }
+   warn "Info: Detected $num_levels levels in this taxonomy\n";
+   return $tax2trait, $trait_name, $num_levels;
 }
 
 
-func taxo2tree ( $tax2trait, $trait_name, $max_level? ) {
+func taxo2tree ( $tax2trait, $trait_name, $num_levels, $max_level? ) {
    # Transform taxonomy to a tree and attach trait value
-
    if (not defined $max_level) {
-      # Greengenes taxonomy has 7 levels ### use levels seen instead of harcoded value
-      $max_level = 7;
+      # Use all taxonomic levels unless a maximum number was specified
+      $max_level = $num_levels;
    }
-
    my $fac  = Bio::Phylo::Factory->new;
    my $tree = $fac->create_tree;
    my $root = $fac->create_node;
