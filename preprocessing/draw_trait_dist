@@ -146,8 +146,10 @@ func draw_tree (Bio::Phylo::Forest::Tree $tree, $out_svg, $max_width, $trait_nam
    my @cmd = ('nw_display', '-h');
    my ($in, $out, $err);
    run \@cmd, \$in, \$out, $err or die "Error: Could not run nw_display\n$!\n";
-   @cmd = ( 'nw_display', '-r', '-s', '-w', $max_width, '-c', $out_css, '-o',
-      $out_orn, $out_newick );
+   my $leaf_style  = 'font-size:medium;font-family:sans'; # default: small
+   my $inner_style = 'font-size:medium;font-family:sans'; # default: medium
+   @cmd = ( 'nw_display', '-r', '-s', '-w', $max_width, '-l', $leaf_style,
+      '-i', $inner_style, '-c', $out_css, '-o', $out_orn, $out_newick );
    run \@cmd, '>', $out_svg or die "Error: Could not run nw_display\n$!\n";
    finish_svg($out_svg);
    cat($out_svg);
