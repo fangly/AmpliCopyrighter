@@ -103,7 +103,7 @@ use FindBin qw($Bin);
 use lib "$Bin";
 use PreprocUtils;
 
-our $DEBUG = 1;
+our $DEBUG = 0;
 
 draw_trait_dist( $ARGV{'i'}, $ARGV{'l'}, $ARGV{'w'}, $ARGV{'o'} );
 exit;
@@ -114,6 +114,21 @@ func draw_trait_dist ($input_file, $max_level, $max_width, $out_file) {
    my ($tax2trait, $trait_name) = parse_file($input_file);
    # Make a tree from taxonomy and attach trait value
    my $tree = taxo2tree($tax2trait, $trait_name, $max_level);
+
+   #### fix manually or automatically taxonomic strings with less than 7 levels, e.g.
+   ####     c__Chloracidobacteria   o__SBla14   o__BD7-3   c__pSL4   p__OP9
+   #### add nodes called 'transp' until there are seven elements and give them opacity 0
+
+   #### use some abbreviations, e.g. 'b.' instead of 'bacteria'
+
+   #### branches are quite long. can i specify a smaller branch length?
+
+   #### calc max_width (if not specified) using the number of nodes
+
+   #### adjust min and max radius in function of max_width
+
+   #### calc_radius does not work: small radii too small
+
    # Now draw the tree and the trait values
    draw_tree($tree, $out_file, $max_width, $trait_name);
    return 1;
@@ -136,7 +151,9 @@ func draw_tree (Bio::Phylo::Forest::Tree $tree, $out_svg, $max_width, $trait_nam
    run \@cmd, \$in, \$out, $err or die "Error: Could not run nw_display\n$!\n";
    @cmd = ('nw_display', '-r', '-s', '-w', $max_width, '-o', $out_css, $out_newick);
    run \@cmd, '>', $out_svg or die "Error: Could not run nw_display\n$!\n";
+
    ### display directly to stdout
+
    return 1;
 }
 
@@ -197,9 +214,14 @@ func write_css_style ($tree, $file, $trait_name) {
 
 
 func esc_nw_chars ($str) {
-   # Replace ' ' by _ and single quote strings that contain -
+   # Escape some characters:
+   #    * replace ' ' by _
+   #    * quote strings that contain -
+   #    * quote strings that contain ( )
    $str =~ s/ /_/g;
-   $str =~ s/(.+-.+)/'$1'/;
+   if ($str =~ m/[-()]/) {
+      $str = "'".$str."'";
+   }
    return $str;
 }
 
@@ -208,6 +230,7 @@ func calc_radius ($trait_val, $max_trait, $min_trait) {
    # Trait value proportional to disk area
    my $min_rad = 1;
    my $max_rad = 18;
+   ### min and max should depend on max_width
    my $rad = sqrt( $min_rad**2 + $trait_val * ($max_rad**2-$min_rad**2) / ($max_trait-$min_trait) );
    return $rad;   
 }
@@ -255,12 +278,11 @@ func taxo2tree ( $tax2trait, $trait_name, $max_level? ) {
    $root->set_name('LUCA');
    $tree->insert($root);
    my %seen;
+   my $num_fake = 1;
    for my $taxo (keys %$tax2trait) {
       warn "\nlineage: $taxo\n" if $DEBUG;
       # Split lineage into its elements
       my $lineage_arr = Bio::Community::TaxonomyUtils::split_lineage_string($taxo);
-      # Prettify taxonomic names
-      $lineage_arr = [ map { $_ =~ s/^.__//; $_ =~ s/^\[(.*)\]$/$1/; $_ } @$lineage_arr ];
       my $ancestor_name = 'LUCA';
       for my $i (0 .. scalar @$lineage_arr - 1) {
          # Respect specified max level
@@ -269,14 +291,14 @@ func taxo2tree ( $tax2trait, $trait_name, $max_level? ) {
          }
          my $name = $lineage_arr->[$i];
          if (not exists $seen{$name}) {
-            # Create and add the node unless it's already been seen
+            # Create and add the node unless it has already been seen
             $seen{$name} = undef;
             my $node = $fac->create_node;
             $node->set_name($name);
             my $ancestor = $tree->get_by_name($ancestor_name);
             $ancestor->set_child($node);
             warn "node $name, parent $ancestor_name\n" if $DEBUG;
-            $tree->insert($node);      
+            $tree->insert($node);
          }
          if ($i == scalar @$lineage_arr - 1) {
             # Add trait value of taxon
@@ -289,6 +311,23 @@ func taxo2tree ( $tax2trait, $trait_name, $max_level? ) {
          $ancestor_name = $name;
       }
       delete $tax2trait->{$taxo};
+   }
+   %seen = ();
+
+   #### For non-species level groups that have no children, add fake, transparent children
+
+   # Clean names
+   for my $node (@{$tree->get_entities}) {
+      my $name = $node->get_name;
+      $name =~ s/^(.)__//;
+      my $group = $1;
+      $name =~ s/^\[(.*)\]$/$1/;
+      if (exists $seen{$name}) {
+         # Disambiguate name
+         $name = $name.'('.$group.')';
+      }
+      $node->set_name($name);
+      $seen{$name} = undef;
    }
    return $tree;
 }
