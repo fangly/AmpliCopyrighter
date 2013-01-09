@@ -1,0 +1,294 @@
+#!/usr/bin/env perl
+
+# draw_trait_dist
+# Copyright 2012 Florent Angly
+# You may distribute this module under the terms of the GPLv3
+
+
+=head1 NAME
+
+draw_trait_dist - Plot trait distribution across a taxonomy
+
+=head1 SYNOPSIS
+
+  draw_trait_dist -i trait_by_taxo.txt -o graph.svg
+
+=head1 DESCRIPTION
+
+This script takes the value of a trait across a phylogeny and plots it.
+
+=head1 REQUIRED ARGUMENTS
+
+=over
+
+=item -i <input_file>
+
+Input file of the distribution of the trait in a taxonomy. This file should be
+tab-delimited and have two columns: full taxonomic lineage, and trait value. The
+taxonomic lineage should be tab-separated, e.g. 'k__Bacteria; p__Acidobacteria; [...]'
+
+=for Euclid:
+   input_file.type: readable
+
+=head1 OPTIONAL ARGUMENTS
+
+=over
+
+=item -l <max_level>
+
+Only draw the trait for the first <max_level> levels of the taxonomy. The
+default is to draw all levels.
+
+=for Euclid:
+   max_level.type: integer, max_level > 0
+
+=item -w <max_width>
+
+Maximum width for the graph. Increase this value if the graph looks too cramped.
+Default: max_width.default
+
+=for Euclid:
+   max_width.type: integer, max_width > 0
+   max_width.default: 300
+
+=item -o <out_file>
+
+Output file for the SVG plot. Default: out_file.default
+
+=for Euclid:
+   out_file.type: writable
+   out_file.default: 'trait_by_taxo.svg'
+
+=back
+
+=head1 AUTHOR
+
+Florent Angly <florent.angly@gmail.com>
+
+=head1 BUGS
+
+All complex software has bugs lurking in it, and this program is no exception.
+If you find a bug, please report it on the bug tracker:
+L<http://github.com/fangly/AmpliCopyrighter/issues>
+
+=head1 COPYRIGHT
+
+Copyright 2012 Florent Angly
+
+Copyrighter is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+Copyrighter is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+You should have received a copy of the GNU General Public License
+along with Copyrighter.  If not, see <http://www.gnu.org/licenses/>.
+
+=cut
+
+
+use strict;
+use warnings;
+use Method::Signatures;
+use Getopt::Euclid qw(:minimal_keys);
+use IPC::Run qw( run );
+use List::Util qw(max min);
+use Bio::Tree::Tree;
+use Bio::Phylo::Factory;
+use Bio::Phylo::Forest::Tree;
+use Bio::Community::TaxonomyUtils;
+use FindBin qw($Bin);
+use lib "$Bin";
+use PreprocUtils;
+
+our $DEBUG = 1;
+
+draw_trait_dist( $ARGV{'i'}, $ARGV{'l'}, $ARGV{'w'}, $ARGV{'o'} );
+exit;
+
+
+func draw_trait_dist ($input_file, $max_level, $max_width, $out_file) {
+   # Parse input file
+   my ($tax2trait, $trait_name) = parse_file($input_file);
+   # Make a tree from taxonomy and attach trait value
+   my $tree = taxo2tree($tax2trait, $trait_name, $max_level);
+   # Now draw the tree and the trait values
+   draw_tree($tree, $out_file, $max_width, $trait_name);
+   return 1;
+}
+
+
+func draw_tree (Bio::Phylo::Forest::Tree $tree, $out_svg, $max_width, $trait_name) {
+   # Draw the tree with its associated trait
+   # First convert and save the tree as Newick
+   my $out_newick = 'taxo_tree.nw';
+   warn "Info: Saving tree in Newick file $out_newick\n";
+   PreprocUtils::write_tree($tree, $out_newick);
+   # Then generate a CSS file with the colors and decorations to use
+   my $out_css = 'taxo_tree.css';
+   write_css_style($tree, $out_css, $trait_name);
+   # Run nw_display to draw tree in SVG
+   warn "Info: Drawing tree in SVG file $out_svg\n";
+   my @cmd = ('nw_display', '-h');
+   my ($in, $out, $err);
+   run \@cmd, \$in, \$out, $err or die "Error: Could not run nw_display\n$!\n";
+   @cmd = ('nw_display', '-r', '-s', '-w', $max_width, '-o', $out_css, $out_newick);
+   run \@cmd, '>', $out_svg or die "Error: Could not run nw_display\n$!\n";
+   ### display directly to stdout
+   return 1;
+}
+
+
+func write_css_style ($tree, $file, $trait_name) {
+   # 
+
+   my @names;
+   my @vals;
+   for my $node (@{$tree->get_entities}) {
+      my $val  = $node->get_generic($trait_name);
+      next if not defined $val;
+      my $name = $node->get_name;
+      push @vals , $val ;
+      push @names, $name;
+   }
+
+   my $min = min @vals;
+   my $max = max @vals;
+
+   warn "Info: Minimum trait value is $min\n";
+   warn "Info: Maximum trait value is $max\n";
+
+   use Data::Dumper;
+   warn Dumper(\@names);
+
+   my %styles;
+   for my $i (0 .. scalar @names - 1) {
+      my $name   = $names[$i];
+      my $val    = $vals[$i];
+      next if not defined $val;
+
+      #####
+      #my $radius = 2;
+      #my $radius = sprintf('%i', $val) + 1; # at least 2
+      my $radius = calc_radius($val, $max, $min);
+      warn "$name: val $val -> radius $radius\n"; ###
+      my $fill_col = 'red';
+      ### work on area instead of radius
+      ### use colors: green to red?
+      #####
+
+      $name = esc_nw_chars($name);
+
+      my $style = svg_circle($radius, $fill_col, 'none');
+      push @{$styles{$style}}, $name;      
+   }
+   
+   ###use Data::Dumper; warn Dumper(\%styles);
+
+   open my $out, '>', $file or die "Error: Could not write file $file\n$!\n";
+   while (my ($style, $clades) = each %styles) {
+      print $out "$style Individual ".join(' ',@$clades)."\n";
+   }
+   close $out;
+   return 1;
+}
+
+
+func esc_nw_chars ($str) {
+   # Replace ' ' by _ and single quote strings that contain -
+   $str =~ s/ /_/g;
+   $str =~ s/(.+-.+)/'$1'/;
+   return $str;
+}
+
+
+func calc_radius ($trait_val, $max_trait, $min_trait) {
+   # Trait value proportional to disk area
+   my $min_rad = 1;
+   my $max_rad = 18;
+   my $rad = sqrt( $min_rad**2 + $trait_val * ($max_rad**2-$min_rad**2) / ($max_trait-$min_trait) );
+   return $rad;   
+}
+
+
+func svg_circle ($radius?, $fill_col?, $stroke_col?) {
+   # Return a SVG circle, e.g. "<circle style=’fill:red;stroke:black’ r=’5’/>"
+   my $str = '"<circle ';
+   if ( (defined $fill_col) or (defined $stroke_col) ) {
+      $str .= "style='";
+      if (defined $fill_col) {
+         $str .= "fill:$fill_col;";
+      }
+      if (defined $stroke_col) {
+         $str .= "stroke:$stroke_col;";
+      }
+      $str .= "'";
+   }
+   if (defined $radius) {
+      $str .= " r='".$radius."'";
+   }
+   $str .= '/>"';
+   return $str;
+}
+
+
+func parse_file ($file) {
+   # Read trait name
+   open my $fh, '<', $file or die "Error: Could not read file $file\n$!\n";
+   my $header = <$fh>;
+   my $trait_name = (split /\t/, $header)[1];
+   close $fh;
+   # Read taxo and trait values
+   my $tax2trait = PreprocUtils::read_lookup($file);
+   warn "Info: Read ".(scalar keys %$tax2trait)." taxonomic strings and trait values\n";
+   return $tax2trait, $trait_name;
+}
+
+
+func taxo2tree ( $tax2trait, $trait_name, $max_level? ) {
+   # Transform taxonomy to a tree and attach trait value
+   my $fac  = Bio::Phylo::Factory->new;
+   my $tree = $fac->create_tree;
+   my $root = $fac->create_node;
+   $root->set_name('LUCA');
+   $tree->insert($root);
+   my %seen;
+   for my $taxo (keys %$tax2trait) {
+      warn "\nlineage: $taxo\n" if $DEBUG;
+      # Split lineage into its elements
+      my $lineage_arr = Bio::Community::TaxonomyUtils::split_lineage_string($taxo);
+      # Prettify taxonomic names
+      $lineage_arr = [ map { $_ =~ s/^.__//; $_ =~ s/^\[(.*)\]$/$1/; $_ } @$lineage_arr ];
+      my $ancestor_name = 'LUCA';
+      for my $i (0 .. scalar @$lineage_arr - 1) {
+         # Respect specified max level
+         if ( (defined $max_level) && ($i >= $max_level) ) {
+            last;
+         }
+         my $name = $lineage_arr->[$i];
+         if (not exists $seen{$name}) {
+            # Create and add the node unless it's already been seen
+            $seen{$name} = undef;
+            my $node = $fac->create_node;
+            $node->set_name($name);
+            my $ancestor = $tree->get_by_name($ancestor_name);
+            $ancestor->set_child($node);
+            warn "node $name, parent $ancestor_name\n" if $DEBUG;
+            $tree->insert($node);      
+         }
+         if ($i == scalar @$lineage_arr - 1) {
+            # Add trait value of taxon
+            my $trait_val = $tax2trait->{$taxo};
+            next if not defined $trait_val;
+            my $node = $tree->get_by_name($name);
+            $node->set_generic( $trait_name => $trait_val);
+            warn "node $name, trait $trait_val\n" if $DEBUG;
+         }
+         $ancestor_name = $name;
+      }
+      delete $tax2trait->{$taxo};
+   }
+   return $tree;
+}
