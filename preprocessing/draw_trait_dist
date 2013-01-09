@@ -116,8 +116,6 @@ func draw_trait_dist ($input_file, $max_level, $max_width, $out_file) {
    # Make a tree from taxonomy and attach trait value
    my $tree = taxo2tree($tax2trait, $trait_name, $max_level);
 
-   #### use some abbreviations, e.g. 'b.' instead of 'bacteria', 'a.' instead of 'archaeota'
-
    #### use detected number of levels instead of harcoded value
 
    #### branches are quite long. can i specify a smaller branch length?
@@ -390,11 +388,18 @@ func taxo2tree ( $tax2trait, $trait_name, $max_level? ) {
    # Clean names
    for my $node (@{$tree->get_entities}) {
       my $name = $node->get_name;
+      # Remove Greengenes headers, e.g. transform k__Archaea to Archaea
       $name =~ s/^(.)__//;
       my $group = $1;
+      # Remove brackets, e.g. transform [Brachyspirae] to Brachyspirae
       $name =~ s/^\[(.*)\]$/$1/;
+      # Abbreviate bacteria and archaea to b. and a. to save space
+      $name =~ s/bacteria$/b./;
+      $name =~ s/(?:archaeota|archaea)$/a./;
+      # Disambiguate duplicate names, e.g. the first occurence of Chloroflexi
+      # (p__Chloroflexi) becomes Chloroflexi and the second (c__Chloroflexi)
+      # becomes Chloroflexi(c)
       if (exists $seen{$name}) {
-         # Disambiguate duplicate names
          $name = $name.'('.$group.')';
       }
       $node->set_name($name);
