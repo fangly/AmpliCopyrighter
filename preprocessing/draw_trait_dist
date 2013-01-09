@@ -116,8 +116,6 @@ func draw_trait_dist ($input_file, $max_level, $max_width, $out_file) {
    # Make a tree from taxonomy and attach trait value
    my $tree = taxo2tree($tax2trait, $trait_name, $max_level);
 
-   #### make text of transparent nodes transparent
-
    #### use some abbreviations, e.g. 'b.' instead of 'bacteria', 'a.' instead of 'archaeota'
 
    #### use detected number of levels instead of harcoded value
@@ -164,21 +162,24 @@ func draw_tree (Bio::Phylo::Forest::Tree $tree, $out_svg, $max_width, $trait_nam
 
 
 func finish_svg ($svg_file) {
-   # Remove text elements called 'transparentX'
+   # Remove some text elements, massage some others
    my %args = (
       -debug      => $DEBUG,
       #-raiseerror => 0,
    );
-
-   #### Also fix elements such as Chloroflexi(c)
-
    my $parser = SVG::Parser->new(%args)->parse_file($svg_file);
    for my $tag ($parser->getElements('text')) {
       my $value = $tag->getCDATA();
       $value =~ s/^\s+|\s+$//g; # remove leading and trailing whitespaces
-      #warn "VALUE = $value\n"; ###
       if ($value =~ m/^transparent/) {
+         # Remove text elements called 'transparentX'
          $tag->cdata('');
+         next;
+      }
+      if ($value =~ m/^(.*)\(.\)$/) {
+         # Fix text elements such as Chloroflexi(c) to Chloroflexi
+         $tag->cdata($1);
+         next;
       }
    }
    open my $out, '>', $svg_file or die "Error: Could not write file $svg_file\n$!\n";
