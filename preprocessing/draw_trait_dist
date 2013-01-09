@@ -37,10 +37,11 @@ taxonomic lineage should be tab-separated, e.g. 'k__Bacteria; p__Acidobacteria; 
 =item -l <max_level>
 
 Only draw the trait for the first <max_level> levels of the taxonomy. The
-default is to draw all levels.
+default is to draw all levels. Default: max_level.default
 
 =for Euclid:
    max_level.type: integer, max_level > 0
+   max_level.default: 4
 
 =item -w <max_width>
 
@@ -49,7 +50,7 @@ Default: max_width.default
 
 =for Euclid:
    max_width.type: integer, max_width > 0
-   max_width.default: 300
+   max_width.default: 1500
 
 =item -o <out_file>
 
@@ -115,15 +116,6 @@ func draw_trait_dist ($input_file, $max_level, $max_width, $out_file) {
    my ($tax2trait, $trait_name, $num_levels) = parse_file($input_file);
    # Make a tree from taxonomy and attach trait value
    my $tree = taxo2tree($tax2trait, $trait_name, $num_levels, $max_level);
-
-   #### branches are quite long. can i specify a smaller branch length?
-
-   #### calc max_width (if not specified) using the number of nodes
-
-   #### adjust min and max radius in function of max_width
-
-   #### calc_radius does not work: small radii too small
-
    # Now draw the tree and the trait values
    draw_tree($tree, $out_file, $max_width, $trait_name);
    return 1;
@@ -243,15 +235,13 @@ func write_ornament_file ($tree, $file, $trait_name) {
       #my $radius = sprintf('%i', $val) + 1; # at least 2
       my $radius = calc_radius($val, $max, $min);
       #warn "$name: val $val -> radius $radius\n"; ###
-      my $fill_col = 'red';
-      ### work on area instead of radius
-      ### use colors: green to red?
       #####
 
+      my $fill_col = 'red';
+      #### use colors: green to red?
+
       $name = esc_nw_chars($name);
-
       my $style = svg_circle($radius, $fill_col, 'none');
-
       push @{$styles{$style}}, $name;      
    }
 
@@ -283,7 +273,6 @@ func calc_radius ($trait_val, $max_trait, $min_trait) {
    # Trait value proportional to disk area
    my $min_rad = 1;
    my $max_rad = 18;
-   ### min and max should depend on max_width
    my $rad = sqrt( $min_rad**2 + $trait_val * ($max_rad**2-$min_rad**2) / ($max_trait-$min_trait) );
    return $rad;   
 }
