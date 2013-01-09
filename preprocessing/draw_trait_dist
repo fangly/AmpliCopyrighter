@@ -116,8 +116,6 @@ func draw_trait_dist ($input_file, $max_level, $max_width, $out_file) {
    # Make a tree from taxonomy and attach trait value
    my $tree = taxo2tree($tax2trait, $trait_name, $num_levels, $max_level);
 
-   #### use detected number of levels instead of harcoded value
-
    #### branches are quite long. can i specify a smaller branch length?
 
    #### calc max_width (if not specified) using the number of nodes
@@ -152,9 +150,17 @@ func draw_tree (Bio::Phylo::Forest::Tree $tree, $out_svg, $max_width, $trait_nam
       $out_orn, $out_newick );
    run \@cmd, '>', $out_svg or die "Error: Could not run nw_display\n$!\n";
    finish_svg($out_svg);
+   cat($out_svg);
+   return 1;
+}
 
-   ### display directly to stdout
 
+func cat ($file) {
+   open my $in, '<', $file or die "Error: Could not read file $file\n$!\n";
+   while (my $line = <$in>) {
+      print $line;
+   }
+   close $in;
    return 1;
 }
 
@@ -377,7 +383,7 @@ func taxo2tree ( $tax2trait, $trait_name, $num_levels, $max_level? ) {
    for my $leaf (@{$tree->get_terminals}) {
       my $num_levels = $leaf->calc_nodes_to_root - 1;
       if ($num_levels < $max_level) {
-         warn "Warn: Leaf ".$leaf->get_name." only had $num_levels levels\n";
+         warn "Warn: Leaf ".$leaf->get_name." had only $num_levels levels\n";
          my $ancestor_name = $leaf->get_name;
          for (1 .. $max_level - $num_levels) {
             my $name = 'transparent'.$num_fake;
