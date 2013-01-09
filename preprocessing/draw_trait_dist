@@ -115,11 +115,11 @@ func draw_trait_dist ($input_file, $max_level, $max_width, $out_file) {
    # Make a tree from taxonomy and attach trait value
    my $tree = taxo2tree($tax2trait, $trait_name, $max_level);
 
-   #### fix manually or automatically taxonomic strings with less than 7 levels, e.g.
-   ####     c__Chloracidobacteria   o__SBla14   o__BD7-3   c__pSL4   p__OP9
+   #### use detected number of levels instead of harcoded value
+
    #### add nodes called 'transp' until there are seven elements and give them opacity 0
 
-   #### use some abbreviations, e.g. 'b.' instead of 'bacteria'
+   #### use some abbreviations, e.g. 'b.' instead of 'bacteria', 'a.' instead of 'archaeota'
 
    #### branches are quite long. can i specify a smaller branch length?
 
@@ -141,15 +141,18 @@ func draw_tree (Bio::Phylo::Forest::Tree $tree, $out_svg, $max_width, $trait_nam
    my $out_newick = 'taxo_tree.nw';
    warn "Info: Saving tree in Newick file $out_newick\n";
    PreprocUtils::write_tree($tree, $out_newick);
-   # Then generate a CSS file with the colors and decorations to use
+   # Then generate a CSS and ornament file with the colors and decorations to use
    my $out_css = 'taxo_tree.css';
-   write_css_style($tree, $out_css, $trait_name);
+   write_css_file($tree, $out_css);
+   my $out_orn = 'taxo_tree.orn';
+   write_ornament_file($tree, $out_orn, $trait_name);
    # Run nw_display to draw tree in SVG
    warn "Info: Drawing tree in SVG file $out_svg\n";
    my @cmd = ('nw_display', '-h');
    my ($in, $out, $err);
    run \@cmd, \$in, \$out, $err or die "Error: Could not run nw_display\n$!\n";
-   @cmd = ('nw_display', '-r', '-s', '-w', $max_width, '-o', $out_css, $out_newick);
+   @cmd = ( 'nw_display', '-r', '-s', '-w', $max_width, '-c', $out_css, '-o',
+      $out_orn, $out_newick );
    run \@cmd, '>', $out_svg or die "Error: Could not run nw_display\n$!\n";
 
    ### display directly to stdout
@@ -158,9 +161,27 @@ func draw_tree (Bio::Phylo::Forest::Tree $tree, $out_svg, $max_width, $trait_nam
 }
 
 
-func write_css_style ($tree, $file, $trait_name) {
-   # 
+func write_css_file ($tree, $file) {
+   my %styles;
+   for my $node (@{$tree->get_entities}) {
+      my $name = $node->get_name;
+      if ( $name =~ m/^transparent/ ) {
+         # Make 'transparentX' nodes transparent
+         my $style = 'opacity:0';
+         push @{$styles{$style}}, $name;
+      }
+   }
+   open my $out, '>', $file or die "Error: Could not write file $file\n$!\n";
+   while (my ($style, $clades) = each %styles) {
+      print $out "$style Individual ".join(' ',@$clades)."\n";
+   }
+   close $out;
+   return 1;
+}
 
+
+func write_ornament_file ($tree, $file, $trait_name) {
+   # File of ornaments for nw_diplay
    my @names;
    my @vals;
    for my $node (@{$tree->get_entities}) {
@@ -173,24 +194,21 @@ func write_css_style ($tree, $file, $trait_name) {
 
    my $min = min @vals;
    my $max = max @vals;
-
    warn "Info: Minimum trait value is $min\n";
    warn "Info: Maximum trait value is $max\n";
 
-   use Data::Dumper;
-   warn Dumper(\@names);
-
    my %styles;
    for my $i (0 .. scalar @names - 1) {
-      my $name   = $names[$i];
-      my $val    = $vals[$i];
+      my $name = $names[$i];
+      # Make circle of area proportional to trait value
+      my $val = $vals[$i];
       next if not defined $val;
 
       #####
       #my $radius = 2;
       #my $radius = sprintf('%i', $val) + 1; # at least 2
       my $radius = calc_radius($val, $max, $min);
-      warn "$name: val $val -> radius $radius\n"; ###
+      #warn "$name: val $val -> radius $radius\n"; ###
       my $fill_col = 'red';
       ### work on area instead of radius
       ### use colors: green to red?
@@ -199,9 +217,10 @@ func write_css_style ($tree, $file, $trait_name) {
       $name = esc_nw_chars($name);
 
       my $style = svg_circle($radius, $fill_col, 'none');
+
       push @{$styles{$style}}, $name;      
    }
-   
+
    ###use Data::Dumper; warn Dumper(\%styles);
 
    open my $out, '>', $file or die "Error: Could not write file $file\n$!\n";
@@ -272,13 +291,18 @@ func parse_file ($file) {
 
 func taxo2tree ( $tax2trait, $trait_name, $max_level? ) {
    # Transform taxonomy to a tree and attach trait value
+
+   if (not defined $max_level) {
+      # Greengenes taxonomy has 7 levels ### use levels seen instead of harcoded value
+      $max_level = 7;
+   }
+
    my $fac  = Bio::Phylo::Factory->new;
    my $tree = $fac->create_tree;
    my $root = $fac->create_node;
    $root->set_name('LUCA');
    $tree->insert($root);
    my %seen;
-   my $num_fake = 1;
    for my $taxo (keys %$tax2trait) {
       warn "\nlineage: $taxo\n" if $DEBUG;
       # Split lineage into its elements
@@ -286,7 +310,7 @@ func taxo2tree ( $tax2trait, $trait_name, $max_level? ) {
       my $ancestor_name = 'LUCA';
       for my $i (0 .. scalar @$lineage_arr - 1) {
          # Respect specified max level
-         if ( (defined $max_level) && ($i >= $max_level) ) {
+         if ( $i >= $max_level ) {
             last;
          }
          my $name = $lineage_arr->[$i];
@@ -314,7 +338,26 @@ func taxo2tree ( $tax2trait, $trait_name, $max_level? ) {
    }
    %seen = ();
 
-   #### For non-species level groups that have no children, add fake, transparent children
+   # Add fake transparent nodes until each leaf has the expected number of levels
+   my $num_fake = 1;
+   for my $leaf (@{$tree->get_terminals}) {
+      my $num_levels = $leaf->calc_nodes_to_root - 1;
+      if ($num_levels < $max_level) {
+         warn "Warn: Leaf ".$leaf->get_name." only had $num_levels levels\n";
+         my $ancestor_name = $leaf->get_name;
+         for (1 .. $max_level - $num_levels) {
+            my $name = 'transparent'.$num_fake;
+            $num_fake++;
+            my $node = $fac->create_node;
+            $node->set_name($name);
+            my $ancestor = $tree->get_by_name($ancestor_name);
+            $ancestor->set_child($node);
+            warn "node $name, parent $ancestor_name\n" if $DEBUG;
+            $tree->insert($node);
+            $ancestor_name = $name;
+         }
+      }
+   }
 
    # Clean names
    for my $node (@{$tree->get_entities}) {
@@ -323,7 +366,7 @@ func taxo2tree ( $tax2trait, $trait_name, $max_level? ) {
       my $group = $1;
       $name =~ s/^\[(.*)\]$/$1/;
       if (exists $seen{$name}) {
-         # Disambiguate name
+         # Disambiguate duplicate names
          $name = $name.'('.$group.')';
       }
       $node->set_name($name);
