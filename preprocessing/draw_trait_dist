@@ -96,6 +96,7 @@ use Method::Signatures;
 use Getopt::Euclid qw(:minimal_keys);
 use IPC::Run qw(run);
 use SVG::Parser;
+use Math::Gradient qw(multi_array_gradient);
 use List::Util qw(max min);
 use Bio::Tree::Tree;
 use Bio::Phylo::Factory;
@@ -150,6 +151,7 @@ func draw_tree (Bio::Phylo::Forest::Tree $tree, $out_svg, $max_width, $trait_nam
       '-s',               # SVG format
       '-r',               # radial tree
       '-I', 'l',          # inner label position: near 'l'eaves [d], 'm'iddle or 'r'oot
+      '-n', 8,            # pixels to add to position of leaf node labels
       '-w', $max_width,   # graph max width in pixels
       '-l', $leaf_style,  # style for leaf nodes
       '-i', $inner_style, # style for inner nodes
@@ -165,6 +167,7 @@ func draw_tree (Bio::Phylo::Forest::Tree $tree, $out_svg, $max_width, $trait_nam
 
 
 func cat ($file) {
+   # cat content of file on stdout
    open my $in, '<', $file or die "Error: Could not read file $file\n$!\n";
    while (my $line = <$in>) {
       print $line;
@@ -223,6 +226,12 @@ func write_css_file ($tree, $file) {
 
 func write_ornament_file ($tree, $file, $trait_name) {
    # File of ornaments for nw_display
+
+   my $green  = [  0, 255, 0]; #00FF00
+   my $yellow = [255, 255, 0]; #FFFF00
+   my $red    = [255,   0, 0]; #FF0000
+   my @colors = multi_array_gradient(10, $green, $yellow, $red);
+
    my @names;
    my @vals;
    for my $node (@{$tree->get_entities}) {
@@ -240,22 +249,15 @@ func write_ornament_file ($tree, $file, $trait_name) {
 
    my %styles;
    for my $i (0 .. scalar @names - 1) {
-      my $name = $names[$i];
+      my $name = esc_nw_chars( $names[$i] );
       # Make circle of area linearly related to trait value
       my $val = $vals[$i];
       next if not defined $val;
       my $radius = calc_radius($val, $max, $min);
-
-      my $fill_col = 'red';
-      #### use colors: green to red?
-
-      $name = esc_nw_chars($name);
+      my $fill_col = pick_col($val, $max, $min, \@colors );
       my $style = svg_circle($radius, $fill_col, 'none');
-      #my $style = svg_circle($radius, $fill_col, 'black');
-      push @{$styles{$style}}, $name;      
+      push @{$styles{$style}}, $name;
    }
-
-   ###use Data::Dumper; warn Dumper(\%styles);
 
    open my $out, '>', $file or die "Error: Could not write file $file\n$!\n";
    while (my ($style, $clades) = each %styles) {
@@ -263,6 +265,34 @@ func write_ornament_file ($tree, $file, $trait_name) {
    }
    close $out;
    return 1;
+}
+
+
+func pick_col ($val, $max, $min, $colors) {
+   # Map a trait value onto the given color scale. Colors in the scale can
+   # be hexadecimal, e.g. #00FF00, or rgb (as an arrayref), e.g. [0, 255, 0].
+   my $num_cols = scalar @$colors;
+   my $interval = ($max - $min) / $num_cols;
+   my @boundaries = ($min);
+   for my $i (0 .. $num_cols-1) {
+      push @boundaries, $boundaries[$i] + $interval;
+   }
+   my $pos;
+   for my $i (0 .. $num_cols-1) {
+      if ($val < $boundaries[$i+1]) {
+         $pos = $i;
+         last;
+      }
+   }
+   if (not defined $pos) {
+      $pos = $num_cols-1;
+   }
+   my $color = $colors->[$pos];
+   if (ref($color) eq 'ARRAY') {
+      # Transform rgb array into a RGB string
+      $color = 'rgb('.join(',',@$color).')';
+   }
+   return $color;
 }
 
 
