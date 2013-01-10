@@ -241,7 +241,7 @@ func write_ornament_file ($tree, $file, $trait_name) {
    my %styles;
    for my $i (0 .. scalar @names - 1) {
       my $name = $names[$i];
-      # Make circle of area proportional to trait value
+      # Make circle of area linearly related to trait value
       my $val = $vals[$i];
       next if not defined $val;
       my $radius = calc_radius($val, $max, $min);
@@ -280,7 +280,7 @@ func esc_nw_chars ($str) {
 
 
 func calc_radius ($trait_val, $trait_max, $trait_min) {
-   # Trait value proportional to disk area
+   # Trait value linearly related to disk area
    my $rad_min = 2;
    my $rad_max = 18;
    my $rad = sqrt( $rad_min**2 + ($rad_max**2 - $rad_min**2) *
