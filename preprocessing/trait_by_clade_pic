@@ -151,6 +151,13 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $tra
 
    warn "TAX2TRAIT average: ".Dumper($id2trait); ###
 
+   ### trait for bacilli larger than that for bacilli;herpetosiphonales
+
+   ### 0/ Some taxonomic levels missing, e.g. k__Bacteria; p__Proteobacteria; c__Gammaproteobacteria; o__Salinisphaerales
+
+   ### 0'/ k__Bacteria; p__Acidobacteria; c__Chloracidobacteria does not go deeper than class level
+   ###      o__SBla14   o__BD7-3   c__pSL4   p__OP9
+
    ### 1/ some IMG genomes have disparate trait values, e.g. 
    ###    '137936' => [
    ###                  '5',
@@ -231,6 +238,9 @@ func convert_id_to_tax ($id_hash, $taxo_file) {
       }
       my $vals = delete $id_hash->{$id};
       push @{$id_hash->{$tax}}, @$vals;
+
+      warn "XXX: $id has taxonomy $tax\n"; ###
+
    }
    if ($num_missing > 0) {
       warn "Warn: Failed to convert $num_missing IDs to taxonomy\n";
@@ -247,13 +257,21 @@ func pic ($tree, $tax2trait) {
    warn "Info: Applying phylogenetic independent contrasts to tree\n";
    my $nonzero_length = 1e-5;
 
-   my $num = 0;
-   while ($tree->calc_number_of_cherries > 0) {
-      $num++;
+   my $round_num = 0;
+   while (1) {
+
+      # Get and count apples and cherries
+      $round_num++;
       warn "Info: round $num\n";
+      my $cherries     = get_cherries($tree);
+      my $num_cherries = number_of_cherries($cherries);
+      my $apples       = get_apples($tree);
+      my $num_apples   = number_of_apples($apples);
+      my $num_fruits = $num_cherries + $num_apples;
+      last if $num_fruits <= 0;
 
       # Process and remove cherries
-      my $cherries = get_cherries($tree);
+      warn "Info: processing $num_cherries cherries\n";
       while (my ($uid, $nodes) = each %$cherries) {
          # Calculate trait value for parent $pval as a weighted average of the
          # children's trait value @cvals where the weights $weis are proportional
@@ -307,27 +325,29 @@ func pic ($tree, $tax2trait) {
 
       }
 
-      # Process and remove singleton leaves
-      for my $leaf (@{$tree->get_terminals}) {
-         my $parent = $leaf->get_parent;
+      # Process and remove apples
+      warn "Info: processing $num_apples apples\n";
+      while (my ($uid, $nodes) = each %$apples) {
+      #for my $leaf (@{$tree->get_terminals}) {
+         #my $parent = $leaf->get_parent;
+         my ($parent, @children) = @$nodes;
          next if not $parent;
-         if (scalar @{$parent->get_children} == 1) {
-            my $pval = $leaf->get_generic('trait');
-            $parent->set_generic('trait' => $pval);
-            print_nodes($parent, $leaf); ###
-            $parent->prune_child($leaf);
-            my $pid = get_clean_name($parent); # GG ID or full taxonomic string
-            next if $pid eq '';
-            push @{$tax2trait->{$pid}}, $pval;
-            my $num_levels = scalar (split /\.,/, $parent->get_name);
-            if ($num_levels > 1) {
-               my $lineage = Bio::Community::TaxonomyUtils::split_lineage_string($pid);
-               my $max_idx = scalar @$lineage - 1;
-               for my $level (1 .. $num_levels-1) {
-                  my @arr = @{$lineage}[0..$max_idx-$level];
-                  my $name = Bio::Community::TaxonomyUtils::get_lineage_string(\@arr, 'space');
-                  push @{$tax2trait->{$name}}, $pval;
-               }
+         my $child = $children[0];
+         my $pval = $child->get_generic('trait');
+         $parent->set_generic('trait' => $pval);
+         print_nodes($parent, $child); ###
+         $parent->prune_child($child);
+         my $pid = get_clean_name($parent); # GG ID or full taxonomic string
+         next if $pid eq '';
+         push @{$tax2trait->{$pid}}, $pval;
+         my $num_levels = scalar (split /\.,/, $parent->get_name);
+         if ($num_levels > 1) {
+            my $lineage = Bio::Community::TaxonomyUtils::split_lineage_string($pid);
+            my $max_idx = scalar @$lineage - 1;
+            for my $level (1 .. $num_levels-1) {
+               my @arr = @{$lineage}[0..$max_idx-$level];
+               my $name = Bio::Community::TaxonomyUtils::get_lineage_string(\@arr, 'space');
+               push @{$tax2trait->{$name}}, $pval;
             }
          }
       }
@@ -345,8 +365,8 @@ func pic ($tree, $tax2trait) {
    } else {
       # Error
       my $out_file = 'tree_debug.nw';
-      write_tree($tree, $out_file);
-      die "Error: Internal problem. There should be only one lead left and no ".
+      PreprocUtils::write_tree($tree, $out_file);
+      die "Error: Internal problem. There should be only one leaf left and no ".
           "internal nodes but there are still $nof_leaves leaves and $nof_interns ".
           "internal nodes. Wrote what's left of the tree in the Newick file ".
           "$out_file for debugging\n";
@@ -356,22 +376,43 @@ func pic ($tree, $tax2trait) {
 }
 
 
+func get_apples (Bio::Phylo::Forest::Tree $tree) {
+   # Find apples in the tree and report them in a hash, keyed by the parent ID
+   return get_fruits($tree, 1);
+}
+
+
+func number_of_apples ($apples) {
+   return scalar keys %$apples;
+}
+
+
 func get_cherries (Bio::Phylo::Forest::Tree $tree) {
-   # Find the cherries in the tree and report them in a hash, keyed by the ID of
-   # their parent
-   my %cherries;
+   # Find cherries in the tree and report them in a hash, keyed by the parent ID
+   return get_fruits($tree, 2);
+}
+
+
+func number_of_cherries ($cherries) {
+   return 2 * (scalar keys %$cherries);
+}
+
+
+func get_fruits (Bio::Phylo::Forest::Tree $tree, Int $num_children) {
+   # Find apples in the tree and report them in a hash, keyed by the parent ID
+   my %fruits;
    for my $tip ( @{ $tree->get_terminals } ) {
       if ( my $parent = $tip->get_parent ) {
          if ( $parent->is_preterminal ) {
             my $children = $parent->get_children;
             my $pid = $parent->get_id;
-            if ( (scalar @{$children} == 2) && (not exists $cherries{$pid}) ) {
-               $cherries{$pid} = [$parent, @$children];
+            if ( (scalar @{$children} == $num_children) && (not exists $fruits{$pid}) ) {
+               $fruits{$pid} = [$parent, @$children];
             }
          }
       }
    }
-   return \%cherries;
+   return \%fruits;
 }
 
 
@@ -401,18 +442,6 @@ func draw_tree ( Bio::Phylo::Forest::Tree $tree, $file) {
    $treedrawer->set_tree($tree);
    open my $out, '>', $file or die "Error: Could not write file $file\n$!\n";
    print $out $treedrawer->draw;
-   close $out;
-   return 1;
-}
-
-
-func write_tree ($tree, $file) {
-   open my $out, '>', $file or die "Error: Could not write file $file\n$!\n";
-   print $out Bio::Phylo::IO->unparse(
-      -phylo      => $tree,
-      -format     => 'newick',
-      -nodelabels => 1, # report name of internal nodes
-   );
    close $out;
    return 1;
 }
@@ -462,7 +491,7 @@ func grow_tree ($tree_file, $clip_file, $gg_ids, $id2trait) {
       # Write pruned tree if requested
       if ($clip_file) {
          warn "Info: Saving tree to $clip_file ...\n";
-         write_tree($tree, $clip_file);
+         PreprocUtils::write_tree($tree, $clip_file);
       }
    }
 
