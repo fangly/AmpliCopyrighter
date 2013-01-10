@@ -105,7 +105,7 @@ use FindBin qw($Bin);
 use lib "$Bin";
 use PreprocUtils;
 
-our $DEBUG = 0;
+use constant DEBUG => 0;
 
 draw_trait_dist( $ARGV{'i'}, $ARGV{'l'}, $ARGV{'w'}, $ARGV{'o'} );
 exit;
@@ -124,6 +124,11 @@ func draw_trait_dist ($input_file, $max_level, $max_width, $out_file) {
 
 func draw_tree (Bio::Phylo::Forest::Tree $tree, $out_svg, $max_width, $trait_name) {
    # Draw the tree with its associated trait
+
+   ### Ideally, max_width should be estimated from the number of leaves, and
+   ### the node font size should be increased appropriately, as well as the
+   ### minimum and maximum circle radius.
+
    # First convert and save the tree as Newick
    my $out_newick = 'taxo_tree.nw';
    warn "Info: Saving tree in Newick file $out_newick\n";
@@ -140,8 +145,18 @@ func draw_tree (Bio::Phylo::Forest::Tree $tree, $out_svg, $max_width, $trait_nam
    run \@cmd, \$in, \$out, $err or die "Error: Could not run nw_display\n$!\n";
    my $leaf_style  = 'font-size:medium;font-family:sans'; # default: small
    my $inner_style = 'font-size:medium;font-family:sans'; # default: medium
-   @cmd = ( 'nw_display', '-r', '-s', '-w', $max_width, '-l', $leaf_style,
-      '-i', $inner_style, '-c', $out_css, '-o', $out_orn, $out_newick );
+   @cmd = (
+      'nw_display',
+      '-s',               # SVG format
+      '-r',               # radial tree
+      '-I', 'l',          # inner label position: near 'l'eaves [d], 'm'iddle or 'r'oot
+      '-w', $max_width,   # graph max width in pixels
+      '-l', $leaf_style,  # style for leaf nodes
+      '-i', $inner_style, # style for inner nodes
+      '-c', $out_css,     # input CSS file
+      '-o', $out_orn,     # input ornament file
+      $out_newick,        # input Newick tree file
+   );
    run \@cmd, '>', $out_svg or die "Error: Could not run nw_display\n$!\n";
    finish_svg($out_svg);
    cat($out_svg);
@@ -162,7 +177,7 @@ func cat ($file) {
 func finish_svg ($svg_file) {
    # Remove some text elements, massage some others
    my %args = (
-      -debug      => $DEBUG,
+      -debug      => DEBUG,
       #-raiseerror => 0,
    );
    my $parser = SVG::Parser->new(%args)->parse_file($svg_file);
@@ -207,7 +222,7 @@ func write_css_file ($tree, $file) {
 
 
 func write_ornament_file ($tree, $file, $trait_name) {
-   # File of ornaments for nw_diplay
+   # File of ornaments for nw_display
    my @names;
    my @vals;
    for my $node (@{$tree->get_entities}) {
@@ -229,19 +244,14 @@ func write_ornament_file ($tree, $file, $trait_name) {
       # Make circle of area proportional to trait value
       my $val = $vals[$i];
       next if not defined $val;
-
-      #####
-      #my $radius = 2;
-      #my $radius = sprintf('%i', $val) + 1; # at least 2
       my $radius = calc_radius($val, $max, $min);
-      #warn "$name: val $val -> radius $radius\n"; ###
-      #####
 
       my $fill_col = 'red';
       #### use colors: green to red?
 
       $name = esc_nw_chars($name);
       my $style = svg_circle($radius, $fill_col, 'none');
+      #my $style = svg_circle($radius, $fill_col, 'black');
       push @{$styles{$style}}, $name;      
    }
 
@@ -269,11 +279,12 @@ func esc_nw_chars ($str) {
 }
 
 
-func calc_radius ($trait_val, $max_trait, $min_trait) {
+func calc_radius ($trait_val, $trait_max, $trait_min) {
    # Trait value proportional to disk area
-   my $min_rad = 1;
-   my $max_rad = 18;
-   my $rad = sqrt( $min_rad**2 + $trait_val * ($max_rad**2-$min_rad**2) / ($max_trait-$min_trait) );
+   my $rad_min = 2;
+   my $rad_max = 18;
+   my $rad = sqrt( $rad_min**2 + ($rad_max**2 - $rad_min**2) *
+      ($trait_val - $trait_min) / ($trait_max - $trait_min) );
    return $rad;   
 }
 
@@ -335,7 +346,7 @@ func taxo2tree ( $tax2trait, $trait_name, $num_levels, $max_level? ) {
    $tree->insert($root);
    my %seen;
    for my $taxo (keys %$tax2trait) {
-      warn "\nlineage: $taxo\n" if $DEBUG;
+      warn "\nlineage: $taxo\n" if DEBUG;
       # Split lineage into its elements
       my $lineage_arr = Bio::Community::TaxonomyUtils::split_lineage_string($taxo);
       my $ancestor_name = 'LUCA';
@@ -352,7 +363,7 @@ func taxo2tree ( $tax2trait, $trait_name, $num_levels, $max_level? ) {
             $node->set_name($name);
             my $ancestor = $tree->get_by_name($ancestor_name);
             $ancestor->set_child($node);
-            warn "node $name, parent $ancestor_name\n" if $DEBUG;
+            warn "node $name, parent $ancestor_name\n" if DEBUG;
             $tree->insert($node);
          }
          if ($i == scalar @$lineage_arr - 1) {
@@ -361,7 +372,7 @@ func taxo2tree ( $tax2trait, $trait_name, $num_levels, $max_level? ) {
             next if not defined $trait_val;
             my $node = $tree->get_by_name($name);
             $node->set_generic( $trait_name => $trait_val);
-            warn "node $name, trait $trait_val\n" if $DEBUG;
+            warn "node $name, trait $trait_val\n" if DEBUG;
          }
          $ancestor_name = $name;
       }
@@ -383,7 +394,7 @@ func taxo2tree ( $tax2trait, $trait_name, $num_levels, $max_level? ) {
             $node->set_name($name);
             my $ancestor = $tree->get_by_name($ancestor_name);
             $ancestor->set_child($node);
-            warn "node $name, parent $ancestor_name\n" if $DEBUG;
+            warn "node $name, parent $ancestor_name\n" if DEBUG;
             $tree->insert($node);
             $ancestor_name = $name;
          }
