@@ -95,6 +95,7 @@ use warnings;
 use Method::Signatures;
 use Getopt::Euclid qw(:minimal_keys);
 use IPC::Run qw(run);
+use SVG;
 use SVG::Parser;
 use Math::Gradient qw(multi_array_gradient);
 use List::Util qw(max min);
@@ -138,7 +139,7 @@ func draw_tree (Bio::Phylo::Forest::Tree $tree, $out_svg, $max_width, $trait_nam
    my $out_css = 'taxo_tree.css';
    write_css_file($tree, $out_css);
    my $out_orn = 'taxo_tree.orn';
-   write_ornament_file($tree, $out_orn, $trait_name);
+   my ($min_trait, $max_trait) = write_ornament_file($tree, $out_orn, $trait_name);
    # Run nw_display to draw tree in SVG
    warn "Info: Drawing tree in SVG file $out_svg\n";
    my @cmd = ('nw_display', '-h');
@@ -160,7 +161,7 @@ func draw_tree (Bio::Phylo::Forest::Tree $tree, $out_svg, $max_width, $trait_nam
       $out_newick,        # input Newick tree file
    );
    run \@cmd, '>', $out_svg or die "Error: Could not run nw_display\n$!\n";
-   finish_svg($out_svg);
+   finish_svg($out_svg, $min_trait, $max_trait); # add a legend and do some cleanup
    cat($out_svg);
    return 1;
 }
@@ -177,14 +178,14 @@ func cat ($file) {
 }
 
 
-func finish_svg ($svg_file) {
+func finish_svg ($svg_file, $min_trait, $max_trait) {
    # Remove some text elements, massage some others
    my %args = (
-      -debug      => DEBUG,
+      #-debug      => DEBUG,
       #-raiseerror => 0,
    );
-   my $parser = SVG::Parser->new(%args)->parse_file($svg_file);
-   for my $tag ($parser->getElements('text')) {
+   my $svg = SVG::Parser->new(%args)->parse_file($svg_file);
+   for my $tag ($svg->getElements('text')) {
       my $value = $tag->getCDATA();
       $value =~ s/^\s+|\s+$//g; # remove leading and trailing whitespaces
       if ($value =~ m/^transparent/) {
@@ -198,8 +199,9 @@ func finish_svg ($svg_file) {
          next;
       }
    }
+   add_legend($svg, $min_trait, $max_trait);
    open my $out, '>', $svg_file or die "Error: Could not write file $svg_file\n$!\n";
-   print $out $parser->xmlify;
+   print $out $svg->xmlify;
    close $out;
    return 1;
 }
@@ -225,13 +227,9 @@ func write_css_file ($tree, $file) {
 
 
 func write_ornament_file ($tree, $file, $trait_name) {
-   # File of ornaments for nw_display
+   # Generate a file of ornaments (colored circles) for nw_display
 
-   my $green  = [  0, 255, 0]; #00FF00
-   my $yellow = [255, 255, 0]; #FFFF00
-   my $red    = [255,   0, 0]; #FF0000
-   my @colors = multi_array_gradient(10, $green, $yellow, $red);
-
+   # Calculate min and max trait value
    my @names;
    my @vals;
    for my $node (@{$tree->get_entities}) {
@@ -241,12 +239,13 @@ func write_ornament_file ($tree, $file, $trait_name) {
       push @vals , $val ;
       push @names, $name;
    }
-
    my $min = min @vals;
    my $max = max @vals;
    warn "Info: Minimum trait value is $min\n";
    warn "Info: Maximum trait value is $max\n";
 
+   # Attribute style (circle radius and fill color) to clades
+   my $colors = get_col_palette();
    my %styles;
    for my $i (0 .. scalar @names - 1) {
       my $name = esc_nw_chars( $names[$i] );
@@ -254,17 +253,68 @@ func write_ornament_file ($tree, $file, $trait_name) {
       my $val = $vals[$i];
       next if not defined $val;
       my $radius = calc_radius($val, $max, $min);
-      my $fill_col = pick_col($val, $max, $min, \@colors );
+      my $fill_col = pick_col($val, $max, $min, $colors );
       my $style = svg_circle($radius, $fill_col, 'none');
+      warn "name $name, val $val, radius $radius, color $fill_col\n" if DEBUG;
       push @{$styles{$style}}, $name;
    }
 
+   # Write ornament file
    open my $out, '>', $file or die "Error: Could not write file $file\n$!\n";
    while (my ($style, $clades) = each %styles) {
       print $out "$style Individual ".join(' ',@$clades)."\n";
    }
    close $out;
-   return 1;
+
+   return $min, $max;
+}
+
+
+func get_col_palette {
+   # Return the color palette to use
+   # Define color palette
+   my $green  = [  0, 255, 0]; #00FF00
+   my $yellow = [255, 255, 0]; #FFFF00
+   my $red    = [255,   0, 0]; #FF0000
+   my @colors = multi_array_gradient(10, $green, $yellow, $red);
+   return \@colors;
+}
+
+
+func add_legend ($svg, $min_trait, $max_trait) {
+   my $colors = get_col_palette();
+   my $num_cols = scalar @$colors;
+   my $interval = ($max_trait - $min_trait) / $num_cols;
+   my @boundaries = ($min_trait);
+   for my $i (0 .. $num_cols-1) {
+      push @boundaries, $boundaries[$i] + $interval;
+   }
+   my @vals;
+   for my $i (0 .. $num_cols-1) {
+      my $low   = $boundaries[$i];
+      my $high  = $boundaries[$i+1];
+      push @vals, [$low, $high];
+   }
+   my $x = 20;
+   my $y = 20;
+   my $spacing = 5;
+   for my $i (0 .. $num_cols-1) {
+      my ($low, $high) = @{$vals[$i]};
+      my $mean = ($high + $low) / 2;
+      $low  = sprintf( '%.1f', $low );
+      $high = sprintf( '%.1f', $high);
+      my $label = "$low - $high";
+      my $radius = calc_radius($mean, $max_trait, $min_trait);
+      my $fill_col = $colors->[$i];
+      if (ref($fill_col) eq 'ARRAY') {
+         # Transform rgb array into a RGB string
+         $fill_col = 'rgb('.join(',',@$fill_col).')';
+      }
+      $svg->circle(cx => $x, cy => $y, r => $radius, fill => $fill_col, stroke => 'none');
+      $svg->text('x' => $x + 20, 'y' => $y, -cdata => $label);
+      $y += $spacing + 40;
+   }
+   return $svg;
 }
 
 
@@ -315,7 +365,11 @@ func calc_radius ($trait_val, $trait_max, $trait_min) {
    my $rad_max = 18;
    my $rad = sqrt( $rad_min**2 + ($rad_max**2 - $rad_min**2) *
       ($trait_val - $trait_min) / ($trait_max - $trait_min) );
-   return $rad;   
+
+   warn "radius $rad\n\n"; ###
+   ### radius still not proportional!
+
+   return $rad;
 }
 
 
@@ -415,7 +469,7 @@ func taxo2tree ( $tax2trait, $trait_name, $num_levels, $max_level? ) {
    for my $leaf (@{$tree->get_terminals}) {
       my $num_levels = $leaf->calc_nodes_to_root - 1;
       if ($num_levels < $max_level) {
-         warn "Warn: Leaf ".$leaf->get_name." had only $num_levels levels\n";
+         #warn "Warn: Leaf ".$leaf->get_name." had only $num_levels levels\n";
          my $ancestor_name = $leaf->get_name;
          for (1 .. $max_level - $num_levels) {
             my $name = 'transparent'.$num_fake;
