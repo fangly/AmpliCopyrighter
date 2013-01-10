@@ -262,7 +262,7 @@ func pic ($tree, $tax2trait) {
 
       # Get and count apples and cherries
       $round_num++;
-      warn "Info: round $num\n";
+      warn "Info: round $round_num\n";
       my $cherries     = get_cherries($tree);
       my $num_cherries = number_of_cherries($cherries);
       my $apples       = get_apples($tree);
