@@ -52,14 +52,6 @@ Default: max_width.default
    max_width.type: integer, max_width > 0
    max_width.default: 1500
 
-=item -o <out_file>
-
-Output file for the SVG plot. Default: out_file.default
-
-=for Euclid:
-   out_file.type: writable
-   out_file.default: 'trait_by_taxo.svg'
-
 =back
 
 =head1 AUTHOR
@@ -107,24 +99,24 @@ use FindBin qw($Bin);
 use lib "$Bin";
 use PreprocUtils;
 
-use constant DEBUG => 0;
+use constant DEBUG => 1;
 
-draw_trait_dist( $ARGV{'i'}, $ARGV{'l'}, $ARGV{'w'}, $ARGV{'o'} );
+draw_trait_dist( $ARGV{'i'}, $ARGV{'l'}, $ARGV{'w'} );
 exit;
 
 
-func draw_trait_dist ($input_file, $max_level, $max_width, $out_file) {
+func draw_trait_dist ($input_file, $max_level, $max_width) {
    # Parse input file
    my ($tax2trait, $trait_name, $num_levels) = parse_file($input_file);
    # Make a tree from taxonomy and attach trait value
    my $tree = taxo2tree($tax2trait, $trait_name, $num_levels, $max_level);
    # Now draw the tree and the trait values
-   draw_tree($tree, $out_file, $max_width, $trait_name);
+   draw_tree($tree, $max_width, $trait_name);
    return 1;
 }
 
 
-func draw_tree (Bio::Phylo::Forest::Tree $tree, $out_svg, $max_width, $trait_name) {
+func draw_tree (Bio::Phylo::Forest::Tree $tree, $max_width, $trait_name) {
    # Draw the tree with its associated trait
 
    ### Ideally, max_width should be estimated from the number of leaves, and
@@ -141,6 +133,7 @@ func draw_tree (Bio::Phylo::Forest::Tree $tree, $out_svg, $max_width, $trait_nam
    my $out_orn = 'taxo_tree.orn';
    my ($min_trait, $max_trait) = write_ornament_file($tree, $out_orn, $trait_name);
    # Run nw_display to draw tree in SVG
+   my $out_svg = 'taxo_tree.svg';
    warn "Info: Drawing tree in SVG file $out_svg\n";
    my @cmd = ('nw_display', '-h');
    my ($in, $out, $err);
@@ -163,6 +156,9 @@ func draw_tree (Bio::Phylo::Forest::Tree $tree, $out_svg, $max_width, $trait_nam
    run \@cmd, '>', $out_svg or die "Error: Could not run nw_display\n$!\n";
    finish_svg($out_svg, $min_trait, $max_trait); # add a legend and do some cleanup
    cat($out_svg);
+
+   unlink $out_newick, $out_css, $out_orn, $out_svg;
+
    return 1;
 }
 
@@ -361,14 +357,11 @@ func esc_nw_chars ($str) {
 
 func calc_radius ($trait_val, $trait_max, $trait_min) {
    # Trait value linearly related to disk area
-   my $rad_min = 2;
-   my $rad_max = 18;
+   my $rad_min = 5;
+   my $rad_max = 20;
    my $rad = sqrt( $rad_min**2 + ($rad_max**2 - $rad_min**2) *
       ($trait_val - $trait_min) / ($trait_max - $trait_min) );
-
-   warn "radius $rad\n\n"; ###
    ### radius still not proportional!
-
    return $rad;
 }
 
