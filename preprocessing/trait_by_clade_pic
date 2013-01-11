@@ -120,6 +120,8 @@ use FindBin qw($Bin);
 use lib "$Bin";
 use PreprocUtils;
 
+use constant NONZERO => 1e-5;
+
 my $gg_taxonomy;
 trait_by_clade_pic( $ARGV{'i'}, $ARGV{'p'}, $ARGV{'t'}, $ARGV{'c'}, $ARGV{'n'} );
 exit;
@@ -138,7 +140,7 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $tra
    my $tree = grow_tree($phylo_tree, $clip_tree, [keys %$id2trait], $id2trait);
 
    # Read GG taxonomy, convert GG IDs to GG taxonomic string
-   $id2trait = convert_id_to_tax($id2trait, $taxo_file);
+   $id2trait = convert_id_to_tax($id2trait, $taxo_file, $tree);
 
    warn "TAX2TRAIT leaves: ".Dumper($id2trait); ###
 
@@ -152,11 +154,18 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $tra
    warn "TAX2TRAIT average: ".Dumper($id2trait); ###
 
    ### trait for bacilli larger than that for bacilli;herpetosiphonales
+   ### same for Chloroflexi
+   ### same for Archaea
 
-   ### 0/ Some taxonomic levels missing, e.g. k__Bacteria; p__Proteobacteria; c__Gammaproteobacteria; o__Salinisphaerales
-
-   ### 0'/ k__Bacteria; p__Acidobacteria; c__Chloracidobacteria does not go deeper than class level
-   ###      o__SBla14   o__BD7-3   c__pSL4   p__OP9
+   ### Keep a count of number of genomes in that makes up each trait value.
+   ### Then when averaging for a taxonomic node that maps on different places
+   ### on the tree, make an average that is weighted by the number of genomes
+   ###          'k__Archaea; p__Euryarchaeota' => [
+   ###                                        '1',
+   ###                                        '2.01942749847523',
+   ###                                        '1.23852125609103',
+   ###                                        '1.65813301375894'
+   ### Here 1 comes from 1 genome. Hence, it gets a lower weight compared to others
 
    ### 1/ some IMG genomes have disparate trait values, e.g. 
    ###    '137936' => [
@@ -167,10 +176,12 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $tra
    ###  Do 99% clustering early and remove dubious genomes with fix_img_copy_number script
 
    ### 2/ Compare:
-   ###       k__Archaea	1.6541404157126
-   ###    to:
-   ###       k__Archaea; p__Crenarchaeota	1
-   ###       k__Archaea; p__Euryarchaeota	1.60412505642777
+   ###    k__Archaea      1.50710
+   ### to:
+   ###    k__Archaea; p__Crenarchaeota    1.00000
+   ###    k__Archaea; p__Euryarchaeota    1.47902
+   ###    k__Archaea; p__Nanoarchaeota    1.00000
+
    ###    Even more pronounced for Bacilli
 
    ### 3/ Need to add reinflated trait value for taxonomic strings that were pruned
@@ -225,11 +236,13 @@ func print_results ($tax2trait, $trait_name) {
 }
 
 
-func convert_id_to_tax ($id_hash, $taxo_file) {
+func convert_id_to_tax ($id_hash, $taxo_file, $tree) {
    warn "Info: Converting GG IDs to taxonomic strings\n";
    my $gg_taxonomy = read_gg_id2taxo($taxo_file);
    my $num_missing = 0;
    for my $id (keys %$id_hash) {
+
+      # Convert ID to taxonomic string and save array of trait values
       my $tax = $gg_taxonomy->{$id};
       if (not defined $tax) {
          $num_missing++;
@@ -239,12 +252,38 @@ func convert_id_to_tax ($id_hash, $taxo_file) {
       my $vals = delete $id_hash->{$id};
       push @{$id_hash->{$tax}}, @$vals;
 
-      warn "XXX: $id has taxonomy $tax\n"; ###
+      warn "Info: $id has taxonomy $tax\n"; ###
 
+      # If the first, named ancestor of this clade is not directly 1 taxonomic
+      # level above this one, need to record the intermediary taxonomic levels
+      my $node = $tree->get_by_name($id);
+      # Get first named ancestor
+      my $pid;
+      my $ancestor = $node;
+      while (1) {
+         $ancestor = $ancestor->get_parent;
+         $pid = get_clean_name($ancestor); # GG ID or full taxonomic string
+         last if not $pid eq '';
+      }
+      # Process intermediary taxonomic levels
+      if (not $tax eq $pid) {
+         my $anc_levels = scalar @{Bio::Community::TaxonomyUtils::split_lineage_string($pid)};
+         #warn "XXX: $id has taxonomy $tax\n"; ###
+         #warn "first named ancestor: $pid\n"; ###
+         my $lineage = Bio::Community::TaxonomyUtils::split_lineage_string($tax);
+         for my $level ( $anc_levels+1 .. scalar @$lineage - 1) {
+            my @tmp_lineage = @{$lineage}[0..$level-1];
+            my $name = Bio::Community::TaxonomyUtils::get_lineage_string(\@tmp_lineage, 'space');
+            #warn "processing level $level: $name\n"; ###
+            push @{$id_hash->{$name}}, @$vals;
+         }
+         #warn "\n"; ###
+      }
    }
    if ($num_missing > 0) {
       warn "Warn: Failed to convert $num_missing IDs to taxonomy\n";
    }
+
    return $id_hash;
 }
 
@@ -255,7 +294,6 @@ func pic ($tree, $tax2trait) {
    # Note: We're irremediably altering the given tree!
    
    warn "Info: Applying phylogenetic independent contrasts to tree\n";
-   my $nonzero_length = 1e-5;
 
    my $round_num = 0;
    while (1) {
@@ -273,83 +311,15 @@ func pic ($tree, $tax2trait) {
       # Process and remove cherries
       warn "Info: processing $num_cherries cherries\n";
       while (my ($uid, $nodes) = each %$cherries) {
-         # Calculate trait value for parent $pval as a weighted average of the
-         # children's trait value @cvals where the weights $weis are proportional
-         # to the inverse of the branch distance @dists between parent and
-         # children. Hence, the trait value of a child closer to the parent
-         # contributes more than the trait value of a childr that is farther away.
          my ($parent, @children) = @$nodes;
-         my @cvals  = map { $_->get_generic('trait') } @children;
-         my @cdists = map { 0+$_->get_branch_length || $nonzero_length } @children;
-         my @weis   = map { 1 / $_ } @cdists;
-         my $pval = ($cvals[0]*$weis[0] + $cvals[1]*$weis[1]) / ($weis[0]+$weis[1]);
-         $parent->set_generic('trait' => $pval);
-
-         print_nodes($parent, @children); ####
-
-         # Delete children
-         $parent->prune_child($children[0]);
-         $parent->prune_child($children[1]);
-
-         # Stretch parent's branch
-         my $pdist = $parent->get_branch_length;
-         if ( ($cdists[0] > 0) && ($cdists[1] > 0) ) {
-            $pdist += $cdists[0]*$cdists[1] / ($cdists[0]+$cdists[1]);
-         }
-         $parent->set_branch_length($pdist);
-
-         # Skip anonymous internal nodes
-         my $pid = get_clean_name($parent); # GG ID or full taxonomic string
-         next if $pid eq '';
-
-         # Save parent's trait value:
-         # Due to the imperfection of matching a taxonomy on a tree, the
-         # taxonomy name can be on several nodes of the tree. Save all trait
-         # values to make an average in these cases. We'll need to average later,
-         # but not before all IDs have been converted to taxonomic strings (we
-         # don't want to do averages of averages).
-         push @{$tax2trait->{$pid}}, $pval;
-
-         # If GG label name $pid contains several taxonomic levels e.g.
-         # 'o__Rhizobiales; f__Rhodobiaceae', record them all.
-         my $num_levels = scalar (split /\.,/, $parent->get_name);
-         if ($num_levels > 1) {
-            my $lineage = Bio::Community::TaxonomyUtils::split_lineage_string($pid);
-            my $max_idx = scalar @$lineage - 1;
-            for my $level (1 .. $num_levels-1) {
-               my @arr = @{$lineage}[0..$max_idx-$level];
-               my $name = Bio::Community::TaxonomyUtils::get_lineage_string(\@arr, 'space');
-               push @{$tax2trait->{$name}}, $pval;
-            }
-         }
-
+         $tax2trait = process_fruit_by_pic($parent, \@children, $tax2trait);
       }
 
       # Process and remove apples
       warn "Info: processing $num_apples apples\n";
       while (my ($uid, $nodes) = each %$apples) {
-      #for my $leaf (@{$tree->get_terminals}) {
-         #my $parent = $leaf->get_parent;
          my ($parent, @children) = @$nodes;
-         next if not $parent;
-         my $child = $children[0];
-         my $pval = $child->get_generic('trait');
-         $parent->set_generic('trait' => $pval);
-         print_nodes($parent, $child); ###
-         $parent->prune_child($child);
-         my $pid = get_clean_name($parent); # GG ID or full taxonomic string
-         next if $pid eq '';
-         push @{$tax2trait->{$pid}}, $pval;
-         my $num_levels = scalar (split /\.,/, $parent->get_name);
-         if ($num_levels > 1) {
-            my $lineage = Bio::Community::TaxonomyUtils::split_lineage_string($pid);
-            my $max_idx = scalar @$lineage - 1;
-            for my $level (1 .. $num_levels-1) {
-               my @arr = @{$lineage}[0..$max_idx-$level];
-               my $name = Bio::Community::TaxonomyUtils::get_lineage_string(\@arr, 'space');
-               push @{$tax2trait->{$name}}, $pval;
-            }
-         }
+         $tax2trait = process_fruit_by_pic($parent, \@children, $tax2trait);
       }
 
    }
@@ -372,6 +342,69 @@ func pic ($tree, $tax2trait) {
           "$out_file for debugging\n";
    }
 
+   return $tax2trait;
+}
+
+
+func process_fruit_by_pic ($parent, $children, $tax2trait) {
+   # Calculate trait value for parent $pval as a weighted average of the
+   # children's trait value @cvals where the weights $weis are proportional
+   # to the inverse of the branch distance @dists between parent and
+   # children. Hence, the trait value of a child closer to the parent
+   # contributes more than the trait value of a childr that is farther away.
+
+   # Note: This function works with a single child or two children
+
+   my $pval;
+   my @cvals = map { $_->get_generic('trait') } @$children;
+   if (scalar @cvals == 2) {
+      # Calculate trait value for parent
+      my @cdists = map { 0+$_->get_branch_length || NONZERO } @$children;
+      my @weis   = map { 1 / $_ } @cdists;
+      $pval = ($cvals[0]*$weis[0] + $cvals[1]*$weis[1]) / ($weis[0]+$weis[1]);
+      # Stretch parent's branch
+      my $pdist = $parent->get_branch_length;
+      if ( ($cdists[0] > 0) && ($cdists[1] > 0) ) {
+         $pdist += $cdists[0]*$cdists[1] / ($cdists[0]+$cdists[1]);
+      }
+      $parent->set_branch_length($pdist);
+   } else {
+      $pval = $cvals[0];
+   }
+   $parent->set_generic('trait' => $pval);
+
+   print_nodes($parent, @$children); ####
+
+   # Delete children
+   for my $child (@$children) {
+      $parent->prune_child($child);
+   }
+
+   # Skip anonymous internal nodes
+   my $pid = get_clean_name($parent); # GG ID or full taxonomic string
+   if (not $pid eq '') {
+
+      # Save parent's trait value:
+      # Due to the imperfection of matching a taxonomy on a tree, the
+      # taxonomy name can be on several nodes of the tree. Save all trait
+      # values to make an average in these cases. We'll need to average later,
+      # but not before all IDs have been converted to taxonomic strings (we
+      # don't want to do averages of averages).
+      push @{$tax2trait->{$pid}}, $pval;
+
+      # If GG label name $pid contains several taxonomic levels e.g.
+      # 'o__Rhizobiales; f__Rhodobiaceae', record them all.
+      my $num_levels = scalar (split /\.,/, $parent->get_name);
+      if ($num_levels > 1) {
+         my $lineage = Bio::Community::TaxonomyUtils::split_lineage_string($pid);
+         my $max_idx = scalar @$lineage - 1;
+         for my $level (1 .. $num_levels-1) {
+            my @arr = @{$lineage}[0..$max_idx-$level];
+            my $name = Bio::Community::TaxonomyUtils::get_lineage_string(\@arr, 'space');
+            push @{$tax2trait->{$name}}, $pval;
+         }
+      }
+   }
    return $tax2trait;
 }
 
