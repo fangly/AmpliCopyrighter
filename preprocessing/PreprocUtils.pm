@@ -55,18 +55,7 @@ func read_lookup ($file) {
 
 
 func average_by_key ( $hash, $weight_hash ) {
-   # Given a hash of arrays, make the average of the arrays by key. 
-
-   ###
-   use Data::Dumper;
-   warn "HASH: ".Dumper($weight_hash);
-   warn "WEIGHT_HASH: ".Dumper($weight_hash);
-   ###
-
-###   if (defined $weight_hash) {
-###      die "Error: Weighted average not yet supported\n";
-###   }
-
+   # Given a hash of arrays, make the average of the arrays by key, IN PLACE.
    for my $key (keys %$hash) {
       my $vals = $hash->{$key};
       if (ref($vals) eq 'ARRAY') {
@@ -78,7 +67,7 @@ func average_by_key ( $hash, $weight_hash ) {
             for my $weight (@$weights) {
                $total += $weight;
             }
-            for my $i (0 .. scalar @$vals) {
+            for my $i (0 .. scalar @$vals - 1) {
                my $val = $vals->[$i];
                my $weight = $weights->[$i];
                $mean += $val * $weight;
