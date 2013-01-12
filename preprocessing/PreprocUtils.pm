@@ -45,6 +45,7 @@ func read_lookup ($file) {
    while (my $line = <$fh>) {
       chomp $line;
       next if $line =~ m/^#/;
+      next if $line =~ m/^\s*$/;
       my ($key, $val) = split /\t/, $line;
       $lookup->{$key} = $val;
    }
@@ -53,21 +54,60 @@ func read_lookup ($file) {
 }
 
 
-func average_by_key ( $hash, Int $digits? ) {
-   # Given a hash of arrays, make the average of the arrays by key. When the
-   # average of more than one value, use the specified optional number of decimal
-   # digits.
+func average_by_key ( $hash, $weight_hash ) {
+   # Given a hash of arrays, make the average of the arrays by key. 
+
+   ###
+   use Data::Dumper;
+   warn "HASH: ".Dumper($weight_hash);
+   warn "WEIGHT_HASH: ".Dumper($weight_hash);
+   ###
+
+###   if (defined $weight_hash) {
+###      die "Error: Weighted average not yet supported\n";
+###   }
+
    for my $key (keys %$hash) {
       my $vals = $hash->{$key};
       if (ref($vals) eq 'ARRAY') {
-         my $mean = mean($vals)->query;
-         if ( (scalar @$vals > 1) && (defined $digits) ) {
-            $mean = sprintf( "%.".$digits."f" , $mean );
+         my $mean = 0;
+         if (defined $weight_hash) {
+            # Weighted mean
+            my $total = 0;
+            my $weights = $weight_hash->{$key};
+            for my $weight (@$weights) {
+               $total += $weight;
+            }
+            for my $i (0 .. scalar @$vals) {
+               my $val = $vals->[$i];
+               my $weight = $weights->[$i];
+               $mean += $val * $weight;
+            }
+            $mean /= $total;
+         } else {
+            # Simple mean
+            $mean = mean($vals)->query;
          }
+         # Number of decimal digits to use
+         #if ( (scalar @$vals > 1) && (defined $digits) ) {
+         #   $mean = sprintf( "%.".$digits."f" , $mean );
+         #}
          $hash->{$key} = $mean;
       } # else do nothing, keep the single value
    }
    return $hash;
+}
+
+
+func write_tree ($tree, $file) {
+   open my $out, '>', $file or die "Error: Could not write file $file\n$!\n";
+   print $out Bio::Phylo::IO->unparse(
+      -phylo      => $tree,
+      -format     => 'newick',
+      -nodelabels => 1, # report name of internal nodes
+   );
+   close $out;
+   return 1;
 }
 
 

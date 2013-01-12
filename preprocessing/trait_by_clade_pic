@@ -132,32 +132,34 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $tra
    # Read IMG metadata and extract gg IDs and the desired trait value
    # Do not average trait for IMG ID with several traits: because of the
    # clustering at 99%, assume that they come from different genomes
-   my $id2trait = read_metadata($input_file, $trait_name);
+   my ($tax2trait, $tax2num) = read_metadata($input_file, $trait_name);
 
-   warn "ID2TRAIT: ".Dumper($id2trait); ###
+   warn "ID2TRAIT: ".Dumper($tax2trait); ###
 
    # Our very own, special GG tree
-   my $tree = grow_tree($phylo_tree, $clip_tree, [keys %$id2trait], $id2trait);
+   my $tree = grow_tree($phylo_tree, $clip_tree, [keys %$tax2trait], $tax2trait, $tax2num);
 
    # Read GG taxonomy, convert GG IDs to GG taxonomic string
-   $id2trait = convert_id_to_tax($id2trait, $taxo_file, $tree);
+   ($tax2trait, $tax2num) = convert_id_to_tax($tax2trait, $tax2num, $taxo_file, $tree);
 
-   warn "TAX2TRAIT leaves: ".Dumper($id2trait); ###
+   warn "TAX2TRAIT leaves: ".Dumper($tax2trait); ###
+   warn "TAX2NUM leaves: ".Dumper($tax2num); ###
 
    # Calculate interior node trait value using PIC
-   $id2trait = pic($tree, $id2trait);
+   ($tax2trait, $tax2num) = pic($tree, $tax2trait, $tax2num);
 
-   warn "TAX2TRAIT all nodes: ".Dumper($id2trait); ###
+   warn "TAX2TRAIT all nodes: ".Dumper($tax2trait); ###
+   warn "TAX2NUM all nodes: ".Dumper($tax2num); ###
 
-   $id2trait = PreprocUtils::average_by_key($id2trait);
+   $tax2trait = PreprocUtils::average_by_key($tax2trait, $tax2num);
 
-   warn "TAX2TRAIT average: ".Dumper($id2trait); ###
+   warn "TAX2TRAIT average: ".Dumper($tax2trait); ###
 
    ### trait for bacilli larger than that for bacilli;herpetosiphonales
    ### same for Chloroflexi
    ### same for Archaea
 
-   ### Keep a count of number of genomes in that makes up each trait value.
+   ### Keep a count of number of genomes that makes up each trait value.
    ### Then when averaging for a taxonomic node that maps on different places
    ### on the tree, make an average that is weighted by the number of genomes
    ###          'k__Archaea; p__Euryarchaeota' => [
@@ -187,7 +189,8 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $tra
    ### 3/ Need to add reinflated trait value for taxonomic strings that were pruned
 
    # Print results
-   print_results($id2trait, $trait_name);
+   print_results($tax2trait, $trait_name);
+   #########print_results($tax2trait, $tax2num, $trait_name); #######
 
    return 1;
 }
@@ -236,11 +239,11 @@ func print_results ($tax2trait, $trait_name) {
 }
 
 
-func convert_id_to_tax ($id_hash, $taxo_file, $tree) {
+func convert_id_to_tax ($tax2trait, $tax2num, $taxo_file, $tree) {
    warn "Info: Converting GG IDs to taxonomic strings\n";
    my $gg_taxonomy = read_gg_id2taxo($taxo_file);
    my $num_missing = 0;
-   for my $id (keys %$id_hash) {
+   for my $id (keys %$tax2trait) {
 
       # Convert ID to taxonomic string and save array of trait values
       my $tax = $gg_taxonomy->{$id};
@@ -249,10 +252,12 @@ func convert_id_to_tax ($id_hash, $taxo_file, $tree) {
          warn "Warn: Missing GG taxonomy for GG ID '$id'\n";
          next;
       }
-      my $vals = delete $id_hash->{$id};
-      push @{$id_hash->{$tax}}, @$vals;
-
-      warn "Info: $id has taxonomy $tax\n"; ###
+      my $vals = $tax2trait->{$id};
+      push @{$tax2trait->{$tax}}, @$vals;
+      push @{$tax2num->{$tax}}, (1) x scalar(@$vals);
+      warn "Pushed this on $tax: ".dump($vals)."\n"; ###
+      delete $tax2num->{$id};
+      delete $tax2trait->{$id};
 
       # If the first, named ancestor of this clade is not directly 1 taxonomic
       # level above this one, need to record the intermediary taxonomic levels
@@ -272,10 +277,12 @@ func convert_id_to_tax ($id_hash, $taxo_file, $tree) {
          #warn "first named ancestor: $pid\n"; ###
          my $lineage = Bio::Community::TaxonomyUtils::split_lineage_string($tax);
          for my $level ( $anc_levels+1 .. scalar @$lineage - 1) {
-            my @tmp_lineage = @{$lineage}[0..$level-1];
-            my $name = Bio::Community::TaxonomyUtils::get_lineage_string(\@tmp_lineage, 'space');
-            #warn "processing level $level: $name\n"; ###
-            push @{$id_hash->{$name}}, @$vals;
+            my @int_lineage = @{$lineage}[0..$level-1];
+            my $int_tax = Bio::Community::TaxonomyUtils::get_lineage_string(\@int_lineage, 'space');
+            #warn "processing level $level: $int_tax\n"; ###
+            push @{$tax2trait->{$int_tax}}, @$vals;
+            push @{$tax2num->{$int_tax}}, (1) x scalar(@$vals);
+            warn "Pushed this on $int_tax: ".dump($vals)."\n"; ###
          }
          #warn "\n"; ###
       }
@@ -284,11 +291,11 @@ func convert_id_to_tax ($id_hash, $taxo_file, $tree) {
       warn "Warn: Failed to convert $num_missing IDs to taxonomy\n";
    }
 
-   return $id_hash;
+   return $tax2trait, $tax2num;
 }
 
 
-func pic ($tree, $tax2trait) {
+func pic ($tree, $tax2trait, $tax2num) {
    # Use phylogenetic independent contrasts method to estimate trait value for
    # interior nodes of given $tree and save this in $tax2trait
    # Note: We're irremediably altering the given tree!
@@ -312,14 +319,14 @@ func pic ($tree, $tax2trait) {
       warn "Info: processing $num_cherries cherries\n";
       while (my ($uid, $nodes) = each %$cherries) {
          my ($parent, @children) = @$nodes;
-         $tax2trait = process_fruit_by_pic($parent, \@children, $tax2trait);
+         ($tax2trait, $tax2num) = process_fruit_by_pic($parent, \@children, $tax2trait, $tax2num);
       }
 
       # Process and remove apples
       warn "Info: processing $num_apples apples\n";
       while (my ($uid, $nodes) = each %$apples) {
          my ($parent, @children) = @$nodes;
-         $tax2trait = process_fruit_by_pic($parent, \@children, $tax2trait);
+         ($tax2trait, $tax2num) = process_fruit_by_pic($parent, \@children, $tax2trait, $tax2num);
       }
 
    }
@@ -331,7 +338,9 @@ func pic ($tree, $tax2trait) {
       # Print trait value for remaining node
       my $last_node = @{$tree->get_entities}[0];
       my $last_val  = $last_node->get_generic('trait');
-      warn "Info: No internal nodes remaining. The last tree leaf had trait value $last_val\n.";
+      my $last_num  = $last_node->get_generic('num'  );
+      warn "Info: No internal nodes remaining. The last tree leaf had trait ".
+         "value $last_val (based on $last_num genomes)\n.";
    } else {
       # Error
       my $out_file = 'tree_debug.nw';
@@ -342,11 +351,11 @@ func pic ($tree, $tax2trait) {
           "$out_file for debugging\n";
    }
 
-   return $tax2trait;
+   return $tax2trait, $tax2num;
 }
 
 
-func process_fruit_by_pic ($parent, $children, $tax2trait) {
+func process_fruit_by_pic ($parent, $children, $tax2trait, $tax2num) {
    # Calculate trait value for parent $pval as a weighted average of the
    # children's trait value @cvals where the weights $weis are proportional
    # to the inverse of the branch distance @dists between parent and
@@ -373,6 +382,13 @@ func process_fruit_by_pic ($parent, $children, $tax2trait) {
    }
    $parent->set_generic('trait' => $pval);
 
+   my $pnum = 0;
+   for my $child (@$children) {
+      my $num = $child->get_generic('num');
+      $pnum += $num;
+   }
+   $parent->set_generic('num' => $pnum);
+
    print_nodes($parent, @$children); ####
 
    # Delete children
@@ -381,31 +397,36 @@ func process_fruit_by_pic ($parent, $children, $tax2trait) {
    }
 
    # Skip anonymous internal nodes
-   my $pid = get_clean_name($parent); # GG ID or full taxonomic string
-   if (not $pid eq '') {
+   my $tax = get_clean_name($parent); # GG ID or full taxonomic string
+   if (not $tax eq '') {
+      # Save parent's trait value
+      ####$tax2trait = save_trait($tax, $tax2trait);
 
-      # Save parent's trait value:
       # Due to the imperfection of matching a taxonomy on a tree, the
       # taxonomy name can be on several nodes of the tree. Save all trait
       # values to make an average in these cases. We'll need to average later,
       # but not before all IDs have been converted to taxonomic strings (we
       # don't want to do averages of averages).
-      push @{$tax2trait->{$pid}}, $pval;
+      push @{$tax2trait->{$tax}}, $pval;
+      push @{$tax2num->{$tax}}, $pnum;
+      warn "Pushed that on $tax: ".dump($pval)."\n"; ###
 
-      # If GG label name $pid contains several taxonomic levels e.g.
+      # If GG label name $tax contains several taxonomic levels e.g.
       # 'o__Rhizobiales; f__Rhodobiaceae', record them all.
       my $num_levels = scalar (split /\.,/, $parent->get_name);
       if ($num_levels > 1) {
-         my $lineage = Bio::Community::TaxonomyUtils::split_lineage_string($pid);
+         my $lineage = Bio::Community::TaxonomyUtils::split_lineage_string($tax);
          my $max_idx = scalar @$lineage - 1;
          for my $level (1 .. $num_levels-1) {
             my @arr = @{$lineage}[0..$max_idx-$level];
             my $name = Bio::Community::TaxonomyUtils::get_lineage_string(\@arr, 'space');
             push @{$tax2trait->{$name}}, $pval;
+            push @{$tax2num->{$name}}, $pnum;
+            warn "Pushed that on $name: ".dump($pval)."\n";
          }
       }
    }
-   return $tax2trait;
+   return $tax2trait, $tax2num;
 }
 
 
@@ -453,12 +474,12 @@ func print_nodes ($parent, $child1?, $child2?) {
    # Print node info for parent and optional two children
    my $msg;
    if ($child1) {
-      $msg .= "CHILD1: '".(get_clean_name($child1)||'?')."' (uid ".$child1->get_id.") = ".$child1->get_generic('trait')."\n";
+      $msg .= "CHILD1: '".(get_clean_name($child1)||'?')."' (uid ".$child1->get_id.") = ".$child1->get_generic('trait')."  (".$child1->get_generic('num')." genomes)\n";
    }
    if ($child2) {
-      $msg .= "CHILD2: '".(get_clean_name($child2)||'?')."' (uid ".$child2->get_id.") = ".$child2->get_generic('trait')."\n";
+      $msg .= "CHILD2: '".(get_clean_name($child2)||'?')."' (uid ".$child2->get_id.") = ".$child2->get_generic('trait')."  (".$child2->get_generic('num')." genomes)\n";
+   $msg    .= "PARENT: '".(get_clean_name($parent)||'?')."' (uid ".$parent->get_id.") = ".$parent->get_generic('trait')."  (".$parent->get_generic('num')." genomes)\n";
    }
-   $msg    .= "PARENT: '".(get_clean_name($parent)||'?')."' (uid ".$parent->get_id.") = ".$parent->get_generic('trait')."\n";
    warn "$msg\n";
    return 1;
 }
@@ -480,7 +501,7 @@ func draw_tree ( Bio::Phylo::Forest::Tree $tree, $file) {
 }
 
 
-func grow_tree ($tree_file, $clip_file, $gg_ids, $id2trait) {
+func grow_tree ($tree_file, $clip_file, $gg_ids, $tax2trait, $tax2num) {
    # Parse Newick tree, prune it and attach trait
 
    # Parse Newick tree
@@ -536,11 +557,15 @@ func grow_tree ($tree_file, $clip_file, $gg_ids, $id2trait) {
    # Attach trait to nodes
    for my $leaf ( @{$tree->get_terminals} ) {
       my $gg_id = get_clean_name($leaf);
-      my $vals = $id2trait->{$gg_id} ||
+      my $vals = $tax2trait->{$gg_id} ||
          die "Error: Could not find trait value for tree leaf with GG ID $gg_id\n";
+      my $num = scalar @{$tax2num->{$gg_id}};
+      ###my $num = sc$tax2num->{$gg_id};
+      warn "num: ".dump($num); ####
       my $val = mean($vals)->query;
       ###warn "Info: Setting trait of GG ID $gg_id (uID ".$leaf->get_id.") to $val\n";
       $leaf->set_generic( 'trait' => $val );
+      $leaf->set_generic( 'num'   => $num ); ####
    }
 
    return $tree;
@@ -733,7 +758,7 @@ func clean_name ($name) {
 
 
 func read_metadata ( $file, $trait_name ) {
-   my %id2trait;
+   my (%tax2trait, %tax2num);
    open my $fh, '<', $file or die "Error: Could not read file $file\n$!\n";
    my $header = <$fh>;
    chomp $header;
@@ -751,11 +776,12 @@ func read_metadata ( $file, $trait_name ) {
       if ( (not defined $trait_val) || ($trait_val eq '-') ) {
          next;
       }
-      push @{$id2trait{$gg_id}}, $trait_val;
+      push @{$tax2trait{$gg_id}}, $trait_val;
+      push @{$tax2num{$gg_id}}, 1;
       $num++;
    }
    close $fh;
    warn "Info: Read $num entries with a GG ID and a trait value\n";
-   return \%id2trait;
+   return \%tax2trait, \%tax2num;
 }
 
