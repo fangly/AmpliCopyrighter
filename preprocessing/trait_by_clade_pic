@@ -17,8 +17,9 @@ phylogenetic independent contrasts
 =head1 DESCRIPTION
 
 This script takes a trait in different species and estimates the trait value
-at different taxonomic levels using the phylogenetic independent contrasts
-method: Felsenstein, "Phylogenies and the comparative method" (1985)
+using the phylogenetic independent contrasts method: Felsenstein, "Phylogenies
+and the comparative method" (1985). Given a taxonomy, theses trait values are
+mapped at all taxonomic levels.
 
 =head1 REQUIRED ARGUMENTS
 
