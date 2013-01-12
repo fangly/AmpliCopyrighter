@@ -24,8 +24,10 @@ This script takes the value of a trait across a phylogeny and plots it.
 =item -i <input_file>
 
 Input file of the distribution of the trait in a taxonomy. This file should be
-tab-delimited and have two columns: full taxonomic lineage, and trait value. The
-taxonomic lineage should be tab-separated, e.g. 'k__Bacteria; p__Acidobacteria; [...]'
+tab-delimited and have at least two columns: full taxonomic lineage and trait
+value. The taxonomic lineage should be tab-separated, e.g.
+'k__Bacteria; p__Acidobacteria; [...]'. A optional third column can be provided
+and should be the number of species in this lineage. Extra columns are ignored.
 
 =for Euclid:
    input_file.type: readable
@@ -99,17 +101,26 @@ use FindBin qw($Bin);
 use lib "$Bin";
 use PreprocUtils;
 
-use constant DEBUG => 1;
+use constant DEBUG => 0;
 
 draw_trait_dist( $ARGV{'i'}, $ARGV{'l'}, $ARGV{'w'} );
 exit;
 
 
+
+####################
+# TODO:
+#   transparency lost
+#   radius not quite proportional still...
+####################
+
+
+
 func draw_trait_dist ($input_file, $max_level, $max_width) {
    # Parse input file
-   my ($tax2trait, $trait_name, $num_levels) = parse_file($input_file);
+   my ($tax2trait, $tax2num, $trait_name, $num_levels) = parse_file($input_file);
    # Make a tree from taxonomy and attach trait value
-   my $tree = taxo2tree($tax2trait, $trait_name, $num_levels, $max_level);
+   my $tree = taxo2tree($tax2trait, $tax2num, $trait_name, $num_levels, $max_level);
    # Now draw the tree and the trait values
    draw_tree($tree, $max_width, $trait_name);
    return 1;
@@ -157,7 +168,8 @@ func draw_tree (Bio::Phylo::Forest::Tree $tree, $max_width, $trait_name) {
    finish_svg($out_svg, $min_trait, $max_trait); # add a legend and do some cleanup
    cat($out_svg);
 
-   unlink $out_newick, $out_css, $out_orn, $out_svg;
+   ###unlink $out_newick, $out_css, $out_orn, $out_svg;
+   unlink $out_newick, $out_orn, $out_svg;
 
    return 1;
 }
@@ -204,15 +216,42 @@ func finish_svg ($svg_file, $min_trait, $max_trait) {
 
 
 func write_css_file ($tree, $file) {
-   my %styles;
+   # Generate a CSS file (transparent clades, line width) for nw_display
+
+   # Calculate min and max number of genomes
+   my (@names, @nums);
    for my $node (@{$tree->get_entities}) {
+      my $num = $node->get_generic('num');
+      next if not defined $num;
       my $name = $node->get_name;
+      push @names, $name;
+      push @nums , $num ;
+   }
+   my $min = min @nums;
+   my $max = max @nums;
+   warn "Info: Minimum number of species in clade is $min\n";
+   warn "Info: Maximum number of species in clade is $max\n";
+
+   my %styles;
+   for my $i (0 .. scalar @names - 1) {
+      my $name = esc_nw_chars( $names[$i] );
+
+      use Data::Dump qw(dump); warn dump($name)."\n"; ###
+
+      my $num  = $nums[$i];
       if ( $name =~ m/^transparent/ ) {
          # Make 'transparentX' nodes transparent
          my $style = 'opacity:0';
          push @{$styles{$style}}, $name;
+      } else {
+         # Scale branch proportionally to number of genomes
+         my $style = calc_style($num, $max, $min);
+         push @{$styles{$style}}, $name;
       }
    }
+
+   warn dump(\%styles)."\n"; ###
+
    open my $out, '>', $file or die "Error: Could not write file $file\n$!\n";
    while (my ($style, $clades) = each %styles) {
       print $out "$style Individual ".join(' ',@$clades)."\n";
@@ -222,18 +261,49 @@ func write_css_file ($tree, $file) {
 }
 
 
+func calc_style ($num, $num_max, $num_min) {
+   my $width;
+   my $width_min = 1;
+   my $width_max = 5;
+   my $style = 'stroke:black;fill:none;stroke-linecap:round;stroke-width:';
+   if ($num_max == 1) {
+      # All traits estimated from the same number of genomes. Give them all a
+      # continuous line of width 1
+      $width = 1;
+   } else {
+      # Give a broken line for clades with a single genome
+      # Give a continuous line of width linearly related to the log of the
+      # number of genomes in the clade
+      if ($num == 1) {
+         $width = $width_min;
+         $style .= $width;
+         $style .= ';stroke-linejoin:miter';
+         $style .= ';stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:2,2;stroke-dashoffset:0';
+      } else {
+         $num     = log($num);
+         $num_max = log($num_max);
+         $num_min = log($num_min);
+         $width = 1 / ($num_max-$num_min) * ( $width_min*($num_max-$num_min) -
+            $num_min*($width_max-$width_min) + $num*($width_max-$width_min) );
+         $width = sprintf('%.02f', $width);
+         $style .= $width;
+      }
+   }
+   return $style;
+}
+
+
 func write_ornament_file ($tree, $file, $trait_name) {
    # Generate a file of ornaments (colored circles) for nw_display
 
    # Calculate min and max trait value
-   my @names;
-   my @vals;
+   my (@names, @vals);
    for my $node (@{$tree->get_entities}) {
       my $val  = $node->get_generic($trait_name);
       next if not defined $val;
       my $name = $node->get_name;
-      push @vals , $val ;
       push @names, $name;
+      push @vals , $val ;
    }
    my $min = min @vals;
    my $max = max @vals;
@@ -388,29 +458,34 @@ func svg_circle ($radius?, $fill_col?, $stroke_col?) {
 
 
 func parse_file ($file) {
+   # Parse input file and record taxonomy, trait value, number of species,
+   # trait name and number of taxonomic levels
+   my %tax2trait;
+   my %tax2num;
    # Read trait name
-   open my $fh, '<', $file or die "Error: Could not read file $file\n$!\n";
-   my $header = <$fh>;
+   open my $in, '<', $file or die "Error: Could not read file $file\n$!\n";
+   my $header = <$in>;
    my $trait_name = (split /\t/, $header)[1];
-   close $fh;
    # Read taxo and trait values
-   my $tax2trait = PreprocUtils::read_lookup($file);
-   warn "Info: Read ".(scalar keys %$tax2trait)." taxonomic strings and trait values\n";
-   # Determine number of taxonomic levels
    my $num_levels = 0;
-   while ( (my $tax, undef) = each %$tax2trait ) {
+   while (my $line = <$in>) {
+      my ($tax, $trait, $num_spp, @extra) = split /\t/, $line;
+      $tax2trait{$tax} = $trait;
+      $tax2num{$tax} = $num_spp || 1;
       my $lineage_arr = Bio::Community::TaxonomyUtils::split_lineage_string($tax);
       my $nof_elems = scalar @$lineage_arr;
       if ($nof_elems > $num_levels) {
          $num_levels = $nof_elems;
       }
    }
+   close $in;
+   warn "Info: Read ".(scalar keys %tax2trait)." taxonomic strings and trait values\n";
    warn "Info: Detected $num_levels levels in this taxonomy\n";
-   return $tax2trait, $trait_name, $num_levels;
+   return \%tax2trait, \%tax2num, $trait_name, $num_levels;
 }
 
 
-func taxo2tree ( $tax2trait, $trait_name, $num_levels, $max_level? ) {
+func taxo2tree ( $tax2trait, $tax2num, $trait_name, $num_levels, $max_level? ) {
    # Transform taxonomy to a tree and attach trait value
    if (not defined $max_level) {
       # Use all taxonomic levels unless a maximum number was specified
@@ -447,14 +522,18 @@ func taxo2tree ( $tax2trait, $trait_name, $num_levels, $max_level? ) {
             # Add trait value of taxon
             my $trait_val = $tax2trait->{$taxo};
             next if not defined $trait_val;
+            my $num_spp = $tax2num->{$taxo};
             my $node = $tree->get_by_name($name);
-            $node->set_generic( $trait_name => $trait_val);
+            $node->set_generic($trait_name => $trait_val);
+            $node->set_generic('num' => $num_spp);
             warn "node $name, trait $trait_val\n" if DEBUG;
          }
          $ancestor_name = $name;
       }
       delete $tax2trait->{$taxo};
    }
+   my $root_num = $tax2num->{'k__Archaea'} + $tax2num->{'k__Bacteria'}; 
+   $root->set_generic('num' => $root_num);
    %seen = ();
 
    # Add fake transparent nodes until each leaf has the expected number of levels
