@@ -135,7 +135,7 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $tra
    # clustering at 99%, assume that they come from different genomes
    my ($tax2trait, $tax2num) = read_metadata($input_file, $trait_name);
 
-   warn "ID2TRAIT: ".Dumper($tax2trait); ###
+   warn "ID2TRAIT: ".dump($tax2trait)."\n"; ###
 
    # Our very own, special GG tree
    my $tree = grow_tree($phylo_tree, $clip_tree, [keys %$tax2trait], $tax2trait, $tax2num);
@@ -146,17 +146,18 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $tra
    # Calculate interior node trait value using PIC
    ($tax2trait, $tax2num) = pic($tree, $tax2trait, $tax2num);
 
-   warn "TAX2TRAIT all nodes: ".Dumper($tax2trait); ###
-   warn "TAX2NUM all nodes: ".Dumper($tax2num); ###
+   warn "TAX2TRAIT all nodes: ".dump($tax2trait)."\n"; ###
+   warn "TAX2NUM all nodes: ".dump($tax2num)."\n"; ###
 
    $tax2trait = PreprocUtils::average_by_key($tax2trait, $tax2num);
 
-   ### trait for bacilli larger than that for bacilli;herpetosiphonales
+   ### 1/ trait for bacilli larger than that for bacilli;herpetosiphonales
    ### same for Chloroflexi
    ### same for Archaea
 
+   ### 2/ have a save_trait() function () can be used in two places
 
-   ### 1/ some IMG genomes have disparate trait values, e.g. 
+   ### 3/ some IMG genomes have disparate trait values, e.g. 
    ###    '137936' => [
    ###                  '5',
    ###                  '1',
@@ -164,16 +165,7 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $tra
    ###                ],
    ###  Do 99% clustering early and remove dubious genomes with fix_img_copy_number script
 
-   ### 2/ Compare:
-   ###    k__Archaea      1.50710
-   ### to:
-   ###    k__Archaea; p__Crenarchaeota    1.00000
-   ###    k__Archaea; p__Euryarchaeota    1.47902
-   ###    k__Archaea; p__Nanoarchaeota    1.00000
-
-   ###    Even more pronounced for Bacilli
-
-   ### 3/ Need to add reinflated trait value for taxonomic strings that were pruned
+   ### 4/ Need to add reinflated trait value for taxonomic strings that were pruned
 
    # Print results
    print_results($tax2trait, $trait_name);
@@ -321,7 +313,7 @@ func pic ($tree, $tax2trait, $tax2num) {
       my $last_val  = $last_node->get_generic('trait');
       my $last_num  = $last_node->get_generic('num'  );
       warn "Info: No internal nodes remaining. The last tree leaf had trait ".
-         "value $last_val (based on $last_num genomes)\n.";
+         "value $last_val (based on $last_num genomes)\n";
    } else {
       # Error
       my $out_file = 'tree_debug.nw';
@@ -403,7 +395,6 @@ func process_fruit_by_pic ($parent, $children, $tax2trait, $tax2num) {
             my $name = Bio::Community::TaxonomyUtils::get_lineage_string(\@arr, 'space');
             push @{$tax2trait->{$name}}, $pval;
             push @{$tax2num->{$name}}, $pnum;
-            warn "Pushed that on $name: ".dump($pval)."\n";
          }
       }
    }
