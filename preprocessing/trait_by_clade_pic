@@ -150,7 +150,7 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $tra
    warn "TAX2TRAIT all nodes: ".dump($tax2trait)."\n"; ###
    warn "TAX2NUM all nodes: ".dump($tax2num)."\n"; ###
 
-   $tax2trait = PreprocUtils::average_by_key($tax2trait, $tax2num);
+   ($tax2trait, $tax2num) = PreprocUtils::average_by_key($tax2trait, $tax2num);
 
    ### 1/ trait for bacilli larger than that for bacilli;herpetosiphonales
    ### same for Chloroflexi
@@ -169,8 +169,7 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $tra
    ### 4/ Need to add reinflated trait value for taxonomic strings that were pruned
 
    # Print results
-   print_results($tax2trait, $trait_name);
-   #########print_results($tax2trait, $tax2num, $trait_name); #######
+   print_results($tax2trait, $tax2num, $trait_name);
 
    return 1;
 }
@@ -189,7 +188,7 @@ func read_gg_id2taxo ($file) {
 }
 
 
-func print_results ($tax2trait, $trait_name) {
+func print_results ($tax2trait, $tax2num, $trait_name) {
    # Print results, sorted by taxonomic level and alphabetically within each level
    # Sort results by taxonomic level
    my $max_level = 0;
@@ -206,12 +205,13 @@ func print_results ($tax2trait, $trait_name) {
       delete $tax2trait->{$tax_str};
    }
    # Print results
-   print "# taxonomy\t$trait_name\n";
+   print "# taxonomy\t$trait_name\tnum_genomes\n";
    for my $level (1 .. $max_level) {
       my $entries = $tax2trait->{$level};
       for my $tax ( sort keys %$entries ) {
          my $val = sprintf('%.5f', $entries->{$tax});
-         print "$tax\t$val\n";
+         my $num = $tax2num->{$tax};
+         print "$tax\t$val\t$num\n";
       }
       print "\n";
    }
