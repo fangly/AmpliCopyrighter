@@ -109,9 +109,7 @@ exit;
 
 
 ####################
-# TODO:
-#   transparency lost
-#   radius not quite proportional still...
+# TODO: radius not quite proportional still...
 ####################
 
 
@@ -167,10 +165,7 @@ func draw_tree (Bio::Phylo::Forest::Tree $tree, $max_width, $trait_name) {
    run \@cmd, '>', $out_svg or die "Error: Could not run nw_display\n$!\n";
    finish_svg($out_svg, $min_trait, $max_trait); # add a legend and do some cleanup
    cat($out_svg);
-
-   ###unlink $out_newick, $out_css, $out_orn, $out_svg;
-   unlink $out_newick, $out_orn, $out_svg;
-
+   unlink $out_newick, $out_css, $out_orn, $out_svg;
    return 1;
 }
 
@@ -221,8 +216,7 @@ func write_css_file ($tree, $file) {
    # Calculate min and max number of genomes
    my (@names, @nums);
    for my $node (@{$tree->get_entities}) {
-      my $num = $node->get_generic('num');
-      next if not defined $num;
+      my $num = $node->get_generic('num') || 1; # this is to include transparent nodes
       my $name = $node->get_name;
       push @names, $name;
       push @nums , $num ;
@@ -235,9 +229,6 @@ func write_css_file ($tree, $file) {
    my %styles;
    for my $i (0 .. scalar @names - 1) {
       my $name = esc_nw_chars( $names[$i] );
-
-      use Data::Dump qw(dump); warn dump($name)."\n"; ###
-
       my $num  = $nums[$i];
       if ( $name =~ m/^transparent/ ) {
          # Make 'transparentX' nodes transparent
@@ -249,14 +240,12 @@ func write_css_file ($tree, $file) {
          push @{$styles{$style}}, $name;
       }
    }
-
-   warn dump(\%styles)."\n"; ###
-
    open my $out, '>', $file or die "Error: Could not write file $file\n$!\n";
    while (my ($style, $clades) = each %styles) {
       print $out "$style Individual ".join(' ',@$clades)."\n";
    }
    close $out;
+
    return 1;
 }
 
