@@ -107,13 +107,6 @@ draw_trait_dist( $ARGV{'i'}, $ARGV{'l'}, $ARGV{'w'} );
 exit;
 
 
-
-####################
-# TODO: radius not quite proportional still...
-####################
-
-
-
 func draw_trait_dist ($input_file, $max_level, $max_width) {
    # Parse input file
    my ($tax2trait, $tax2num, $trait_name, $num_levels) = parse_file($input_file);
@@ -420,7 +413,7 @@ func calc_radius ($trait_val, $trait_max, $trait_min) {
    my $rad_max = 20;
    my $rad = sqrt( $rad_min**2 + ($rad_max**2 - $rad_min**2) *
       ($trait_val - $trait_min) / ($trait_max - $trait_min) );
-   ### radius still not proportional!
+   #### TODO: radius still not quite proportional!
    return $rad;
 }
 
