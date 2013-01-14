@@ -32,8 +32,8 @@ Input file of tab-delimited traits. This script will use the column called 'GG I
 
 =item -c <cluster_file>
 
-The tab-delimited file (OTU map) that defined what sequences are in what cluster
-and what their representative sequence is.
+The tab-delimited file (OTU map) that defines what Greengenes sequences are in
+what cluster and what their representative sequence is.
 
 =for Euclid:
    cluster_file.type: readable
