@@ -510,7 +510,7 @@ func show_evidence ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer
                  sprintf($fmt, $img_avg->{$domain}->{$genus}->{$species}->{$_}->{'avg'}) :
                  '-'
                } @traits;
-   $num = $img_avg->{$domain}->{$genus}->{$species}->{$traits[0]}->{'num'};
+   $num = $img_avg->{$domain}->{$genus}->{$species}->{$traits[0]}->{'num'} || 0;
    push @vals, "(n = $num)";
    $evi .= "    IMG avg\t".join("\t",@vals)."\n";
    # rrNDB species average
@@ -612,6 +612,7 @@ func is_dodgy ($id, $img, $img_avg, $rrndb_avg, $infernal, $rnammer, $scaff_thr,
    }
 
    if ($scaff > 1) {
+      $avg_scaff_len = sprintf('%.1f', $avg_scaff_len);
       if ($avg_scaff_len < $scaff_thr / 100) {
          # Average scaffold length below 5_000 is very dodgy
          $msg = "very dodgy: very small average scaffold length ($avg_scaff_len bp)\n";
