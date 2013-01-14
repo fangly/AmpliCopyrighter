@@ -303,7 +303,7 @@ func check_copy_number ( $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer
    my $num_removed = 0;
    for my $id (keys %$img) {
       # Determine if IMG copy number is dodgy
-      my $is_dodgy = is_dodgy($id, $img, $rrndb_avg, $infernal, $rnammer, $scaff_thr);
+      my $is_dodgy = is_dodgy($id, $img, $img_avg, $rrndb_avg, $infernal, $rnammer, $scaff_thr);
       if ($is_dodgy == 1) {
          $num_dodgy++;
       } elsif ($is_dodgy == 2) {
@@ -489,6 +489,7 @@ func show_evidence ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer
    }
    # Stats for this genome
    my @vals;
+   my $num;
    my $evi = '';
    $evi .= "  $name (ID $id): $domain, $status, $scaff scaffolds, $length bp, avg $avg_scaff_len bp / scaffold\n";
    $evi .= "       Type\t".join("\t",@traits)."\n";
@@ -509,12 +510,16 @@ func show_evidence ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer
                  sprintf($fmt, $img_avg->{$domain}->{$genus}->{$species}->{$_}->{'avg'}) :
                  '-'
                } @traits;
+   $num = $img_avg->{$domain}->{$genus}->{$species}->{$traits[0]}->{'num'};
+   push @vals, "(n = $num)";
    $evi .= "    IMG avg\t".join("\t",@vals)."\n";
    # rrNDB species average
    @vals = map { defined $rrndb_avg->{'Bacteria'}->{$genus}->{$species}->{$_}->{'avg'} ?
                  sprintf($fmt, $rrndb_avg->{'Bacteria'}->{$genus}->{$species}->{$_}->{'avg'}) :
                  '-'
                } @traits;
+   $num = $rrndb_avg->{'Bacteria'}->{$genus}->{$species}->{$traits[0]}->{'num'} || 0;
+   push @vals, "(n = $num)";
    $evi .= "  rrNDB avg\t".join("\t",@vals)."\n";
    $evi .= "\n";
    warn $evi;
@@ -555,7 +560,7 @@ func lt_ssu_diff ($copy_num_1, $copy_num_2) {
    }
 }
 
-func is_dodgy ($id, $img, $rrndb_avg, $infernal, $rnammer, $scaff_thr, Int $silent = 0) {
+func is_dodgy ($id, $img, $img_avg, $rrndb_avg, $infernal, $rnammer, $scaff_thr, Int $silent = 0) {
    # Compare IMG Copy number to INFERNAL, RNAmmer and rrNDB to determine if it is
    # likely correct.
    my $msg;
@@ -584,27 +589,24 @@ func is_dodgy ($id, $img, $rrndb_avg, $infernal, $rnammer, $scaff_thr, Int $sile
 
    my $infernal_ssu = $infernal->{$id};
    if ( (defined $infernal_ssu) && ($infernal_ssu != $img_ssu) ) {
-      $msg = "dodgy: different".
-         " from INFERNAL's ($infernal_ssu)\n";
+      $msg = "dodgy: different from INFERNAL's ($infernal_ssu)\n";
       $is_dodgy = 1;
    }
 
    my $rnammer_ssu = $rnammer->{$id};
    if ( (defined $rnammer_ssu) && ($rnammer_ssu != $img_ssu) ) {
-      $msg = "dodgy: different".
-         " from RNAmmer's ($rnammer_ssu)\n";
+      $msg = "dodgy: different from RNAmmer's ($rnammer_ssu)\n";
       $is_dodgy = 1;
    }
 
+   my $fname = "$genus $species";
    my $rrndb_ssu_avg = $rrndb_avg->{'Bacteria'}->{$genus}->{$species}->{$type}->{'avg'};
    if (defined $rrndb_ssu_avg) {
       if ( lt_avg_ssu_diff($img_ssu, $rrndb_ssu_avg, 2) ) {
-         $msg = "very dodgy: very different from rrNDB's average for $genus ".
-            "$species ($rrndb_ssu_avg)\n";
+         $msg = "very dodgy: very different from rrNDB's average for $fname ($rrndb_ssu_avg)\n";
          $is_dodgy = 2;
       } elsif ( lt_avg_ssu_diff($img_ssu, $rrndb_ssu_avg, 1) ) {
-         $msg = "dodgy: different from rrNDB's average for $genus $species ".
-            "($rrndb_ssu_avg)\n";
+         $msg = "dodgy: different from rrNDB's average for $fname ($rrndb_ssu_avg)\n";
          $is_dodgy = 1;
       }
    }
@@ -612,17 +614,14 @@ func is_dodgy ($id, $img, $rrndb_avg, $infernal, $rnammer, $scaff_thr, Int $sile
    if ($scaff > 1) {
       if ($avg_scaff_len < $scaff_thr / 100) {
          # Average scaffold length below 5_000 is very dodgy
-         $msg = "very dodgy: very small average scaffold length ($scaff bp)\n";
+         $msg = "very dodgy: very small average scaffold length ($avg_scaff_len bp)\n";
          $is_dodgy = 2;
       } elsif ($avg_scaff_len < $scaff_thr / 10) {
          # Average scaffold length between 5_000 and 50_000 is dodgy
-         $msg = "dodgy: small average scaffold length ($scaff bp)\n";
+         $msg = "dodgy: small average scaffold length ($avg_scaff_len bp)\n";
+         $is_dodgy = 0;
       }
    }
-
-   #####
-   # warn if different from species average in img
-   #####
 
    if (not $silent) {
       if (defined $msg) {
