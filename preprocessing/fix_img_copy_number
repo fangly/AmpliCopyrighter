@@ -376,7 +376,7 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
       # Case 1
       if ( (not $resolved) && (defined $infernal_ssu) && (defined $rnammer_ssu) &&
            (defined $rrndb_ssu_avg) && ($infernal_ssu == $rnammer_ssu) &&
-           lt_avg_ssu_diff($infernal_ssu, $rrndb_ssu_avg) ) {
+           near_avg_ssu($infernal_ssu, $rrndb_ssu_avg) ) {
          # RNAmmer, INFERNAL, rrNDB all agree. IMG is wrong.
          $correct = $infernal_ssu;
          $source = 'infernal';
@@ -387,7 +387,7 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
    
       # Case 2
       if ( (not $resolved) && (not defined $infernal_ssu) && (defined $rnammer_ssu) &&
-           (defined $rrndb_ssu_avg) && lt_avg_ssu_diff($rnammer_ssu, $rrndb_ssu_avg) ) {
+           (defined $rrndb_ssu_avg) && near_avg_ssu($rnammer_ssu, $rrndb_ssu_avg) ) {
          # RNAmmer and rrNDB agree. INFERNAL abstained. IMG is wrong.
          $correct = $rnammer_ssu;
          $source = 'rnammer';
@@ -398,7 +398,7 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
 
       # Case 3
       if ( (not $resolved) && (defined $infernal_ssu) && (not defined $rnammer_ssu) &&
-           (defined $rrndb_ssu_avg) && lt_avg_ssu_diff($infernal_ssu, $rrndb_ssu_avg) ) {
+           (defined $rrndb_ssu_avg) && near_avg_ssu($infernal_ssu, $rrndb_ssu_avg) ) {
          # INFERNAL and rrNDB agree. RNAmmer abstained. IMG is wrong.
          $correct = $infernal_ssu;
          $source = 'infernal';
@@ -425,7 +425,7 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
       # Case 5
       if ( (not $resolved) && ($img_1XS_ssu == 0) && (not defined $infernal_ssu) &&
            (not defined $rnammer_ssu) && (defined $rrndb_ssu_avg) && ($img_5S_ssu > 0) &&
-           lt_avg_ssu_diff($img_5S_ssu, $rrndb_ssu_avg) ) {
+           near_avg_ssu($img_5S_ssu, $rrndb_ssu_avg) ) {
          # If IMG 16S is 0, INFERNAL and RNAmmer missing, but 5S agrees with rrNDB
          $correct = $img_5S_ssu;
          $source = 'img';
@@ -436,7 +436,7 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
       # Case 6
       if ( (not $resolved) && ($img_1XS_ssu == 0) && (not defined $infernal_ssu) &&
            (not defined $rnammer_ssu) && (defined $rrndb_ssu_avg) && ($img_2XS_ssu > 0) &&
-           lt_avg_ssu_diff($img_2XS_ssu, $rrndb_ssu_avg) ) {
+           near_avg_ssu($img_2XS_ssu, $rrndb_ssu_avg) ) {
          # If IMG 16S is 0, INFERNAL and RNAmmer missing, but 2XS agrees with rrNDB
          $correct = $img_2XS_ssu;
          $source = 'img';
@@ -534,18 +534,23 @@ func ssu_thr ($mean_copy) {
    #    at X =  3.25, D = 1
    #    at X = 12.5 , D = 2
    # Or: D = 0.10811 X + 0.64865
-   return 0.125 * $mean_copy + 0.438;
+   my $thr = 0.125 * $mean_copy + 0.438;
+   return $thr;
 }
 
 
-func lt_avg_ssu_diff ($copy_num, $mean_copy, Int $mult = 1) {
+func near_avg_ssu ($copy_num, $mean_copy, Int $mult = 1) {
    # Check that the difference between the given copy number and species average
    # is under the maximum allowed threshold (w 20% error margin)
-   if ( delta($copy_num, $mean_copy) < 1.2 * $mult * ssu_thr($mean_copy) ) {
-      return 1;
+   my $delta = delta($copy_num, $mean_copy);
+   my $thr   = 1.2 * $mult * ssu_thr($mean_copy);
+   my $is_near;
+   if ( $delta < $thr ) {
+      $is_near = 1;
    } else {
-      return 0;
+      $is_near = 0;
    }
+   return $is_near;
 }
 
 
@@ -602,10 +607,10 @@ func is_dodgy ($id, $img, $img_avg, $rrndb_avg, $infernal, $rnammer, $scaff_thr,
    my $fname = "$genus $species";
    my $rrndb_ssu_avg = $rrndb_avg->{'Bacteria'}->{$genus}->{$species}->{$type}->{'avg'};
    if (defined $rrndb_ssu_avg) {
-      if ( lt_avg_ssu_diff($img_ssu, $rrndb_ssu_avg, 2) ) {
+      if ( not near_avg_ssu($img_ssu, $rrndb_ssu_avg, 2) ) {
          $msg = "very dodgy: very different from rrNDB's average for $fname ($rrndb_ssu_avg)\n";
          $is_dodgy = 2;
-      } elsif ( lt_avg_ssu_diff($img_ssu, $rrndb_ssu_avg, 1) ) {
+      } elsif ( not near_avg_ssu($img_ssu, $rrndb_ssu_avg, 1) ) {
          $msg = "dodgy: different from rrNDB's average for $fname ($rrndb_ssu_avg)\n";
          $is_dodgy = 1;
       }
@@ -635,7 +640,8 @@ func is_dodgy ($id, $img, $img_avg, $rrndb_avg, $infernal, $rnammer, $scaff_thr,
 
 
 func delta ($num1, $num2) {
-   return abs($num1 - $num2);
+   my $delta = abs($num1 - $num2);
+   return $delta;
 }
 
 
