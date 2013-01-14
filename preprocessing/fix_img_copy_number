@@ -619,7 +619,7 @@ func is_dodgy ($id, $img, $img_avg, $rrndb_avg, $infernal, $rnammer, $scaff_thr,
       } elsif ($avg_scaff_len < $scaff_thr / 10) {
          # Average scaffold length between 5_000 and 50_000 is dodgy
          $msg = "dodgy: small average scaffold length ($avg_scaff_len bp)\n";
-         $is_dodgy = 0;
+         $is_dodgy = 1;
       }
    }
 
