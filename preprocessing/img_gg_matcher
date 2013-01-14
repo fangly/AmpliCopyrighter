@@ -117,7 +117,7 @@ therefore not be needed. Default: sp_level.default
 
 =for Euclid:
    sp_level.type: integer, sp_level == 0 || sp_level == 1
-   sp_level.default: 1
+   sp_level.default: 0
 
 =item -r <rrna>
 
@@ -595,7 +595,7 @@ func match_name ( Str $img_name, $genera, Bool $sp_level ) {
    }
 
    # Look for genus and species but ignore strain if specified
-   if (not defined $good_id) {
+   if ( (not defined $good_id) && $sp_level ) {
       LOOKUP: for my $gg_strain (keys %{$sp_hash}) {
          my $gg_hash = $sp_hash->{$gg_strain};
          for my $gg_id (keys %$gg_hash) {
