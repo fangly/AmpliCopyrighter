@@ -119,7 +119,7 @@ Default: scaff.default
 
 =for Euclid:
    scaff.type: integer
-   scaff.default: 500_000
+   scaff.default: 300_000
 
 =item -o <out_meta>
 
@@ -617,19 +617,17 @@ func is_dodgy ($id, $img, $img_avg, $rrndb_avg, $infernal, $rnammer, $scaff_thr,
       }
    }
 
-   ######
-##   my $num_species = $img_avg->{$domain}->{$genus}->{$species}->{$type}->{'num'} || 0;
-##   if ($num_species > 1) {
-##      my $img_ssu_avg = $img_avg->{$domain}->{$genus}->{$species}->{$type}->{'avg'};
-##      if ( not near_avg_ssu($img_ssu, $img_ssu_avg, 2) ) {
-##         $msg = "very dodgy: very different from IMG's average for $fname ($img_ssu_avg)\n";
-##         $is_dodgy = 2;
-##      } elsif ( not near_avg_ssu($img_ssu, $img_ssu_avg, 1) ) {
-##         $msg = "dodgy: different from IMG's average for $fname ($img_ssu_avg)\n";
-##         $is_dodgy = 1;
-##      }
-##   }
-   #####
+   my $num_species = $img_avg->{$domain}->{$genus}->{$species}->{$type}->{'num'} || 0;
+   if ($num_species > 1) {
+      my $img_ssu_avg = $img_avg->{$domain}->{$genus}->{$species}->{$type}->{'avg'};
+      if ( not near_avg_ssu($img_ssu, $img_ssu_avg, 2) ) {
+         $msg = "very dodgy: very different from IMG's average for $fname ($img_ssu_avg)\n";
+         $is_dodgy = 2;
+      } elsif ( not near_avg_ssu($img_ssu, $img_ssu_avg, 1) ) {
+         $msg = "dodgy: different from IMG's average for $fname ($img_ssu_avg)\n";
+         $is_dodgy = 1;
+      }
+   }
 
    if ($scaff > 1) {
       $avg_scaff_len = sprintf('%.1f', $avg_scaff_len);
