@@ -117,7 +117,7 @@ therefore not be needed. Default: sp_level.default
 
 =for Euclid:
    sp_level.type: integer, sp_level == 0 || sp_level == 1
-   sp_level.default: 0
+   sp_level.default: 1
 
 =item -r <rrna>
 

@@ -119,7 +119,7 @@ Default: scaff.default
 
 =for Euclid:
    scaff.type: integer
-   scaff.default: 300_000
+   scaff.default: 200_000
 
 =item -o <out_meta>
 
