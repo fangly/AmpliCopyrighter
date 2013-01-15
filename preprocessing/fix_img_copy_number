@@ -174,6 +174,7 @@ use Bio::DB::Fasta;
 use List::Util qw(max);
 use Method::Signatures;
 use Getopt::Euclid qw(:minimal_keys);
+use POSIX qw(ceil floor);
 use Statistics::Basic qw(mean stddev);
 use FindBin qw($Bin);
 use lib "$Bin";
@@ -480,7 +481,6 @@ func show_evidence ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer
    my $scaff         = $img->{$id}->{'scaff'};
    my $length        = $img->{$id}->{'length'};
    my $avg_scaff_len = sprintf($fmt, $img->{$id}->{'avg_scaff_len'});
-
    my @traits;
    if ($domain eq 'Eukaryota') {
       @traits = ('18S', '5S', '28S', 'ITS');
@@ -530,22 +530,23 @@ func show_evidence ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer
 func ssu_thr ($mean_copy) {
    # Using rrNDB, it looks like there is a linear relation between the max
    # difference D between a copy number for a genome and the average copy number
-   # X of the species that this genome is from:
-   #    at X =  3.25, D = 1
-   #    at X = 12.5 , D = 2
-   # Or: D = 0.10811 X + 0.64865
-   my $thr = 0.125 * $mean_copy + 0.438;
+   # X of the species that this genome is from: D = 0.10377 X + 0.72642
+   my $thr = 0.10377 * $mean_copy + 0.72642;
    return $thr;
 }
 
 
 func near_avg_ssu ($copy_num, $mean_copy, Int $mult = 1) {
-   # Check that the difference between the given copy number and species average
-   # is under the maximum allowed threshold (w 20% error margin)
-   my $delta = delta($copy_num, $mean_copy);
+   # Check that the difference between the given copy number (an integer) and
+   # species average is under the maximum allowed threshold (w 20% error margin)
    my $thr   = 1.2 * $mult * ssu_thr($mean_copy);
+   my $max   = ceil(  $mean_copy + $thr );
+   my $min   = floor( $mean_copy - $thr );
+   if ($min < 1) {
+      $min = 1;
+   }
    my $is_near;
-   if ( $delta < $thr ) {
+   if ( ($copy_num >= $min) && ($copy_num <= $max) ) {
       $is_near = 1;
    } else {
       $is_near = 0;
@@ -616,17 +617,19 @@ func is_dodgy ($id, $img, $img_avg, $rrndb_avg, $infernal, $rnammer, $scaff_thr,
       }
    }
 
-   my $num_species = $img_avg->{$domain}->{$genus}->{$species}->{$type}->{'num'} || 0;
-   if ($num_species > 1) {
-      my $img_ssu_avg = $img_avg->{$domain}->{$genus}->{$species}->{$type}->{'avg'};
-      if ( not near_avg_ssu($img_ssu, $img_ssu_avg, 2) ) {
-         $msg = "very dodgy: very different from IMG's average for $fname ($img_ssu_avg)\n";
-         $is_dodgy = 2;
-      } elsif ( not near_avg_ssu($img_ssu, $img_ssu_avg, 1) ) {
-         $msg = "dodgy: different from IMG's average for $fname ($img_ssu_avg)\n";
-         $is_dodgy = 1;
-      }
-   }
+   ######
+##   my $num_species = $img_avg->{$domain}->{$genus}->{$species}->{$type}->{'num'} || 0;
+##   if ($num_species > 1) {
+##      my $img_ssu_avg = $img_avg->{$domain}->{$genus}->{$species}->{$type}->{'avg'};
+##      if ( not near_avg_ssu($img_ssu, $img_ssu_avg, 2) ) {
+##         $msg = "very dodgy: very different from IMG's average for $fname ($img_ssu_avg)\n";
+##         $is_dodgy = 2;
+##      } elsif ( not near_avg_ssu($img_ssu, $img_ssu_avg, 1) ) {
+##         $msg = "dodgy: different from IMG's average for $fname ($img_ssu_avg)\n";
+##         $is_dodgy = 1;
+##      }
+##   }
+   #####
 
    if ($scaff > 1) {
       $avg_scaff_len = sprintf('%.1f', $avg_scaff_len);
