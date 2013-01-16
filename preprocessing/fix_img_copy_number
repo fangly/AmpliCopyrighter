@@ -124,9 +124,9 @@ Default: scaff.default
 =item -a <avg_ssu>
 
 Remove genomes with a SSU number inconsistent with the IMG average for this
-species. You should probably first run fix_img_copy_number without this option
-to correct or remove the most obvious errors, and then run it with this option.
-Default: avg_ssu.default
+species: 1=yes, 0=no. You should probably first run fix_img_copy_number without
+this option to correct or remove the most obvious errors, and then run it with
+this option. Default: avg_ssu.default
 
 =for Euclid:
    avg_ssu.type: integer, avg_ssu == 0 || avg_ssu == 1
