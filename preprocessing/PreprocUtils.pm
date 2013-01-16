@@ -3,6 +3,7 @@ package PreprocUtils;
 use strict;
 use warnings;
 use Method::Signatures;
+use POSIX qw(ceil floor);
 use Statistics::Basic qw(mean);
 
 
@@ -55,7 +56,9 @@ func read_lookup ($file) {
 
 
 func average_by_key ( $hash, $weight_hash ) {
-   # Given a hash of arrays, make the average of the arrays by key, IN PLACE.
+   # Given a hash of arrays, make the average of the arrays by key. Note that
+   # the modifications are done IN PLACE on both the hash of values and of
+   # weights
    for my $key (keys %$hash) {
       my $vals = $hash->{$key};
       if (ref($vals) eq 'ARRAY') {
@@ -67,6 +70,7 @@ func average_by_key ( $hash, $weight_hash ) {
             for my $weight (@$weights) {
                $total += $weight;
             }
+            $weight_hash->{$key} = $total;
             for my $i (0 .. scalar @$vals - 1) {
                my $val = $vals->[$i];
                my $weight = $weights->[$i];
@@ -84,7 +88,11 @@ func average_by_key ( $hash, $weight_hash ) {
          $hash->{$key} = $mean;
       } # else do nothing, keep the single value
    }
-   return $hash;
+   if (defined $weight_hash) {
+      return $hash, $weight_hash;
+   } else {
+      return $hash;
+   }
 }
 
 
@@ -97,6 +105,34 @@ func write_tree ($tree, $file) {
    );
    close $out;
    return 1;
+}
+
+
+func ssu_thr ($mean_copy) {
+   # Using rrNDB, it looks like there is a linear relation between the max
+   # difference D between a copy number for a genome and the average copy number
+   # X of the species that this genome is from: D = 0.10377 X + 0.72642
+   my $thr = 0.10377 * $mean_copy + 0.72642;
+   return $thr;
+}
+
+
+func near_avg_ssu ($copy_num, $mean_copy, Int $mult = 1) {
+   # Check that the difference between the given copy number (an integer) and
+   # species average is under the maximum allowed threshold (w 20% error margin)
+   my $thr   = 1.2 * $mult * ssu_thr($mean_copy);
+   my $max   = ceil(  $mean_copy + $thr );
+   my $min   = floor( $mean_copy - $thr );
+   if ($min < 1) {
+      $min = 1;
+   }
+   my $is_near;
+   if ( ($copy_num >= $min) && ($copy_num <= $max) ) {
+      $is_near = 1;
+   } else {
+      $is_near = 0;
+   }
+   return $is_near;
 }
 
 

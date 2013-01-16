@@ -119,7 +119,18 @@ Default: scaff.default
 
 =for Euclid:
    scaff.type: integer
-   scaff.default: 200_000
+   scaff.default: 300_000
+
+=item -a <avg_ssu>
+
+Remove genomes with a SSU number inconsistent with the IMG average for this
+species. You should probably first run fix_img_copy_number without this option
+to correct or remove the most obvious errors, and then run it with this option.
+Default: avg_ssu.default
+
+=for Euclid:
+   avg_ssu.type: integer, avg_ssu == 0 || avg_ssu == 1
+   avg_ssu.default: 0
 
 =item -o <out_meta>
 
@@ -174,7 +185,6 @@ use Bio::DB::Fasta;
 use List::Util qw(max);
 use Method::Signatures;
 use Getopt::Euclid qw(:minimal_keys);
-use POSIX qw(ceil floor);
 use Statistics::Basic qw(mean stddev);
 use FindBin qw($Bin);
 use lib "$Bin";
@@ -183,15 +193,16 @@ use PreprocUtils;
 $Statistics::Basic::IPRES = 8;
 
 fix_img_copy_number( $ARGV{'i'}, $ARGV{'g'}, $ARGV{'r'}, $ARGV{'f'}, $ARGV{'m'},
-   $ARGV{'c'}, $ARGV{'d'}, $ARGV{'t'}, $ARGV{'u'}, $ARGV{'s'}, $ARGV{'o'},
-   $ARGV{'n'} );
+   $ARGV{'c'}, $ARGV{'d'}, $ARGV{'t'}, $ARGV{'u'}, $ARGV{'s'}, $ARGV{'a'},
+   $ARGV{'o'}, $ARGV{'n'} );
 
 exit;
 
 
 func fix_img_copy_number ( Str $img_metafile, Str $img_fasta, Str $rrndb_file,
    Str $infernal_fasta, Str $rnammer_fasta, Str $completeness, Int $discard,
-   Int $trunc, Int $unknown, Int $scaff_thr, Str $out_meta, Str $new_rrndb ) {
+   Int $trunc, Int $unknown, Int $scaff_thr, Int $avg_ssu, Str $out_meta,
+   Str $new_rrndb ) {
    # Read all these input files
    my $img_meta  = read_img_metadata($img_metafile, $img_fasta, $completeness,
       $trunc, $unknown);
@@ -205,7 +216,8 @@ func fix_img_copy_number ( Str $img_metafile, Str $img_fasta, Str $rrndb_file,
    my $rrndb_avg = rrndb_avg($rrndb);
    # Detect and correct wrong copy numbers
    $img_meta = check_copy_number( $img_meta, $img_avg, $rrndb, $rrndb_avg,
-      $infernal, $rnammer, $infernal_trunc, $rnammer_trunc, $scaff_thr, $discard );
+      $infernal, $rnammer, $infernal_trunc, $rnammer_trunc, $scaff_thr, $discard,
+      $avg_ssu );
    # Write updated results
    write_img_metadata( $img_meta, $img_metafile, $out_meta );
    write_ssu_seqs( $img_meta, $img_fasta, $infernal_fasta, $rnammer_fasta, $trunc);
@@ -289,7 +301,7 @@ func write_img_metadata ($img, $input_meta, $output_meta) {
 
 
 func check_copy_number ( $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer, 
-   $infernal_trunc, $rnammer_trunc, $scaff_thr, $discard_lvl ) {
+   $infernal_trunc, $rnammer_trunc, $scaff_thr, $discard_lvl, $avg_ssu ) {
 
    my %levels = (
       1 =>      '', # dodgy
@@ -304,7 +316,8 @@ func check_copy_number ( $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer
    my $num_removed = 0;
    for my $id (keys %$img) {
       # Determine if IMG copy number is dodgy
-      my $is_dodgy = is_dodgy($id, $img, $img_avg, $rrndb_avg, $infernal, $rnammer, $scaff_thr);
+      my $is_dodgy = is_dodgy($id, $img, $img_avg, $rrndb_avg, $infernal,
+         $rnammer, $scaff_thr, $avg_ssu);
       if ($is_dodgy == 1) {
          $num_dodgy++;
       } elsif ($is_dodgy == 2) {
@@ -377,7 +390,7 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
       # Case 1
       if ( (not $resolved) && (defined $infernal_ssu) && (defined $rnammer_ssu) &&
            (defined $rrndb_ssu_avg) && ($infernal_ssu == $rnammer_ssu) &&
-           near_avg_ssu($infernal_ssu, $rrndb_ssu_avg) ) {
+           PreprocUtils::near_avg_ssu($infernal_ssu, $rrndb_ssu_avg) ) {
          # RNAmmer, INFERNAL, rrNDB all agree. IMG is wrong.
          $correct = $infernal_ssu;
          $source = 'infernal';
@@ -388,7 +401,7 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
    
       # Case 2
       if ( (not $resolved) && (not defined $infernal_ssu) && (defined $rnammer_ssu) &&
-           (defined $rrndb_ssu_avg) && near_avg_ssu($rnammer_ssu, $rrndb_ssu_avg) ) {
+           (defined $rrndb_ssu_avg) && PreprocUtils::near_avg_ssu($rnammer_ssu, $rrndb_ssu_avg) ) {
          # RNAmmer and rrNDB agree. INFERNAL abstained. IMG is wrong.
          $correct = $rnammer_ssu;
          $source = 'rnammer';
@@ -399,7 +412,7 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
 
       # Case 3
       if ( (not $resolved) && (defined $infernal_ssu) && (not defined $rnammer_ssu) &&
-           (defined $rrndb_ssu_avg) && near_avg_ssu($infernal_ssu, $rrndb_ssu_avg) ) {
+           (defined $rrndb_ssu_avg) && PreprocUtils::near_avg_ssu($infernal_ssu, $rrndb_ssu_avg) ) {
          # INFERNAL and rrNDB agree. RNAmmer abstained. IMG is wrong.
          $correct = $infernal_ssu;
          $source = 'infernal';
@@ -426,7 +439,7 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
       # Case 5
       if ( (not $resolved) && ($img_1XS_ssu == 0) && (not defined $infernal_ssu) &&
            (not defined $rnammer_ssu) && (defined $rrndb_ssu_avg) && ($img_5S_ssu > 0) &&
-           near_avg_ssu($img_5S_ssu, $rrndb_ssu_avg) ) {
+           PreprocUtils::near_avg_ssu($img_5S_ssu, $rrndb_ssu_avg) ) {
          # If IMG 16S is 0, INFERNAL and RNAmmer missing, but 5S agrees with rrNDB
          $correct = $img_5S_ssu;
          $source = 'img';
@@ -437,7 +450,7 @@ func resolve_copy_number ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal,
       # Case 6
       if ( (not $resolved) && ($img_1XS_ssu == 0) && (not defined $infernal_ssu) &&
            (not defined $rnammer_ssu) && (defined $rrndb_ssu_avg) && ($img_2XS_ssu > 0) &&
-           near_avg_ssu($img_2XS_ssu, $rrndb_ssu_avg) ) {
+           PreprocUtils::near_avg_ssu($img_2XS_ssu, $rrndb_ssu_avg) ) {
          # If IMG 16S is 0, INFERNAL and RNAmmer missing, but 2XS agrees with rrNDB
          $correct = $img_2XS_ssu;
          $source = 'img';
@@ -527,34 +540,6 @@ func show_evidence ($id, $img, $img_avg, $rrndb, $rrndb_avg, $infernal, $rnammer
 }
 
 
-func ssu_thr ($mean_copy) {
-   # Using rrNDB, it looks like there is a linear relation between the max
-   # difference D between a copy number for a genome and the average copy number
-   # X of the species that this genome is from: D = 0.10377 X + 0.72642
-   my $thr = 0.10377 * $mean_copy + 0.72642;
-   return $thr;
-}
-
-
-func near_avg_ssu ($copy_num, $mean_copy, Int $mult = 1) {
-   # Check that the difference between the given copy number (an integer) and
-   # species average is under the maximum allowed threshold (w 20% error margin)
-   my $thr   = 1.2 * $mult * ssu_thr($mean_copy);
-   my $max   = ceil(  $mean_copy + $thr );
-   my $min   = floor( $mean_copy - $thr );
-   if ($min < 1) {
-      $min = 1;
-   }
-   my $is_near;
-   if ( ($copy_num >= $min) && ($copy_num <= $max) ) {
-      $is_near = 1;
-   } else {
-      $is_near = 0;
-   }
-   return $is_near;
-}
-
-
 func lt_ssu_diff ($copy_num_1, $copy_num_2) {
    # Check that the difference between the two given copy numbers is under the
    # maximum allowed. (2*ssu_thr because ssu_thr is between avg and extreme,
@@ -566,7 +551,7 @@ func lt_ssu_diff ($copy_num_1, $copy_num_2) {
    }
 }
 
-func is_dodgy ($id, $img, $img_avg, $rrndb_avg, $infernal, $rnammer, $scaff_thr, Int $silent = 0) {
+func is_dodgy ($id, $img, $img_avg, $rrndb_avg, $infernal, $rnammer, $scaff_thr, $avg_ssu, Int $silent = 0) {
    # Compare IMG Copy number to INFERNAL, RNAmmer and rrNDB to determine if it is
    # likely correct.
    my $msg;
@@ -608,23 +593,11 @@ func is_dodgy ($id, $img, $img_avg, $rrndb_avg, $infernal, $rnammer, $scaff_thr,
    my $fname = "$genus $species";
    my $rrndb_ssu_avg = $rrndb_avg->{'Bacteria'}->{$genus}->{$species}->{$type}->{'avg'};
    if (defined $rrndb_ssu_avg) {
-      if ( not near_avg_ssu($img_ssu, $rrndb_ssu_avg, 2) ) {
+      if ( not PreprocUtils::near_avg_ssu($img_ssu, $rrndb_ssu_avg, 2) ) {
          $msg = "very dodgy: very different from rrNDB's average for $fname ($rrndb_ssu_avg)\n";
          $is_dodgy = 2;
-      } elsif ( not near_avg_ssu($img_ssu, $rrndb_ssu_avg, 1) ) {
+      } elsif ( not PreprocUtils::near_avg_ssu($img_ssu, $rrndb_ssu_avg, 1) ) {
          $msg = "dodgy: different from rrNDB's average for $fname ($rrndb_ssu_avg)\n";
-         $is_dodgy = 1;
-      }
-   }
-
-   my $num_species = $img_avg->{$domain}->{$genus}->{$species}->{$type}->{'num'} || 0;
-   if ($num_species > 1) {
-      my $img_ssu_avg = $img_avg->{$domain}->{$genus}->{$species}->{$type}->{'avg'};
-      if ( not near_avg_ssu($img_ssu, $img_ssu_avg, 2) ) {
-         $msg = "very dodgy: very different from IMG's average for $fname ($img_ssu_avg)\n";
-         $is_dodgy = 2;
-      } elsif ( not near_avg_ssu($img_ssu, $img_ssu_avg, 1) ) {
-         $msg = "dodgy: different from IMG's average for $fname ($img_ssu_avg)\n";
          $is_dodgy = 1;
       }
    }
@@ -639,6 +612,21 @@ func is_dodgy ($id, $img, $img_avg, $rrndb_avg, $infernal, $rnammer, $scaff_thr,
          # Average scaffold length between 5_000 and 50_000 is dodgy
          $msg = "dodgy: small average scaffold length ($avg_scaff_len bp)\n";
          $is_dodgy = 1;
+      }
+   }
+
+   if ($avg_ssu) {
+      # If requested, check if SSU number is consistent with IMG's average for this species
+      my $num_species = $img_avg->{$domain}->{$genus}->{$species}->{$type}->{'num'} || 0;
+      if ($num_species > 1) {
+         my $img_ssu_avg = $img_avg->{$domain}->{$genus}->{$species}->{$type}->{'avg'};
+         if ( not PreprocUtils::near_avg_ssu($img_ssu, $img_ssu_avg, 2) ) {
+            $msg = "very dodgy: very different from IMG's average for $fname ($img_ssu_avg)\n";
+            $is_dodgy = 2;
+         } elsif ( not PreprocUtils::near_avg_ssu($img_ssu, $img_ssu_avg, 1) ) {
+            $msg = "dodgy: different from IMG's average for $fname ($img_ssu_avg)\n";
+            $is_dodgy = 1;
+         }
       }
    }
 
