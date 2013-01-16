@@ -301,7 +301,7 @@ func write_ornament_file ($tree, $file, $trait_name) {
       my $val = $vals[$i];
       next if not defined $val;
       my $radius = calc_radius($val, $max, $min);
-      my $fill_col = pick_col($val, $max, $min, $colors );
+      my $fill_col = pick_col($val, $max, $min, $colors);
       my $style = svg_circle($radius, $fill_col, 'none');
       warn "name $name, val $val, radius $radius, color $fill_col\n" if DEBUG;
       push @{$styles{$style}}, $name;
@@ -320,11 +320,19 @@ func write_ornament_file ($tree, $file, $trait_name) {
 
 func get_col_palette {
    # Return the color palette to use
-   # Define color palette
-   my $green  = [  0, 255, 0]; #00FF00
-   my $yellow = [255, 255, 0]; #FFFF00
-   my $red    = [255,   0, 0]; #FF0000
-   my @colors = multi_array_gradient(10, $green, $yellow, $red);
+   my $blue   = [  0,   0, 255]; #0000FF
+   my $blue2  = [  0, 127, 255]; #007FFF
+   my $cyan   = [  0, 255, 255]; #00FFFF
+   my $cyan2  = [127, 255, 127]; #7FFF7F
+   my $green  = [  0, 255,   0]; #00FF00
+   my $yellow = [255, 255,   0]; #FFFF00
+   my $orange = [255, 127,   0]; #FF7F00
+   my $red    = [255,   0,   0]; #FF0000
+   my $red2   = [127,   0,   0]; #7F0000
+   #my @colors = multi_array_gradient(10, $green, $yellow, $red);
+   #my @colors = multi_array_gradient(10, $blue, $green, $red);
+   my @colors = multi_array_gradient(15, $blue, $blue2, $cyan, $cyan2, $yellow,
+      $orange, $red, $red2); # Jet color palette
    return \@colors;
 }
 
