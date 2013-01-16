@@ -75,6 +75,15 @@ matches the name of the trait as found in the input file. Default: trait_name.de
    trait_name.type: string
    trait_name.default: '16S rRNA Count'
 
+=item -a <avg_outliers>
+
+Remove trait values inconsistent with the trait average for this IMG ID: 1=yes,
+0=no. Default: avg_outliers.default
+
+for Euclid:
+   avg_outliers.type: integer, avg_outliers == 0 || avg_outliers == 1
+   avg_default: 0
+
 =back
 
 =head1 AUTHOR
@@ -105,12 +114,10 @@ along with Copyrighter.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
 
-use Data::Dump qw(dump); ####
-use Data::Dumper;        ####
-
 use strict;
 use warnings;
 use Method::Signatures;
+use Data::Dump qw(dump);
 use Statistics::Basic qw(mean);
 use Getopt::Euclid qw(:minimal_keys);
 use Bio::Tree::Tree;
@@ -125,18 +132,23 @@ use constant NONZERO => 1e-5;
 use constant DEBUG   => 0;
 
 my $gg_taxonomy;
-trait_by_clade_pic( $ARGV{'i'}, $ARGV{'p'}, $ARGV{'t'}, $ARGV{'c'}, $ARGV{'n'} );
+trait_by_clade_pic( $ARGV{'i'}, $ARGV{'p'}, $ARGV{'t'}, $ARGV{'c'}, $ARGV{'n'}, $ARGV{'a'} );
 exit;
 
 
-func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $trait_name ) {
+func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $trait_name, $avg_outliers ) {
 
    # Read IMG metadata and extract gg IDs and the desired trait value
    # Do not average trait for IMG ID with several traits: because of the
    # clustering at 99%, assume that they come from different genomes
    my ($tax2trait, $tax2num) = read_metadata($input_file, $trait_name);
 
-   warn "ID2TRAIT: ".dump($tax2trait)."\n"; ###
+   ### if ($avg_outliers) {
+   ($tax2trait, $tax2num) = remove_outliers($tax2trait, $tax2num); ###
+   ### }
+
+   #warn "ID2TRAIT: ".dump($tax2trait)."\n"; ###
+   die "Temp exit!\n"; ###
 
    # Our very own, special GG tree
    my $tree = grow_tree($phylo_tree, $clip_tree, [keys %$tax2trait], $tax2trait, $tax2num);
@@ -152,18 +164,12 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $tra
 
    ($tax2trait, $tax2num) = PreprocUtils::average_by_key($tax2trait, $tax2num);
 
-   ### 1/ trait for bacilli larger than that for bacilli;herpetosiphonales
-   ### same for Chloroflexi
-   ### same for Archaea
+   ### 1/ trait for Clostridia larger than that for its children
 
-   ### 2/ have a save_trait() function () can be used in two places
+   ### 2/ have a save_trait() function: can be used in two places
 
-   ### 3/ some IMG genomes have disparate trait values, e.g. 
-   ###    '137936' => [
-   ###                  '5',
-   ###                  '1',
-   ###                  '5'
-   ###                ],
+   ### 3/ some IMG genomes have disparate trait values, e.g.
+   ###    '137936' => [ '5', '1', '5' ],
    ###  Do 99% clustering early and remove dubious genomes with fix_img_copy_number script
 
    ### 4/ Need to add reinflated trait value for taxonomic strings that were pruned
@@ -172,6 +178,44 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $tra
    print_results($tax2trait, $tax2num, $trait_name);
 
    return 1;
+}
+
+
+func remove_outliers ($tax2trait, $tax2num) {
+   my $num_inconsistent = 0;
+   my $num_fixed = 0;
+   while ( my ($id, $vals) = each %$tax2trait ) {
+      if (scalar @$vals > 1) {
+         my $mean = mean($vals)->query;
+         my $inconsistent;
+         my $fixed = 0;
+         my $msg = "Warn: Outlier detected: $id => [".join(', ',@$vals)."].";
+         for (my $i = 0; $i <= scalar @$vals - 1; $i++) {
+            my $val = $vals->[$i];
+            if (not PreprocUtils::near_avg_ssu($val, $mean)) {
+               $inconsistent = 1;
+               $num_inconsistent++;
+               if ($val == 1) {
+                  # Remove an outlier (1s seem to be frequent errors)
+                  splice @$vals, $i, 1;
+                  $i--;
+                  $fixed = 1;
+                  $num_fixed++;
+               }
+            }
+         }
+         if ($fixed) {
+            $msg .= " Corrected to [".join(', ',@$vals)."].";
+         } else {
+            $msg .= " Uncorrected.";
+         }
+         if ($inconsistent) {
+            warn "$msg\n";
+         }
+      }
+   }
+   warn "Warn: Found $num_inconsistent inconsistent trait values and corrected $num_fixed of those.\n";
+   return $tax2trait, $tax2num;
 }
 
 
@@ -237,6 +281,7 @@ func convert_id_to_tax ($tax2trait, $tax2num, $taxo_file, $tree) {
       push @{$tax2num->{$tax}}, (1) x scalar(@$vals);
       delete $tax2num->{$id};
       delete $tax2trait->{$id};
+      warn "Added to $tax: ".dump($vals)."\n" if DEBUG;
 
       # If the first, named ancestor of this clade is not directly 1 taxonomic
       # level above this one, need to record the intermediary taxonomic levels
@@ -253,11 +298,12 @@ func convert_id_to_tax ($tax2trait, $tax2num, $taxo_file, $tree) {
       if (not $tax eq $pid) {
          my $anc_levels = scalar @{Bio::Community::TaxonomyUtils::split_lineage_string($pid)};
          my $lineage = Bio::Community::TaxonomyUtils::split_lineage_string($tax);
-         for my $level ( $anc_levels+1 .. scalar @$lineage - 1) {
+         for (my $level = scalar @$lineage - 1; $level >= $anc_levels+1; $level--) {
             my @int_lineage = @{$lineage}[0..$level-1];
             my $int_tax = Bio::Community::TaxonomyUtils::get_lineage_string(\@int_lineage, 'space');
             push @{$tax2trait->{$int_tax}}, @$vals;
             push @{$tax2num->{$int_tax}}, (1) x scalar(@$vals);
+            warn "Added to $int_tax: ".dump($vals)."\n" if DEBUG;
          }
       }
    }
@@ -384,6 +430,7 @@ func process_fruit_by_pic ($parent, $children, $tax2trait, $tax2num) {
       # don't want to do averages of averages).
       push @{$tax2trait->{$tax}}, $pval;
       push @{$tax2num->{$tax}}, $pnum;
+      warn "Added to $tax: ".dump([$pval])."\n" if DEBUG;
 
       # If GG label name $tax contains several taxonomic levels e.g.
       # 'o__Rhizobiales; f__Rhodobiaceae', record them all.
@@ -396,6 +443,7 @@ func process_fruit_by_pic ($parent, $children, $tax2trait, $tax2num) {
             my $name = Bio::Community::TaxonomyUtils::get_lineage_string(\@arr, 'space');
             push @{$tax2trait->{$name}}, $pval;
             push @{$tax2num->{$name}}, $pnum;
+            warn "Added to $name: ".dump([$pval])."\n" if DEBUG;
          }
       }
    }
