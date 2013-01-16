@@ -82,7 +82,7 @@ Remove trait values inconsistent with the trait average for this IMG ID: 1=yes,
 
 for Euclid:
    avg_outliers.type: integer, avg_outliers == 0 || avg_outliers == 1
-   avg_default: 0
+   avg_default: 1
 
 =back
 
@@ -143,12 +143,11 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $tra
    # clustering at 99%, assume that they come from different genomes
    my ($tax2trait, $tax2num) = read_metadata($input_file, $trait_name);
 
-   ### if ($avg_outliers) {
-   ($tax2trait, $tax2num) = remove_outliers($tax2trait, $tax2num); ###
-   ### }
+   if ($avg_outliers) {
+      ($tax2trait, $tax2num) = remove_outliers($tax2trait, $tax2num); ###
+   }
 
    #warn "ID2TRAIT: ".dump($tax2trait)."\n"; ###
-   die "Temp exit!\n"; ###
 
    # Our very own, special GG tree
    my $tree = grow_tree($phylo_tree, $clip_tree, [keys %$tax2trait], $tax2trait, $tax2num);
@@ -168,11 +167,7 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $tra
 
    ### 2/ have a save_trait() function: can be used in two places
 
-   ### 3/ some IMG genomes have disparate trait values, e.g.
-   ###    '137936' => [ '5', '1', '5' ],
-   ###  Do 99% clustering early and remove dubious genomes with fix_img_copy_number script
-
-   ### 4/ Need to add reinflated trait value for taxonomic strings that were pruned
+   ### 3/ Need to add reinflated trait value for taxonomic strings that were pruned
 
    # Print results
    print_results($tax2trait, $tax2num, $trait_name);
