@@ -80,9 +80,9 @@ matches the name of the trait as found in the input file. Default: trait_name.de
 Remove trait values inconsistent with the trait average for this IMG ID: 1=yes,
 0=no. Default: avg_outliers.default
 
-for Euclid:
+=for Euclid:
    avg_outliers.type: integer, avg_outliers == 0 || avg_outliers == 1
-   avg_default: 1
+   avg_outliers.default: 1
 
 =back
 
@@ -117,9 +117,9 @@ along with Copyrighter.  If not, see <http://www.gnu.org/licenses/>.
 use strict;
 use warnings;
 use Method::Signatures;
-use Data::Dump qw(dump);
 use Statistics::Basic qw(mean);
 use Getopt::Euclid qw(:minimal_keys);
+use Data::Dump qw(dump);
 use Bio::Tree::Tree;
 use Bio::Phylo::IO;
 use Bio::Phylo::Treedrawer;
@@ -144,12 +144,10 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $tra
    my ($tax2trait, $tax2num) = read_metadata($input_file, $trait_name);
 
    if ($avg_outliers) {
-      ($tax2trait, $tax2num) = remove_outliers($tax2trait, $tax2num); ###
+      ($tax2trait, $tax2num) = remove_outliers($tax2trait, $tax2num);
    }
 
-   #warn "ID2TRAIT: ".dump($tax2trait)."\n"; ###
-
-   # Our very own, special GG tree
+   # Our very own, special, trimmed GG tree
    my $tree = grow_tree($phylo_tree, $clip_tree, [keys %$tax2trait], $tax2trait, $tax2num);
 
    # Read GG taxonomy, convert GG IDs to GG taxonomic string
@@ -157,17 +155,10 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $tra
 
    # Calculate interior node trait value using PIC
    ($tax2trait, $tax2num) = pic($tree, $tax2trait, $tax2num);
-
-   warn "TAX2TRAIT all nodes: ".dump($tax2trait)."\n"; ###
-   warn "TAX2NUM all nodes: ".dump($tax2num)."\n"; ###
-
    ($tax2trait, $tax2num) = PreprocUtils::average_by_key($tax2trait, $tax2num);
 
    ### 1/ trait for Clostridia larger than that for its children
-
    ### 2/ have a save_trait() function: can be used in two places
-
-   ### 3/ Need to add reinflated trait value for taxonomic strings that were pruned
 
    # Print results
    print_results($tax2trait, $tax2num, $trait_name);
@@ -179,10 +170,11 @@ func trait_by_clade_pic ( $input_file, $phylo_tree, $taxo_file, $clip_tree, $tra
 func remove_outliers ($tax2trait, $tax2num) {
    my $num_inconsistent = 0;
    my $num_fixed = 0;
-   while ( my ($id, $vals) = each %$tax2trait ) {
+   for my $id (keys %$tax2trait) {
+      my $vals = $tax2trait->{$id};
       if (scalar @$vals > 1) {
          my $mean = mean($vals)->query;
-         my $inconsistent;
+         my $inconsistent = 0;
          my $fixed = 0;
          my $msg = "Warn: Outlier detected: $id => [".join(', ',@$vals)."].";
          for (my $i = 0; $i <= scalar @$vals - 1; $i++) {
@@ -196,11 +188,15 @@ func remove_outliers ($tax2trait, $tax2num) {
                   $i--;
                   $fixed = 1;
                   $num_fixed++;
+               } elese {
+                  $num_left++;
                }
             }
          }
          if ($fixed) {
             $msg .= " Corrected to [".join(', ',@$vals)."].";
+            $tax2trait->{$id} = $vals;
+            $tax2num->{$id} = (1) x scalar(@$vals);
          } else {
             $msg .= " Uncorrected.";
          }
