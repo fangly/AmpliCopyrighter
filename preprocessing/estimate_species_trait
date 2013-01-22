@@ -112,7 +112,6 @@ use Getopt::Euclid qw(:minimal_keys);
 use Data::Dump qw(dump);
 use Bio::Tree::Tree;
 use Bio::Phylo::IO;
-use Bio::Phylo::Treedrawer;
 use Bio::Community::TaxonomyUtils;
 use FindBin qw($Bin);
 use lib "$Bin";
@@ -155,29 +154,26 @@ func map_tree_to_taxo ($tax2trait, $taxo_file) {
 
 
 func estimate_trait($tree_file, $tax2trait) {
-   # 
+   # Estimate the trait value for leaves that do not have it
    my @ids_to_keep = keys $tax2trait;
-
    my $all_leaf_ids = read_leaf_names($tree_file);
-
-   warn "all_leaf_ids: ".dump($all_leaf_ids)."\n"; ####
-
+   open my $out, '>', 'tmp_estimate.txt' or die "Error: Could not write file $!\n";
    my %trait_estimates;
    for my $id (@$all_leaf_ids) {
       next if exists $tax2trait->{$id};
       push @ids_to_keep, $id;
       my $tree = grow_tree($tree_file, \@ids_to_keep, $tax2trait);
       my $val = leaf_pic($id, $tree);
+      print $out "$id\t$val\n";
       $trait_estimates{$id} = $val;
       pop @ids_to_keep;
    }
-
+   close $out;
    # Add estimates to given trait values
    for my $id (keys %trait_estimates) {
       push @{$tax2trait->{$id}}, delete $trait_estimates{$id};
    }
    undef %trait_estimates;
-
    return $tax2trait;
 }
 
@@ -186,27 +182,25 @@ func read_leaf_names ($tree_file) {
    # Read leaf names from Neick file, assuming that the tree has branch lengths
    my $nw_string = clean_newick($tree_file);
    my @leaf_names = ($nw_string =~ m/[(,]([a-z0-9]+?):/gi);
+   warn "Info: Found ".scalar(@leaf_names)." leaves in tree $tree_file\n";
+   warn "leaf_names: ".dump(\@leaf_names)."\n"; ####
    return \@leaf_names;
 }
 
 
-func leaf_pic ($id, $tree) {
+func leaf_pic ($gg_id, $tree) {
    # Use phylogenetic independent contrasts method to estimate and return the
    # trait value for the given leaf node. Tree should be pruned will be modified
    # IN-PLACE!
-
-   my $leaf = $tree->get_by_name($id);
+   my $val;
+   my $leaf = $tree->get_by_name($gg_id);
    my $name = get_short_name($leaf);
-
    warn "Info: Applying phylogenetic independent contrasts to leaf $name\n";
-
-   # Reroot and prune tree
+   # Reroot tree
    $tree = custom_reroot($tree, $leaf);
-   PreprocUtils::write_tree($tree, 'rerooted.nw');
-
    # Do phylogenetic independent contrasts
    my $round_num = 0;
-   while (1) {
+   PIC: while (1) {
       # Get and count apples and cherries
       $round_num++;
       #warn "Info: round $round_num\n";
@@ -216,54 +210,43 @@ func leaf_pic ($id, $tree) {
       my $num_apples   = number_of_apples($apples);
       my $num_fruits   = $num_cherries + $num_apples;
       last if $num_fruits <= 0;
-      # Process and remove cherries
-      #warn "Info: processing $num_cherries cherries\n";
-      while (my ($uid, $nodes) = each %$cherries) {
+    
+      # Process and remove cherries and apples
+      for my $nodes (values %$cherries, values %$apples) {
          my ($parent, @children) = @$nodes;
          $parent = process_fruit_by_pic($parent, \@children);
-      }
-      # Process and remove apples
-      #warn "Info: processing $num_apples apples\n";
-      while (my ($uid, $nodes) = each %$apples) {
-         my ($parent, @children) = @$nodes;
-         $parent = process_fruit_by_pic($parent, \@children);
+         if (get_short_name($parent) eq $name) {
+            $val = $parent->get_generic('trait');
+            last PIC;
+         }
       }
    }
-
    # Check that only a single leaf remains
    my $nof_leaves  = $tree->calc_number_of_terminals;
-   my $nof_interns = $tree->calc_number_of_internals;
-   if (not (($nof_leaves == 1) && ($nof_interns == 0))) {
+   if (not ($nof_leaves == 1)) {
       my $out_file = 'tree_debug.nw';
       PreprocUtils::write_tree($tree, $out_file);
       die "Error: Internal problem. There should be only one leaf left and no ".
-          "internal nodes but there are still $nof_leaves leaves and $nof_interns ".
-          "internal nodes. Wrote what's left of the tree in the Newick file ".
-          "$out_file for debugging\n";
+          "internal nodes but there are still $nof_leaves leaves. Wrote what's".
+          " left of the tree in the Newick file $out_file for debugging\n";
    }
-   
-   # Last leaf has what we want
-   my $last_node = @{$tree->get_entities}[0];
-   my $last_val  = $last_node->get_generic('trait');
 
-   warn "Info: Estimated trait value was $last_val\n";
-
-   return $last_val;
+   warn "Info: Estimated trait value was $val\n";
+   return $val;
 }
 
 
-func custom_reroot ($tree, $new_root) {
+sub custom_reroot {
+   my ($tree, $new_root) = @_;
    my $old_root = $tree->get_root;
    $tree->reroot($new_root);
-   my @lineage = ($old_root);
-   if (my $ancestors = $old_root->get_ancestors) {
-      push @lineage, @$ancestors;
-   }
+   $old_root->set_name('LUCA');
+   my @lineage = ($old_root, @{$old_root->get_ancestors});
    for my $i (0 .. scalar @lineage-2) {
       my $node   = $lineage[$i];
       my $parent = $lineage[$i+1];
       $node->set_branch_length($parent->get_branch_length);
-   }
+   }   
    return $tree;
 }
 
@@ -338,24 +321,26 @@ func process_fruit_by_pic ($parent, $children) {
          push @cvals, $cval;
       }
    }
+   my $pdist = $parent->get_branch_length || 0;
+   my @cdists = map { 0+$_->get_branch_length || NONZERO } @$children;
 
    if (scalar @$children == 2) {
-      if (scalar @cvals == 2) {
-         # Calculate trait value for parent
-         my @cdists = map { 0+$_->get_branch_length || NONZERO } @$children;
-         my @weis   = map { 1 / $_ } @cdists;
-         $pval = ($cvals[0]*$weis[0] + $cvals[1]*$weis[1]) / ($weis[0]+$weis[1]);
-         # Stretch parent's branch
-         my $pdist = $parent->get_branch_length;
-         if ( ($cdists[0] > 0) && ($cdists[1] > 0) ) {
-            $pdist += $cdists[0]*$cdists[1] / ($cdists[0]+$cdists[1]);
-         }
-         $parent->set_branch_length($pdist);
+      # Calculate trait value for parent
+      my @weis = map { 1 / $_ } @cdists;
+      $pval = ($cvals[0]*$weis[0] + $cvals[1]*$weis[1]) / ($weis[0]+$weis[1]);
+      # Stretch parent's branch 
+      if ( ($cdists[0] > 0) && ($cdists[1] > 0) ) {
+         $pdist += $cdists[0]*$cdists[1] / ($cdists[0]+$cdists[1]);
       }
+   } elsif (scalar @$children == 1) {
+      $pval  = $cvals[0];
+      $pdist += $cdists[0];
    } else {
-      $pval = $cvals[0];
+      die "Error: node had more than two children\n";
    }
    $parent->set_generic('trait' => $pval);
+   $parent->set_branch_length($pdist);
+
    print_nodes($parent, @$children) if DEBUG;
 
    # Delete children
@@ -415,8 +400,8 @@ func print_nodes ($parent, $child1?, $child2?) {
    }
    if ($child2) {
       $msg .= "CHILD2: '".(get_full_name($child2)||'?')."' (uid ".$child2->get_id.") = ".($child2->get_generic('trait')||"")."\n";
-   $msg    .= "PARENT: '".(get_full_name($parent)||'?')."' (uid ".$parent->get_id.") = ".($parent->get_generic('trait')||"")."\n";
    }
+   $msg    .= "PARENT: '".(get_full_name($parent)||'?')."' (uid ".$parent->get_id.") = ".($parent->get_generic('trait')||"")."\n";
    warn "$msg\n";
    return 1;
 }
@@ -429,27 +414,23 @@ func grow_tree ($tree_file, $gg_ids, $tax2trait) {
 
    my $tree;
    my $num_leaves;
-   warn "Info: Cleaning tree $tree_file ...\n";
+   #warn "Info: Cleaning tree $tree_file ...\n";
    my $tree_string = clean_newick($tree_file);
    PreprocUtils::write_tree($tree_string, 'debug1.nw') if DEBUG;
 
-   warn "Info: Parsing tree...\n";
+   #warn "Info: Parsing tree...\n";
    my %args = ( -string => $tree_string, -format => 'newick' );
    if (defined $gg_ids) {
       $args{-keep} = $gg_ids; # keep only the nodes we need
    }
    $tree = Bio::Phylo::IO->parse( %args )->first;
-   warn "Info: Saw ".$tree->calc_number_of_terminals()." tree leaves\n";
-   #PreprocUtils::write_tree($tree, 'debug2.nw') if DEBUG;
-   #print_tree_nodes($tree, 'debug2_leaves.txt') if DEBUG;
+   #warn "Info: Saw ".$tree->calc_number_of_terminals()." tree leaves\n";
 
    if (defined $gg_ids) {
-      warn "Info: Pruning tree...\n";
+      #warn "Info: Pruning tree...\n";
       $tree->keep_tips($gg_ids);
       $num_leaves = $tree->calc_number_of_terminals;
-      warn "Info: $num_leaves tree leaves left\n";
-      #PreprocUtils::write_tree($tree, 'debug3.nw') if DEBUG;
-      #print_tree_nodes($tree, 'debug3_leaves.txt') if DEBUG;
+      #warn "Info: $num_leaves tree leaves left\n";
       my $num_ids = scalar keys $gg_ids;
       if ( $num_ids != $num_leaves ) {
          warn "Warn: Looks like the tree is missing ".($num_ids-$num_leaves)." GG IDs\n";
@@ -488,7 +469,7 @@ func clean_newick ($file) {
    # Add explicit node root to facilitate re-rooting
    chomp $nw_string;
    $nw_string =~ s/;$//;
-   $nw_string = '('.$nw_string.')LUCA;';
+   $nw_string = '('.$nw_string.'LUCA);';
    return $nw_string;
 }
 
