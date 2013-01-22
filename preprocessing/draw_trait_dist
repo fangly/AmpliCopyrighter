@@ -158,7 +158,8 @@ func draw_tree (Bio::Phylo::Forest::Tree $tree, $max_width, $trait_name) {
    run \@cmd, '>', $out_svg or die "Error: Could not run nw_display\n$!\n";
    finish_svg($out_svg, $min_trait, $max_trait); # add a legend and do some cleanup
    cat($out_svg);
-   unlink $out_newick, $out_css, $out_orn, $out_svg;
+   #unlink $out_newick, $out_css, $out_orn, $out_svg;
+   unlink $out_css, $out_orn, $out_svg;
    return 1;
 }
 

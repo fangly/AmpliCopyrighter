@@ -5,6 +5,7 @@ use warnings;
 use Method::Signatures;
 use POSIX qw(ceil floor);
 use Statistics::Basic qw(mean);
+use Bio::Phylo::Treedrawer;
 
 
 func find_column_for ($header_line, @field_names) {
@@ -55,7 +56,7 @@ func read_lookup ($file) {
 }
 
 
-func average_by_key ( $hash, $weight_hash ) {
+func average_by_key ( $hash, $weight_hash? ) {
    # Given a hash of arrays, make the average of the arrays by key. Note that
    # the modifications are done IN PLACE on both the hash of values and of
    # weights
@@ -96,13 +97,41 @@ func average_by_key ( $hash, $weight_hash ) {
 }
 
 
-func write_tree ($tree, $file) {
+func write_tree ($tree, Str $file) {
+   # Write a tree object or string in a Newick file
    open my $out, '>', $file or die "Error: Could not write file $file\n$!\n";
-   print $out Bio::Phylo::IO->unparse(
-      -phylo      => $tree,
-      -format     => 'newick',
-      -nodelabels => 1, # report name of internal nodes
+   my $str;
+   if (ref $tree eq 'Bio::Phylo::Forest::Tree') {
+      $str = Bio::Phylo::IO->unparse(
+         -phylo      => $tree,
+         -format     => 'newick',
+         -nodelabels => 1, # report name of internal nodes
+      );
+   } else {
+      $str = $tree;
+   }
+   print $out $str;
+   close $out;
+   return 1;
+}
+
+
+func draw_tree (Bio::Phylo::Forest::Tree $tree, Str $file, Str $mode = 'phylo', Str $shape = 'rect') {
+   # Draw a tree in a SVG file. Two options control the appearance:
+   #    - mode : phylo or clado
+   #    - shape: rect, diag, curvy or radial
+   my $treedrawer = Bio::Phylo::Treedrawer->new(
+      #-width  => 1200,
+      #-height =>  800,
+      -shape  => $shape,
+      -mode   => $mode,
+      -format => 'svg'
    );
+   #$treedrawer->set_width(1000);
+   $treedrawer->set_node_radius(3);
+   $treedrawer->set_tree($tree);
+   open my $out, '>', $file or die "Error: Could not write file $file\n$!\n";
+   print $out $treedrawer->draw;
    close $out;
    return 1;
 }
