@@ -261,7 +261,8 @@ sub estimate_trait {
 sub worker {
    my ($id_q, $nw_tree, $ids_to_keep, $tax2avgtrait) = @_;
    my $tid = threads->tid();
-   open my $out, '>', "tmp_estimate_$tid.txt" or die "Error: Could not write file $!\n";
+   my $outfile = "tmp_estimate_$tid.txt";
+   open my $out, '>', $outfile or die "Error: Could not write file $outfile\n $!\n";
    my %trait_estimates;
 
    #my $num = 1; ####
@@ -435,12 +436,12 @@ sub print_nodes {
    # Print node info for parent and optional two children
    my $msg;
    if (defined $child1) {
-      $msg .= "CHILD1: '".(get_full_name($child1)||'?')."' (uid ".$child1->get_id.") = ".($child1->get_generic('trait')||"")."\n";
+      $msg .= "CHILD1: '".(get_short_name($child1)||'?')."' (uid ".$child1->get_id.") = ".($child1->get_generic('trait')||"")."\n";
    }
    if (defined $child2) {
-      $msg .= "CHILD2: '".(get_full_name($child2)||'?')."' (uid ".$child2->get_id.") = ".($child2->get_generic('trait')||"")."\n";
+      $msg .= "CHILD2: '".(get_short_name($child2)||'?')."' (uid ".$child2->get_id.") = ".($child2->get_generic('trait')||"")."\n";
    }
-   $msg .= "PARENT: '".(get_full_name($parent)||'?')."' (uid ".$parent->get_id.") = ".($parent->get_generic('trait')||"")."\n";
+   $msg .= "PARENT: '".(get_short_name($parent)||'?')."' (uid ".$parent->get_id.") = ".($parent->get_generic('trait')||"")."\n";
    warn "$msg\n";
    return 1;
 }
@@ -470,7 +471,7 @@ sub nw_prune {
    my ($in, $out, $err);
    $in = $nw_tree; # feed newick tree to stdin
    run $cmd, \$in, \$out, \$err or die "Error: $prog failed with status $?\n";
-   $nw_tree = $out;
+   $nw_tree = $out; ###
    return $nw_tree;
 }
 
@@ -490,19 +491,6 @@ sub nw_reroot {
    #    (        (C:0.140000,(A:0.110000,B:0.120000)Int1:0.29)Int2:0.150)X;
    $nw_tree =~ s/ ^\($root_label:(\S+?),(.*):(\S+?)\);$ / "($2:".($1+$3).")$root_label;" /ex;
    return $nw_tree;
-}
-
-
-sub print_tree_nodes {
-   my ($tree, $file) = @_;
-   # Given a Bio::Phylo::Forest::Tree, write the name of its node in the
-   # specified file name.
-   open my $out, '>', $file or die "Error: Could not write file $file\n$!\n";
-   for my $node (@{$tree->get_entities}) {
-      print $out $node->get_id.":  ".(get_full_name($node)||"''")."\n";
-   }
-   close $out;
-   return 1;
 }
 
 
@@ -541,38 +529,9 @@ sub restore_chars {
 }
 
 
-sub get_full_name {
-   my ($node) = @_;
-   # Get node name, replace semicolons and unquote it. If the name is not an ID
-   # but part of a taxonomic string, e.g. 'g__Bacteroides' or 's__Bacteroides salyersiae'
-   # reconstruct the full taxonomic string
-   my $name = get_short_name($node);
-   if ( not is_id($name) ) {
-      while (1) {
-         $node = $node->get_parent;
-         if (not defined $node) {
-            last;
-         }
-         my $parent_name = clean_name($node->get_name);
-         if ( not is_id($parent_name) ) {
-            $name = $parent_name.'; '.$name;
-         }
-      }
-   }
-   return $name;
-}
-
-
 sub get_short_name {
    my ($node) = @_;
    return clean_name($node->get_name);
-}
-
-
-sub is_id {
-   my ($str) = @_;
-   # Returns true is given string contains only numerals 0-9
-   return( ($str =~ m/[^0-9]/) ? 0 : 1 );
 }
 
 
