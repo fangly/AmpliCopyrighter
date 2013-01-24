@@ -20,6 +20,8 @@ This script takes a trait in different species and estimates the trait value
 for other species using the phylogenetic independent contrasts method with
 rerooting: Garland & Ives "Using the Past to Predict the Present" 2000
 
+To do so, it uses the Newick Utils programs and Bio::Phylo Perl modules.
+
 =head1 REQUIRED ARGUMENTS
 
 =over
@@ -110,7 +112,7 @@ use Method::Signatures;
 use Statistics::Basic qw(mean);
 use Getopt::Euclid qw(:minimal_keys);
 use Data::Dump qw(dump);
-use Bio::Tree::Tree;
+use IPC::Run qw(run);
 use Bio::Phylo::IO;
 use Bio::Community::TaxonomyUtils;
 use FindBin qw($Bin);
@@ -123,6 +125,12 @@ use constant DEBUG   => 0;
 my $gg_taxonomy;
 estimate_species_trait( $ARGV{'i'}, $ARGV{'p'}, $ARGV{'t'}, $ARGV{'n'}, $ARGV{'a'} );
 exit;
+
+
+######
+# what to do for taxonomies that have both experimental and estimated trait?
+#    surely the experimental trait should have precedence. Ignore the estimated trait altogether?
+######
 
 
 func estimate_species_trait ( $input_file, $phylo_tree, $taxo_file, $trait_name, $avg_outliers ) {
@@ -156,34 +164,57 @@ func map_tree_to_taxo ($tax2trait, $taxo_file) {
 func estimate_trait($tree_file, $tax2trait) {
    # Estimate the trait value for leaves that do not have it
    my @ids_to_keep = keys $tax2trait;
-   my $all_leaf_ids = read_leaf_names($tree_file);
-   open my $out, '>', 'tmp_estimate.txt' or die "Error: Could not write file $!\n";
+   my $nw_tree = clean_newick($tree_file);
+   my $q;
+   for my $id (@{read_leaf_names($nw_tree)}) {
+      if (not exists $tax2trait->{$id}) {
+         push @$q, $id;
+      }
+   }
+   warn "Info: There are ".(scalar @$q)." leaves for which to estimate trait.\n";
+   my $tid = 1;
+   open my $out, '>', "tmp_estimate_$tid.txt" or die "Error: Could not write file $!\n";
    my %trait_estimates;
-   for my $id (@$all_leaf_ids) {
-      next if exists $tax2trait->{$id};
-      push @ids_to_keep, $id;
-      my $tree = grow_tree($tree_file, \@ids_to_keep, $tax2trait);
+
+   # copy hash and average trait values
+   my $tax2avgtrait = { %$tax2trait };
+   $tax2avgtrait = PreprocUtils::average_by_key($tax2avgtrait);
+
+   my $num = 1; ####
+
+   for my $id (@$q) {
+      my $tree = grow_tree($nw_tree, [$id, @ids_to_keep], $id, $tax2avgtrait);
       my $val = leaf_pic($id, $tree);
       print $out "$id\t$val\n";
       $trait_estimates{$id} = $val;
-      pop @ids_to_keep;
+
+      $num++; last if $num > 3; ####
+
    }
    close $out;
+   $tax2avgtrait = {};
+
+   ####
+   warn "trait_estimates: ".dump(\%trait_estimates)."\n";
+   ####
+
    # Add estimates to given trait values
    for my $id (keys %trait_estimates) {
       push @{$tax2trait->{$id}}, delete $trait_estimates{$id};
    }
    undef %trait_estimates;
+
+   ####
+   warn "tax2trait: ".dump($tax2trait)."\n";
+   ####
+
    return $tax2trait;
 }
 
 
-func read_leaf_names ($tree_file) {
-   # Read leaf names from Neick file, assuming that the tree has branch lengths
-   my $nw_string = clean_newick($tree_file);
+func read_leaf_names ($nw_string) {
+   # Read leaf names from Newick file, assuming that the tree has branch lengths
    my @leaf_names = ($nw_string =~ m/[(,]([a-z0-9]+?):/gi);
-   warn "Info: Found ".scalar(@leaf_names)." leaves in tree $tree_file\n";
-   warn "leaf_names: ".dump(\@leaf_names)."\n"; ####
    return \@leaf_names;
 }
 
@@ -192,37 +223,21 @@ func leaf_pic ($gg_id, $tree) {
    # Use phylogenetic independent contrasts method to estimate and return the
    # trait value for the given leaf node. Tree should be pruned will be modified
    # IN-PLACE!
-   my $val;
-   my $leaf = $tree->get_by_name($gg_id);
-   my $name = get_short_name($leaf);
-   warn "Info: Applying phylogenetic independent contrasts to leaf $name\n";
-   # Reroot tree
-   $tree = custom_reroot($tree, $leaf);
-   # Do phylogenetic independent contrasts
-   my $round_num = 0;
-   PIC: while (1) {
-      # Get and count apples and cherries
-      $round_num++;
-      #warn "Info: round $round_num\n";
-      my $cherries     = get_cherries($tree);
-      my $num_cherries = number_of_cherries($cherries);
-      my $apples       = get_apples($tree);
-      my $num_apples   = number_of_apples($apples);
-      my $num_fruits   = $num_cherries + $num_apples;
-      last if $num_fruits <= 0;
-    
-      # Process and remove cherries and apples
-      for my $nodes (values %$cherries, values %$apples) {
+   warn "Info: Applying phylogenetic independent contrasts to leaf $gg_id\n";
+   while (1) {
+      # Get and count cherries
+      my $cherries = get_cherries($tree);
+      last if not scalar keys %$cherries;
+      # Process and remove cherries
+      for my $nodes (values %$cherries) {
          my ($parent, @children) = @$nodes;
-         $parent = process_fruit_by_pic($parent, \@children);
-         if (get_short_name($parent) eq $name) {
-            $val = $parent->get_generic('trait');
-            last PIC;
-         }
+         $parent = process_by_pic($parent, \@children);
       }
    }
+
    # Check that only a single leaf remains
-   my $nof_leaves  = $tree->calc_number_of_terminals;
+   my @leaves = @{$tree->get_terminals};
+   my $nof_leaves  = scalar @leaves;
    if (not ($nof_leaves == 1)) {
       my $out_file = 'tree_debug.nw';
       PreprocUtils::write_tree($tree, $out_file);
@@ -231,23 +246,9 @@ func leaf_pic ($gg_id, $tree) {
           " left of the tree in the Newick file $out_file for debugging\n";
    }
 
+   my $val = $leaves[0]->get_generic('trait');
    warn "Info: Estimated trait value was $val\n";
    return $val;
-}
-
-
-sub custom_reroot {
-   my ($tree, $new_root) = @_;
-   my $old_root = $tree->get_root;
-   $tree->reroot($new_root);
-   $old_root->set_name('LUCA');
-   my @lineage = ($old_root, @{$old_root->get_ancestors});
-   for my $i (0 .. scalar @lineage-2) {
-      my $node   = $lineage[$i];
-      my $parent = $lineage[$i+1];
-      $node->set_branch_length($parent->get_branch_length);
-   }   
-   return $tree;
 }
 
 
@@ -267,7 +268,7 @@ func remove_outliers ($tax2trait) {
                $inconsistent = 1;
                $num_inconsistent++;
                if ($val == 1) {
-                  # Remove an outlier (1s seem to be frequent errors)
+                  # Remove an outlier (1's seem to be frequent errors)
                   splice @$vals, $i, 1;
                   $i--;
                   $fixed = 1;
@@ -304,41 +305,26 @@ func print_results ($tax2trait, $trait_name) {
 }
 
 
-func process_fruit_by_pic ($parent, $children) {
+func process_by_pic ($parent, $children) {
    # Calculate trait value for parent $pval as a weighted average of the
    # children's trait value @cvals where the weights $weis are proportional
    # to the inverse of the branch distance @dists between parent and
    # children. Hence, the trait value of a child closer to the parent
    # contributes more than the trait value of a childr that is farther away.
-   # Note: This function works with a single child or two children
-   my $pval;
-   my @cvals;
-   for my $child (@$children) {
-      my $cval = $child->get_generic('trait');
-      if (not defined $cval) {
-         last;
-      } else {
-         push @cvals, $cval;
-      }
-   }
-   my $pdist = $parent->get_branch_length || 0;
+
+   my @cvals  = map { $_->get_generic('trait')           } @$children;
    my @cdists = map { 0+$_->get_branch_length || NONZERO } @$children;
 
-   if (scalar @$children == 2) {
-      # Calculate trait value for parent
-      my @weis = map { 1 / $_ } @cdists;
-      $pval = ($cvals[0]*$weis[0] + $cvals[1]*$weis[1]) / ($weis[0]+$weis[1]);
-      # Stretch parent's branch 
-      if ( ($cdists[0] > 0) && ($cdists[1] > 0) ) {
-         $pdist += $cdists[0]*$cdists[1] / ($cdists[0]+$cdists[1]);
-      }
-   } elsif (scalar @$children == 1) {
-      $pval  = $cvals[0];
-      $pdist += $cdists[0];
-   } else {
-      die "Error: node had more than two children\n";
-   }
+   # Calculate trait value for parent
+   my @weis = map { 1 / $_ } @cdists;
+   my $pval = ($cvals[0]*$weis[0] + $cvals[1]*$weis[1]) / ($weis[0]+$weis[1]);
    $parent->set_generic('trait' => $pval);
+
+   # Stretch parent's branch
+   my $pdist = $parent->get_branch_length;
+   if ( ($cdists[0] > 0) && ($cdists[1] > 0) ) {
+      $pdist += $cdists[0]*$cdists[1] / ($cdists[0]+$cdists[1]);
+   }
    $parent->set_branch_length($pdist);
 
    print_nodes($parent, @$children) if DEBUG;
@@ -352,43 +338,24 @@ func process_fruit_by_pic ($parent, $children) {
 }
 
 
-func get_apples (Bio::Phylo::Forest::Tree $tree) {
-   # Find apples in the tree and report them in a hash, keyed by the parent ID
-   return get_fruits($tree, 1);
-}
-
-
-func number_of_apples ($apples) {
-   return scalar keys %$apples;
-}
-
-
 func get_cherries (Bio::Phylo::Forest::Tree $tree) {
    # Find cherries in the tree and report them in a hash, keyed by the parent ID
-   return get_fruits($tree, 2);
-}
-
-
-func number_of_cherries ($cherries) {
-   return 2 * (scalar keys %$cherries);
-}
-
-
-func get_fruits (Bio::Phylo::Forest::Tree $tree, Int $num_children) {
-   # Find apples in the tree and report them in a hash, keyed by the parent ID
-   my %fruits;
+   my %cherries;
    for my $tip ( @{ $tree->get_terminals } ) {
       if ( my $parent = $tip->get_parent ) {
+         my $pid = $parent->get_id;
+         if (exists $cherries{$pid}) {
+            next;
+         }
          if ( $parent->is_preterminal ) {
             my $children = $parent->get_children;
-            my $pid = $parent->get_id;
-            if ( (scalar @{$children} == $num_children) && (not exists $fruits{$pid}) ) {
-               $fruits{$pid} = [$parent, @$children];
+            if ( scalar @{$children} == 2 ) {
+               $cherries{$pid} = [$parent, @$children];
             }
          }
       }
    }
-   return \%fruits;
+   return \%cherries;
 }
 
 
@@ -407,39 +374,45 @@ func print_nodes ($parent, $child1?, $child2?) {
 }
 
 
-func grow_tree ($tree_file, $gg_ids, $tax2trait) {
-   # Read and clean Newick string, parse it, then prune it and attach trait.
-   # $gg_ids are node names to keep; all the other ones are pruned. If no
-   # $gg_ids are provided, keep all nodes.
-
-   my $tree;
-   my $num_leaves;
-   #warn "Info: Cleaning tree $tree_file ...\n";
-   my $tree_string = clean_newick($tree_file);
-   PreprocUtils::write_tree($tree_string, 'debug1.nw') if DEBUG;
-
-   #warn "Info: Parsing tree...\n";
-   my %args = ( -string => $tree_string, -format => 'newick' );
-   if (defined $gg_ids) {
-      $args{-keep} = $gg_ids; # keep only the nodes we need
-   }
-   $tree = Bio::Phylo::IO->parse( %args )->first;
-   #warn "Info: Saw ".$tree->calc_number_of_terminals()." tree leaves\n";
-
-   if (defined $gg_ids) {
-      #warn "Info: Pruning tree...\n";
-      $tree->keep_tips($gg_ids);
-      $num_leaves = $tree->calc_number_of_terminals;
-      #warn "Info: $num_leaves tree leaves left\n";
-      my $num_ids = scalar keys $gg_ids;
-      if ( $num_ids != $num_leaves ) {
-         warn "Warn: Looks like the tree is missing ".($num_ids-$num_leaves)." GG IDs\n";
-      }
-   }
-
-   $tree = attach_trait_to_tree ($tree, $tax2trait);
-
+func grow_tree ($nw_tree, $kept_ids, $root_id, $tax2avgtrait) {
+   # Prunt, reroot and attach traits to tree
+   $nw_tree = nw_reroot(nw_prune($nw_tree, $kept_ids), $root_id);
+   my $tree = Bio::Phylo::IO->parse(
+      -string => $nw_tree,
+      -format => 'newick',
+   )->first;
+   $tree = attach_trait_to_leaves ($tree, $tax2avgtrait);
    return $tree;
+}
+
+
+func nw_prune ($nw_tree, $labels_to_keep) {
+   # Use nw_prune to prune tree in given Newick file
+   my $prog = 'nw_prune';
+   my $cmd  = [$prog, '-v', '-', @$labels_to_keep];
+   my ($in, $out, $err);
+   $in = $nw_tree; # feed newick tree to stdin
+   run $cmd, \$in, \$out, \$err or die "Error: $prog failed with status $?\n";
+   $nw_tree = $out;
+   return $nw_tree;
+}
+
+
+sub nw_reroot {
+   my ($nw_tree, $root_label) = @_;
+   # Run nw_reroot
+   my $prog = 'nw_reroot';
+   my $cmd  = [$prog, '-l', '-', $root_label];
+   my ($in, $out, $err);
+   $in = $nw_tree;
+   run $cmd, \$in, \$out, \$err or die "Error: $prog failed with status $?\n";
+   $nw_tree = $out;
+   # Make $root_label the root, not an outgroup, i.e. go from:
+   #    (X:0.075,(C:0.140000,(A:0.110000,B:0.120000)Int1:0.29)Int2:0.075) ;
+   # to:
+   #    (        (C:0.140000,(A:0.110000,B:0.120000)Int1:0.29)Int2:0.150)X;
+   $nw_tree =~ s/ ^\($root_label:(\S+?),(.*):(\S+?)\);$ / "($2:".($1+$3).")$root_label;" /ex;
+   return $nw_tree;
 }
 
 
@@ -466,10 +439,7 @@ func clean_newick ($file) {
       $nw_string .= $line;
    }
    close $in;
-   # Add explicit node root to facilitate re-rooting
    chomp $nw_string;
-   $nw_string =~ s/;$//;
-   $nw_string = '('.$nw_string.'LUCA);';
    return $nw_string;
 }
 
@@ -554,19 +524,15 @@ func read_metadata ( $file, $trait_name ) {
       $num++;
    }
    close $fh;
-   warn "Info: Read $num entries with a GG ID and a trait value\n";
+   warn "Info: Read $num trait values for ".(scalar keys %tax2trait)." different GG IDs\n";
    return \%tax2trait;
 }
 
 
-func attach_trait_to_tree ($tree, $trait_vals) {
-   while ( my ($name, $trait_val) = each %$trait_vals ) {
-      my $node = $tree->get_by_name($name) ||
-         die "Error: Could not find tree node with name $name\n";
-      if (ref $trait_val eq 'ARRAY') {
-         $trait_val = mean($trait_val)->query;
-      }
-      $node->set_generic( 'trait' => $trait_val );
+func attach_trait_to_leaves ($tree, $trait_avgs) {
+   # Attach trait values to leaves of the tree
+   for my $leaf (@{$tree->get_terminals}) {
+      $leaf->set_generic( 'trait' => $trait_avgs->{$leaf->get_name} );
    }
    return $tree;
 }
