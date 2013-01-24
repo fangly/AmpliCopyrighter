@@ -188,8 +188,6 @@ func remove_outliers ($tax2trait, $tax2num) {
                   $i--;
                   $fixed = 1;
                   $num_fixed++;
-               } elese {
-                  $num_left++;
                }
             }
          }
@@ -376,20 +374,21 @@ func process_fruit_by_pic ($parent, $children, $tax2trait, $tax2num) {
    # Note: This function works with a single child or two children
 
    my $pval;
-   my @cvals = map { $_->get_generic('trait') } @$children;
+   my $pdist = $parent->get_branch_length;
+   my @cvals  = map { $_->get_generic('trait')           } @$children;
+   my @cdists = map { 0+$_->get_branch_length || NONZERO } @$children;
    if (scalar @cvals == 2) {
       # Calculate trait value for parent
-      my @cdists = map { 0+$_->get_branch_length || NONZERO } @$children;
       my @weis   = map { 1 / $_ } @cdists;
       $pval = ($cvals[0]*$weis[0] + $cvals[1]*$weis[1]) / ($weis[0]+$weis[1]);
       # Stretch parent's branch
-      my $pdist = $parent->get_branch_length;
       if ( ($cdists[0] > 0) && ($cdists[1] > 0) ) {
          $pdist += $cdists[0]*$cdists[1] / ($cdists[0]+$cdists[1]);
       }
       $parent->set_branch_length($pdist);
    } else {
-      $pval = $cvals[0];
+      $pval   = $cvals[0];
+      $pdist += $cdists[0];
    }
    $parent->set_generic('trait' => $pval);
 
@@ -734,7 +733,7 @@ func get_clean_name ($node) {
    }
    if ( not($name eq '') && not(is_id($name)) && not($name =~ m/^k__/) ) {
       warn "Warn: Taxonomic string $name is suspicious; it does not start ".
-           "with 'k__' and did not match anything in the GG taxonomy\n";
+           "with 'k__'\n";
    }
    return $name;
 }
