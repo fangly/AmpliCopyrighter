@@ -76,6 +76,15 @@ Remove trait values inconsistent with the trait average for this IMG ID: 1=yes,
    avg_outliers.type: integer, avg_outliers == 0 || avg_outliers == 1
    avg_outliers.default: 1
 
+=item -c <num_cpus>
+
+Specify the number of processes to use. This is script is slow, so you better
+use many processes. Default: num_cpus.default
+
+=for Euclid:
+   num_cpus.type: integer, num_cpus > 0
+   num_cpus.default: 1
+
 =back
 
 =head1 AUTHOR
@@ -108,6 +117,8 @@ along with Copyrighter.  If not, see <http://www.gnu.org/licenses/>.
 
 use strict;
 use warnings;
+use threads;
+use Thread::Queue;
 use Method::Signatures;
 use Statistics::Basic qw(mean);
 use Getopt::Euclid qw(:minimal_keys);
@@ -123,9 +134,9 @@ use constant NONZERO => 1e-5;
 use constant DEBUG   => 0;
 
 my $gg_taxonomy;
-estimate_species_trait( $ARGV{'i'}, $ARGV{'p'}, $ARGV{'t'}, $ARGV{'n'}, $ARGV{'a'} );
+estimate_species_trait( $ARGV{'i'}, $ARGV{'p'}, $ARGV{'t'}, $ARGV{'n'},
+   $ARGV{'a'}, $ARGV{'c'} );
 exit;
-
 
 ######
 # what to do for taxonomies that have both experimental and estimated trait?
@@ -133,12 +144,12 @@ exit;
 ######
 
 
-func estimate_species_trait ( $input_file, $phylo_tree, $taxo_file, $trait_name, $avg_outliers ) {
+func estimate_species_trait ( $input_file, $phylo_tree, $taxo_file, $trait_name, $avg_outliers, $num_cpus ) {
    my $tax2trait = read_metadata($input_file, $trait_name);
    if ($avg_outliers) {
       $tax2trait = remove_outliers($tax2trait);
    }
-   $tax2trait = estimate_trait($phylo_tree, $tax2trait);
+   $tax2trait = estimate_trait($phylo_tree, $tax2trait, $num_cpus);
    $tax2trait = map_tree_to_taxo($tax2trait, $taxo_file);
    $tax2trait = PreprocUtils::average_by_key($tax2trait);
    print_results($tax2trait, $trait_name);
@@ -161,54 +172,79 @@ func map_tree_to_taxo ($tax2trait, $taxo_file) {
 }
 
 
-func estimate_trait($tree_file, $tax2trait) {
+func estimate_trait($tree_file, $tax2trait, $num_cpus) {
    # Estimate the trait value for leaves that do not have it
    my @ids_to_keep = keys $tax2trait;
    my $nw_tree = clean_newick($tree_file);
-   my $q;
+
+   my $q = Thread::Queue->new();
    for my $id (@{read_leaf_names($nw_tree)}) {
       if (not exists $tax2trait->{$id}) {
-         push @$q, $id;
+         $q->enqueue($id);
       }
    }
-   warn "Info: There are ".(scalar @$q)." leaves for which to estimate trait.\n";
-   my $tid = 1;
-   open my $out, '>', "tmp_estimate_$tid.txt" or die "Error: Could not write file $!\n";
-   my %trait_estimates;
+   warn "Info: There are ".$q->pending." leaves for which to estimate trait.\n";
 
-   # copy hash and average trait values
+   # Copy hash and average trait values
    my $tax2avgtrait = { %$tax2trait };
    $tax2avgtrait = PreprocUtils::average_by_key($tax2avgtrait);
 
-   my $num = 1; ####
-
-   for my $id (@$q) {
-      my $tree = grow_tree($nw_tree, [$id, @ids_to_keep], $id, $tax2avgtrait);
-      my $val = leaf_pic($id, $tree);
-      print $out "$id\t$val\n";
-      $trait_estimates{$id} = $val;
-
-      $num++; last if $num > 3; ####
-
+   # Create thread pool
+   my @threads;
+   for my $i (1 .. $num_cpus) {
+      my $thr = threads->create(\&worker, $q, $nw_tree, \@ids_to_keep, $tax2avgtrait);
+      if (not defined $thr) {
+         die "Error: Could not create thread\n$!\n";
+      }
+      $q->enqueue(undef);
+      push @threads, $thr;
    }
-   close $out;
+
+   # Wait for all threads to finish their work
+   for my $thr (@threads) {
+      my $trait_estimates = $thr->join();
+      if (my $err = $thr->error) {
+         die "$err\n";
+      }
+
+      ####
+      warn "trait_estimates thread ".threads->tid().": ".dump($trait_estimates)."\n";
+      ####
+
+      # Add estimates to given trait values
+      for my $id (keys %$trait_estimates) {
+         push @{$tax2trait->{$id}}, delete $trait_estimates->{$id};
+      }
+   }
+
    $tax2avgtrait = {};
-
-   ####
-   warn "trait_estimates: ".dump(\%trait_estimates)."\n";
-   ####
-
-   # Add estimates to given trait values
-   for my $id (keys %trait_estimates) {
-      push @{$tax2trait->{$id}}, delete $trait_estimates{$id};
-   }
-   undef %trait_estimates;
 
    ####
    warn "tax2trait: ".dump($tax2trait)."\n";
    ####
 
    return $tax2trait;
+}
+
+
+func worker ($id_q, $nw_tree, $ids_to_keep, $tax2avgtrait) {
+   my $tid = threads->tid();
+   open my $out, '>', "tmp_estimate_$tid.txt" or die "Error: Could not write file $!\n";
+   my %trait_estimates;
+
+   #my $num = 1; ####
+
+   for my $id (@$id_q) {
+      my $tree = grow_tree($nw_tree, $ids_to_keep, $id, $tax2avgtrait);
+      my $val = leaf_pic($id, $tree);
+      print $out "$id\t$val\n";
+      $trait_estimates{$id} = $val;
+
+      #$num++; last if $num > 3; ####
+
+   }
+   close $out;
+   return \%trait_estimates;
 }
 
 
@@ -376,8 +412,11 @@ func print_nodes ($parent, $child1?, $child2?) {
 
 func grow_tree ($nw_tree, $kept_ids, $root_id, $tax2avgtrait) {
    # Prunt, reroot and attach traits to tree
-   $nw_tree = nw_reroot(nw_prune($nw_tree, $kept_ids), $root_id);
-   my $tree = Bio::Phylo::IO->parse(
+   $nw_tree = nw_reroot(
+                 nw_prune($nw_tree, [$root_id, @$kept_ids]),
+                 $root_id,
+              );
+   my $tree = Bio::Phylo::IO->parse(  ### SEGMENTATION FAULT
       -string => $nw_tree,
       -format => 'newick',
    )->first;
