@@ -2,12 +2,57 @@ The scripts and data in this folder are useful for producing a file suitable
 for Copyrighter input
 
 Overview:
-1/ Use the script extract_img_16S to get the 16S sequences from IMG genomes.
-2/ Use the script img_gg_matcher to associate more IMG IDs GG (prokMSA) IDs.
-3/ Use the script data_combiner to merge traits from sources like IMG,
-Greengenes and GOLD into a single file.
-4/ Optional: Use the script trait_by_genome to average duplicate trait values
-per genome. This will issue warnings if for inconsistent 16S counts.
-5/ Use the script trait_by_clade_weigthed (or trait_by_clade) to summarize the
-trait at different taxonomic levels.
-6/ Use the resulting file in copyrighter.
+
+1/ Download IMG data from ftp://ftp.jgi-psf.org/pub/IMG/img_core_v400.tar
+
+2/ Get IMG metadata:
+Go to IMG > Genome Browser: http://img.jgi.doe.gov/cgi-bin/w/main.cgi?section=TaxonList&page=taxonListAlpha
+In the Table Configuration section:
+* Genome Field     > Click All
+* Project Metadata > Click All
+* Data Statistics  > Click All
+Click Display Genomes Again
+In the Genome Browser section > Click Select All
+Finally, click the Export button
+Fix mistakes in the metadata:
+  - Two occurences of "\r" (^M) are to be replaced by ""
+  - taxonoid 2515154013 has two extra fields: remove the two cells containing
+      "Human wound, cranian"
+  - Replace cells containing "-1" by ""
+
+3/ Fix missing IMG species names in the metadata file using the script fix_img_taxonomy
+
+4/ Identify and extract 16S/18S sequences from IMG genomes using different methods:
+relying on IMG, searching with RNAmmer or INFERNAL. Use the script extract_ssu_seqs
+for this.
+
+5/ Download rrNDB database
+
+6/ Correct 16S/18S copy number by comparing IMG number to RNAmmer, INFERNAL and
+rrNDB, using the script fix_img_copy_number.
+
+7/ Re-run step 6, but detecing species average outliers this time (option -a 1)
+
+8/ Using the updated SSU sequence obtained at the previous step, run the script
+img_gg_matcher to associate IMG IDs to GreenGenes IDs (at strain level).
+
+9/ Use the script data_combiner to merge traits from sources like IMG, Greengenes
+and GOLD into a single file.
+
+10/ Use script use_cluster_repr to replace Greengenes IDs by Greengenes IDs
+clustered at 99%
+
+11/ Optional: Use the script trait_by_clade to average duplicate trait values
+per genome if needed. This will also issue warnings for inconsistent 16S counts.
+
+12/ Use the script estimate_species_trait to estimate the 16S copy number for all
+species un the Greengenes taxonomy using the phylogenetic independent contrasts 
+method. Alternatively, you may want to estimate this same information at higher
+levels of the taxonomy using trait_by_clade_pic, trait_by_clade_weighted or
+trait_by_clade. 
+
+13/ Use the resulting file in copyrighter.
+
+14/ Optional: use the script draw_trait_dist to produce a plot of the SSU gene
+number across the Greengenes taxonomy
+
