@@ -119,16 +119,12 @@ use strict;
 use warnings;
 use threads;
 use Thread::Queue;
-use Method::Signatures;
 use Statistics::Basic qw(mean);
 use Getopt::Euclid qw(:minimal_keys);
 use Data::Dump qw(dump);
 use IPC::Run qw(run);
 use Bio::Phylo::IO;
-use Bio::Community::TaxonomyUtils;
-use FindBin qw($Bin);
-use lib "$Bin";
-use PreprocUtils;
+use POSIX qw(ceil floor);
 
 use constant NONZERO => 1e-5;
 use constant DEBUG   => 0;
@@ -144,22 +140,24 @@ exit;
 ######
 
 
-func estimate_species_trait ( $input_file, $phylo_tree, $taxo_file, $trait_name, $avg_outliers, $num_cpus ) {
+sub estimate_species_trait {
+   my ($input_file, $phylo_tree, $taxo_file, $trait_name, $avg_outliers, $num_cpus) = @_;
    my $tax2trait = read_metadata($input_file, $trait_name);
    if ($avg_outliers) {
       $tax2trait = remove_outliers($tax2trait);
    }
    $tax2trait = estimate_trait($phylo_tree, $tax2trait, $num_cpus);
    $tax2trait = map_tree_to_taxo($tax2trait, $taxo_file);
-   $tax2trait = PreprocUtils::average_by_key($tax2trait);
+   $tax2trait = average_by_key($tax2trait);
    print_results($tax2trait, $trait_name);
    return 1;
 }
 
 
-func map_tree_to_taxo ($tax2trait, $taxo_file) {
+sub map_tree_to_taxo {
+   my ($tax2trait, $taxo_file) = @_;
    # Convert leaf ID from GG ID to GG taxo
-   my $taxonomy = PreprocUtils::read_lookup($taxo_file);
+   my $taxonomy = read_lookup($taxo_file);
    for my $id (keys %$tax2trait) {
       my $val    = $tax2trait->{$id};
       my $taxstr = $taxonomy->{$id};
@@ -172,7 +170,8 @@ func map_tree_to_taxo ($tax2trait, $taxo_file) {
 }
 
 
-func estimate_trait($tree_file, $tax2trait, $num_cpus) {
+sub estimate_trait {
+   my ($tree_file, $tax2trait, $num_cpus) = @_;
    # Estimate the trait value for leaves that do not have it
    my @ids_to_keep = keys $tax2trait;
    my $nw_tree = clean_newick($tree_file);
@@ -187,7 +186,7 @@ func estimate_trait($tree_file, $tax2trait, $num_cpus) {
 
    # Copy hash and average trait values
    my $tax2avgtrait = { %$tax2trait };
-   $tax2avgtrait = PreprocUtils::average_by_key($tax2avgtrait);
+   $tax2avgtrait = average_by_key($tax2avgtrait);
 
    # Create thread pool
    my @threads;
@@ -227,14 +226,15 @@ func estimate_trait($tree_file, $tax2trait, $num_cpus) {
 }
 
 
-func worker ($id_q, $nw_tree, $ids_to_keep, $tax2avgtrait) {
+sub worker {
+   my ($id_q, $nw_tree, $ids_to_keep, $tax2avgtrait) = @_;
    my $tid = threads->tid();
    open my $out, '>', "tmp_estimate_$tid.txt" or die "Error: Could not write file $!\n";
    my %trait_estimates;
 
    #my $num = 1; ####
 
-   for my $id (@$id_q) {
+   while (my $id = $id_q->dequeue) {
       my $tree = grow_tree($nw_tree, $ids_to_keep, $id, $tax2avgtrait);
       my $val = leaf_pic($id, $tree);
       print $out "$id\t$val\n";
@@ -248,14 +248,16 @@ func worker ($id_q, $nw_tree, $ids_to_keep, $tax2avgtrait) {
 }
 
 
-func read_leaf_names ($nw_string) {
+sub read_leaf_names {
+   my ($nw_string) = @_;
    # Read leaf names from Newick file, assuming that the tree has branch lengths
    my @leaf_names = ($nw_string =~ m/[(,]([a-z0-9]+?):/gi);
    return \@leaf_names;
 }
 
 
-func leaf_pic ($gg_id, $tree) {
+sub leaf_pic {
+   my ($gg_id, $tree) = @_;
    # Use phylogenetic independent contrasts method to estimate and return the
    # trait value for the given leaf node. Tree should be pruned will be modified
    # IN-PLACE!
@@ -275,11 +277,8 @@ func leaf_pic ($gg_id, $tree) {
    my @leaves = @{$tree->get_terminals};
    my $nof_leaves  = scalar @leaves;
    if (not ($nof_leaves == 1)) {
-      my $out_file = 'tree_debug.nw';
-      PreprocUtils::write_tree($tree, $out_file);
       die "Error: Internal problem. There should be only one leaf left and no ".
-          "internal nodes but there are still $nof_leaves leaves. Wrote what's".
-          " left of the tree in the Newick file $out_file for debugging\n";
+          "internal nodes but there are still $nof_leaves leaves.\n";
    }
 
    my $val = $leaves[0]->get_generic('trait');
@@ -288,7 +287,8 @@ func leaf_pic ($gg_id, $tree) {
 }
 
 
-func remove_outliers ($tax2trait) {
+sub remove_outliers {
+   my ($tax2trait) = @_;
    my $num_inconsistent = 0;
    my $num_fixed = 0;
    for my $id (keys %$tax2trait) {
@@ -300,7 +300,7 @@ func remove_outliers ($tax2trait) {
          my $msg = "Warn: Outlier detected: $id => [".join(', ',@$vals)."].";
          for (my $i = 0; $i <= scalar @$vals - 1; $i++) {
             my $val = $vals->[$i];
-            if (not PreprocUtils::near_avg_ssu($val, $mean)) {
+            if (not near_avg_ssu($val, $mean)) {
                $inconsistent = 1;
                $num_inconsistent++;
                if ($val == 1) {
@@ -328,7 +328,8 @@ func remove_outliers ($tax2trait) {
 }
 
 
-func print_results ($tax2trait, $trait_name) {
+sub print_results {
+   my ($tax2trait, $trait_name) = @_;
    # Print results, sorted by taxonomic level and alphabetically within each level
    # Sort results by taxonomic level
    print "# taxonomy\t$trait_name\n";
@@ -341,7 +342,8 @@ func print_results ($tax2trait, $trait_name) {
 }
 
 
-func process_by_pic ($parent, $children) {
+sub process_by_pic {
+   my ($parent, $children) = @_;
    # Calculate trait value for parent $pval as a weighted average of the
    # children's trait value @cvals where the weights $weis are proportional
    # to the inverse of the branch distance @dists between parent and
@@ -374,7 +376,8 @@ func process_by_pic ($parent, $children) {
 }
 
 
-func get_cherries (Bio::Phylo::Forest::Tree $tree) {
+sub get_cherries {
+   my ($tree) = @_;
    # Find cherries in the tree and report them in a hash, keyed by the parent ID
    my %cherries;
    for my $tip ( @{ $tree->get_terminals } ) {
@@ -395,22 +398,24 @@ func get_cherries (Bio::Phylo::Forest::Tree $tree) {
 }
 
 
-func print_nodes ($parent, $child1?, $child2?) {
+sub print_nodes {
+   my ($parent, $child1, $child2) = @_;
    # Print node info for parent and optional two children
    my $msg;
-   if ($child1) {
+   if (defined $child1) {
       $msg .= "CHILD1: '".(get_full_name($child1)||'?')."' (uid ".$child1->get_id.") = ".($child1->get_generic('trait')||"")."\n";
    }
-   if ($child2) {
+   if (defined $child2) {
       $msg .= "CHILD2: '".(get_full_name($child2)||'?')."' (uid ".$child2->get_id.") = ".($child2->get_generic('trait')||"")."\n";
    }
-   $msg    .= "PARENT: '".(get_full_name($parent)||'?')."' (uid ".$parent->get_id.") = ".($parent->get_generic('trait')||"")."\n";
+   $msg .= "PARENT: '".(get_full_name($parent)||'?')."' (uid ".$parent->get_id.") = ".($parent->get_generic('trait')||"")."\n";
    warn "$msg\n";
    return 1;
 }
 
 
-func grow_tree ($nw_tree, $kept_ids, $root_id, $tax2avgtrait) {
+sub grow_tree {
+   my ($nw_tree, $kept_ids, $root_id, $tax2avgtrait) = @_;
    # Prunt, reroot and attach traits to tree
    $nw_tree = nw_reroot(
                  nw_prune($nw_tree, [$root_id, @$kept_ids]),
@@ -425,7 +430,8 @@ func grow_tree ($nw_tree, $kept_ids, $root_id, $tax2avgtrait) {
 }
 
 
-func nw_prune ($nw_tree, $labels_to_keep) {
+sub nw_prune {
+   my ($nw_tree, $labels_to_keep) = @_;
    # Use nw_prune to prune tree in given Newick file
    my $prog = 'nw_prune';
    my $cmd  = [$prog, '-v', '-', @$labels_to_keep];
@@ -455,7 +461,8 @@ sub nw_reroot {
 }
 
 
-func print_tree_nodes ($tree, $file) {
+sub print_tree_nodes {
+   my ($tree, $file) = @_;
    # Given a Bio::Phylo::Forest::Tree, write the name of its node in the
    # specified file name.
    open my $out, '>', $file or die "Error: Could not write file $file\n$!\n";
@@ -467,7 +474,8 @@ func print_tree_nodes ($tree, $file) {
 }
 
 
-func clean_newick ($file) {
+sub clean_newick {
+   my ($file) = @_;
    # Sanitize some characters and workaround tree re-rooting issue
    my $nw_string;
    open my $in, '<', $file or die "Error: Could not read file $file\n$!\n";
@@ -483,7 +491,8 @@ func clean_newick ($file) {
 }
 
 
-func replace_chars ($string) {
+sub replace_chars {
+   my ($string) = @_;
    # Replace any semicolon in the given string by '.,' and any space by '\s'
    $string =~ s/;/.,/g;
    $string =~ s/ /\\s/g;
@@ -491,7 +500,8 @@ func replace_chars ($string) {
 }
 
 
-func restore_chars ($string) {
+sub restore_chars {
+   my ($string) = @_;
    # Restore any '.,' to semicolon and any '\s' to space
    $string =~ s/.,/;/g;
    $string =~ s/\\s/ /g;
@@ -499,7 +509,8 @@ func restore_chars ($string) {
 }
 
 
-func get_full_name ($node) {
+sub get_full_name {
+   my ($node) = @_;
    # Get node name, replace semicolons and unquote it. If the name is not an ID
    # but part of a taxonomic string, e.g. 'g__Bacteroides' or 's__Bacteroides salyersiae'
    # reconstruct the full taxonomic string
@@ -520,18 +531,21 @@ func get_full_name ($node) {
 }
 
 
-func get_short_name ($node) {
+sub get_short_name {
+   my ($node) = @_;
    return clean_name($node->get_name);
 }
 
 
-func is_id ($str) {
+sub is_id {
+   my ($str) = @_;
    # Returns true is given string contains only numerals 0-9
    return( ($str =~ m/[^0-9]/) ? 0 : 1 );
 }
 
 
-func clean_name ($name) {
+sub clean_name {
+   my ($name) = @_;
    $name = restore_chars($name);
    $name =~ s/^'(.*)'$/$1/;
    $name =~ s/^"(.*)"$/$1/;
@@ -539,12 +553,13 @@ func clean_name ($name) {
 }
 
 
-func read_metadata ( $file, $trait_name ) {
+sub read_metadata {
+   my ($file, $trait_name) = @_;
    my %tax2trait;
    open my $fh, '<', $file or die "Error: Could not read file $file\n$!\n";
    my $header = <$fh>;
    chomp $header;
-   my @cols = PreprocUtils::find_column_for($header, 'GG ID', $trait_name);
+   my @cols = find_column_for($header, 'GG ID', $trait_name);
    warn "Info: Found trait '$trait_name' in column ".($cols[-1]+1)." of input ".
         "file $file\n";
    # Parse input file
@@ -568,7 +583,8 @@ func read_metadata ( $file, $trait_name ) {
 }
 
 
-func attach_trait_to_leaves ($tree, $trait_avgs) {
+sub attach_trait_to_leaves {
+   my ($tree, $trait_avgs) = @_;
    # Attach trait values to leaves of the tree
    for my $leaf (@{$tree->get_terminals}) {
       $leaf->set_generic( 'trait' => $trait_avgs->{$leaf->get_name} );
@@ -576,3 +592,127 @@ func attach_trait_to_leaves ($tree, $trait_avgs) {
    return $tree;
 }
 
+
+sub average_by_key {
+   my ($hash, $weight_hash) = @_;
+   # Given a hash of arrays, make the average of the arrays by key. Note that
+   # the modifications are done IN PLACE on both the hash of values and of
+   # weights
+   for my $key (keys %$hash) {
+      my $vals = $hash->{$key};
+      if (ref($vals) eq 'ARRAY') {
+         my $mean = 0;
+         if (defined $weight_hash) {
+            # Weighted mean
+            my $total = 0;
+            my $weights = $weight_hash->{$key};
+            for my $weight (@$weights) {
+               $total += $weight;
+            }
+            $weight_hash->{$key} = $total;
+            for my $i (0 .. scalar @$vals - 1) {
+               my $val = $vals->[$i];
+               my $weight = $weights->[$i];
+               $mean += $val * $weight;
+            }
+            $mean /= $total;
+         } else {
+            # Simple mean
+            $mean = mean($vals)->query;
+         }
+         # Number of decimal digits to use
+         #if ( (scalar @$vals > 1) && (defined $digits) ) {
+         #   $mean = sprintf( "%.".$digits."f" , $mean );
+         #}
+         $hash->{$key} = $mean;
+      } # else do nothing, keep the single value
+   }
+   if (defined $weight_hash) {
+      return $hash, $weight_hash;
+   } else {
+      return $hash;
+   }
+}
+
+
+sub read_lookup {
+   my ($file) = @_;
+   # Read a 2-column, tab-delimited lookup file (e.g. Greengenes taxonomy,
+   # img_to_gg, etc)
+   my $lookup;
+   open my $fh, '<', $file or die "Error: Could not read file $file\n$!\n";
+   while (my $line = <$fh>) {
+      chomp $line;
+      next if $line =~ m/^#/;
+      next if $line =~ m/^\s*$/;
+      my ($key, $val) = split /\t/, $line;
+      $lookup->{$key} = $val;
+   }
+   close $fh;
+   return $lookup;
+}
+
+
+sub ssu_thr {
+   my ($mean_copy) = @_;
+   # Using rrNDB, it looks like there is a linear relation between the max
+   # difference D between a copy number for a genome and the average copy number
+   # X of the species that this genome is from: D = 0.10377 X + 0.72642
+   my $thr = 0.10377 * $mean_copy + 0.72642;
+   return $thr;
+}
+
+
+sub near_avg_ssu {
+   my ($copy_num, $mean_copy, $mult) = @_;
+   # Check that the difference between the given copy number (an integer) and
+   # species average is under the maximum allowed threshold (w 20% error margin)
+   if (not defined $mult) {
+      $mult = 1;
+   }
+   my $thr   = 1.2 * $mult * ssu_thr($mean_copy);
+   my $max   = ceil(  $mean_copy + $thr );
+   my $min   = floor( $mean_copy - $thr );
+   if ($min < 1) {
+      $min = 1;
+   }
+   my $is_near;
+   if ( ($copy_num >= $min) && ($copy_num <= $max) ) {
+      $is_near = 1;
+   } else {
+      $is_near = 0;
+   }
+   return $is_near;
+}
+
+
+sub find_column_for {
+   my ($header_line, @field_names) = @_;
+   # Given a tab-separated header line, find which column matches the given name.
+   # Search is insensitive to case, spaces, underscores and dashes. Also, note
+   # that matches only need to be partial.
+   my @fields = split /\t/, $header_line;
+   # Make names and cols insensitive
+   for my $arr ( \@fields, \@field_names ) {
+      for my $i (0 .. scalar @$arr - 1) {
+         $arr->[$i] =~ s/[\s_-]//g;
+         $arr->[$i] = lc $arr->[$i];
+      }
+   }
+   # Look for names in column headers
+   my @col_nums;
+   for my $name (@field_names) {
+      my $col_num;
+      for ($col_num = 0; $col_num < scalar @fields; $col_num++) {
+         my $field = $fields[$col_num];
+         if ($field =~ m/$name/) {
+            push @col_nums, $col_num;
+            last;
+         }
+      }
+      if (not defined $col_num) {
+         die "Error: Could not find column holding '$name' data\n";
+      }
+   }
+   return @col_nums;
+}
