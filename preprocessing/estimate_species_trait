@@ -163,15 +163,7 @@ sub estimate_species_trait {
       $species_file, $trait_name, $num_cpus);
    warn "Info: There are now trait values for ".(scalar keys %$tax2trait)." GG IDs\n";
 
-   ####
-   warn "tax2trait: ".dump($tax2trait)."\n";
-   ####
-
    $tax2trait = map_tree_to_taxo($tax2trait, $taxo_file);
-
-   ####
-   warn "tax2trait: ".dump($tax2trait)."\n";
-   ####
 
    $tax2trait = average_by_key($tax2trait);
    print_results($tax2trait, $trait_name);
@@ -194,12 +186,15 @@ sub map_tree_to_taxo {
          my $taxstr = $taxonomy->{$id};
          if (defined $taxstr) {
             push @{$tax2trait->{$taxstr}}, @$vals;
-            delete $tax2trait->{$id};
+         } else {
+            warn "Warning: GG ID $id had no GG taxonomic assignment. Skipping it...\n";
          }
+         delete $tax2trait->{$id};
       }
    }
    # Add estimated trait values then, unless there already are empirical values
    for my $id (keys %$tax2trait) {
+      next if $id =~ m/;/; # not an ID but a taxstring added by empirical value code
       my $vals = $tax2trait->{$id};
       my $taxstr = $taxonomy->{$id};
       if (defined $taxstr) {
@@ -207,8 +202,10 @@ sub map_tree_to_taxo {
          if ( (not defined $previous) || is_estimate([$previous]) ) {
             push @{$tax2trait->{$taxstr}}, @$vals;
          }
-         delete $tax2trait->{$id};
+      } else {
+         warn "Warning: GG ID $id had no GG taxonomic assignment. Skipping it...\n";
       }
+      delete $tax2trait->{$id};
    }
    return $tax2trait;
 }
@@ -268,9 +265,6 @@ sub estimate_trait {
          $q->enqueue($id);
          ##print $out "$id\n";
       }
-
-      #last if $q->pending >= 300; ####
-
    }
    warn "Info: There are ".$q->pending." leaves for which to estimate trait value.\n";
    $leaf_names = [];
@@ -297,11 +291,6 @@ sub estimate_trait {
       if (my $err = $thr->error) {
          die "$err\n";
       }
-
-      ####
-      warn "trait_estimates thread ".$thr->tid().": ".dump($trait_estimates)."\n";
-      ####
-
       # Add estimates to given trait values
       for my $id (keys %$trait_estimates) {
          push @{$tax2trait->{$id}}, delete $trait_estimates->{$id};
