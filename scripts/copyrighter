@@ -32,6 +32,9 @@ identified by their Greengenes (2012) taxonomy string, e.g.:
 
   k__Bacteria; p__Proteobacteria; c__Alphaproteobacteria; o__Rhodospirillales; f__Rhodospirillaceae; g__Telmatospirillum; s__siberiense
 
+Also the average number of 16S copies in each community is reported on the
+standard output.
+
 =head1 REQUIRED ARGUMENTS
 
 =over
@@ -75,7 +78,8 @@ table has relative abundance, in percent, instead of counts. Default: output.def
 
 =item -v
 
-Verbose mode. Display 16S copy number assignments.
+Verbose mode. Display 16S copy number assignments. You should probably use this
+option and make sure that your OTUs are processed as intended.
 
 =back
 
@@ -111,14 +115,6 @@ along with Copyrighter.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
 
-####
-# Report average copy number (same value as what is used for OTUs with unknown taxonomic affiliation)
-# Die/Warn if an OTU looks like a taxonomic string but has no match!
-# biom format support
-# space vs no space in taxonomic string?
-####
-
-
 use strict;
 use warnings;
 use 5.006;
@@ -152,8 +148,11 @@ func copyrighter ($input, $output, $data, $verbose = 0) {
    my $format = $in->format;
    print "Detected input format is '$format'\n";
 
+   # Report average 16S copy number
    while (my $community = $in->next_community) {
       $meta->add_communities([$community]);
+      my $avg = $community->get_average_weights->[0];
+      print "Average 16S copy number for community ".$community->name.": $avg\n";
    }
    $in->close;
 
@@ -164,16 +163,16 @@ func copyrighter ($input, $output, $data, $verbose = 0) {
    )->get_summaries;
 
    # Write results, converting to relative abundance in the process
-   my $fh = Bio::Community::IO->new(
+   my $out = Bio::Community::IO->new(
       -format         => $format,
       -file           => '>'.$output,
       -abundance_type => 'percentage',
    );
    print "Writing communities to file '$output'\n";
    while (my $community = $meta->next_community) {
-      $fh->write_community($community);
+      $out->write_community($community);
    }
-   $fh->close;
+   $out->close;
 
    return 1;
 }
