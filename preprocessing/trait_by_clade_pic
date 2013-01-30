@@ -194,7 +194,7 @@ func remove_outliers ($tax2trait, $tax2num) {
          if ($fixed) {
             $msg .= " Corrected to [".join(', ',@$vals)."].";
             $tax2trait->{$id} = $vals;
-            $tax2num->{$id} = (1) x scalar(@$vals);
+            $tax2num->{$id} = [ (1) x scalar(@$vals) ];
          } else {
             $msg .= " Uncorrected.";
          }
