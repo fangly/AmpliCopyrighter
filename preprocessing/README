@@ -46,7 +46,7 @@ clustered at 99%
 per genome if needed. This will also issue warnings for inconsistent 16S counts.
 
 12/ Use the script estimate_species_trait to estimate the 16S copy number for all
-species un the Greengenes taxonomy using the phylogenetic independent contrasts 
+species on the Greengenes taxonomy using the phylogenetic independent contrasts
 method. Alternatively, you may want to estimate this same information at higher
 levels of the taxonomy using trait_by_clade_pic, trait_by_clade_weighted or
 trait_by_clade. 

@@ -13,4 +13,5 @@ MANIFEST*
 README*
 *.tar.gz
 man/*
+preprocessing/data/*
 scripts/copyrighter.pod
