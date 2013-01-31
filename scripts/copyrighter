@@ -7,7 +7,7 @@
 
 =head1 NAME
 
-copyrighter - Correct 16S rRNA microbial profiles using 16S copy number estimates
+copyrighter - Correct 16S rRNA microbial profiles using 16S rRNA gene copy number estimates
 
 =head1 SYNOPSIS
 
@@ -17,17 +17,17 @@ copyrighter - Correct 16S rRNA microbial profiles using 16S copy number estimate
 
 The genome of Bacteria and Archaea often contain several copies of the 16S rRNA
 gene. This can lead to significant biases when estimating the composition of
-microbial communities using 16S libraries, since species with a large number of
-copies will contribute disproportionally more 16S amplicons than species with a
-unique copy. Fortunately, it is possible to infer the copy number of unsequenced
-microbial species, based on that of close relatives that have been fully
-sequenced. Using this information, microbial relative abundance can be corrected
-by applying to each species a weight proportional to the inverse of their
-estimated copy number.
+microbial communities using 16S rRNA gene libraries, since species with a large
+number of copies will contribute disproportionally more 16S amplicons than
+species with a unique copy. Fortunately, it is possible to infer the copy number
+of unsequenced microbial species, based on that of close relatives that have been
+fully sequenced. Using this information, microbial relative abundance can be
+corrected by applying to each species a weight proportional to the inverse of
+their estimated copy number.
 
 An OTU table is used as input (see -i option) and a corrected OTU table with
 copy-corrected OTU table is generated (see -o option). Also the average number
-of 16S copies in each community is reported on standard output.
+of 16S rRNA gene copies in each community is reported on standard output.
 
 =head1 REQUIRED ARGUMENTS
 
@@ -53,10 +53,10 @@ assignments, e.g.:
 
 =item -d <data>
 
-Instead of using Copyrighter's builtin 16S copy number data (based on IMG 4.0
-genomes mapped onto the Oct 2012 Greengenes taxonomy), provide the data file to
-use. The data file should be tab-delimited and have two columns, as illustrated
-in this example:
+Instead of using Copyrighter's built-in 16S rRNA gene copy number data (based on
+IMG 4.0 genomes mapped onto the Oct 2012 Greengenes taxonomy), provide the data
+file to use. The data file should be tab-delimited and have two columns, as
+illustrated in this example:
 
   k__Archaea; p__; c__; o__; f__; g__; s__	1.57262
   k__Archaea; p__Crenarchaeota; [...] g__Cenarchaeum; s__symbiosum	1.00000
@@ -77,8 +77,8 @@ relative abundance are expressed in percent (not counts). Default: output.defaul
 
 =item -v
 
-Verbose mode. Display 16S copy number assignments. You should probably use this
-option and make sure that your OTUs are processed as intended.
+Verbose mode. Display 16S rRNA gene copy number assignments. You should probably
+use this option and make sure that your OTUs are processed as intended.
 
 =back
 
