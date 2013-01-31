@@ -120,7 +120,6 @@ use Method::Signatures;
 use Statistics::Basic qw(mean);
 use Getopt::Euclid qw(:minimal_keys);
 use Data::Dump qw(dump);
-use Bio::Tree::Tree;
 use Bio::Phylo::IO;
 use Bio::Phylo::Treedrawer;
 use Bio::Community::TaxonomyUtils;

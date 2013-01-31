@@ -93,7 +93,6 @@ use SVG;
 use SVG::Parser;
 use Math::Gradient qw(multi_array_gradient);
 use List::Util qw(max min);
-use Bio::Tree::Tree;
 use Bio::Phylo::Factory;
 use Bio::Phylo::Forest::Tree;
 use Bio::Community::TaxonomyUtils;

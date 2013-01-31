@@ -118,7 +118,6 @@ along with Copyrighter.  If not, see <http://www.gnu.org/licenses/>.
 use strict;
 use warnings;
 use 5.006;
-use Bio::DB::Taxonomy;
 use Bio::Community::IO;
 use Bio::Community::Meta;
 use Bio::Community::Tools::Summarizer;
