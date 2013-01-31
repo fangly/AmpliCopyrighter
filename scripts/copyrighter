@@ -18,22 +18,16 @@ copyrighter - Correct 16S rRNA microbial profiles using 16S copy number estimate
 The genome of Bacteria and Archaea often contain several copies of the 16S rRNA
 gene. This can lead to significant biases when estimating the composition of
 microbial communities using 16S libraries, since species with a large number of
-copies will contribute disproportionally more 16S genes than species with a
+copies will contribute disproportionally more 16S amplicons than species with a
 unique copy. Fortunately, it is possible to infer the copy number of unsequenced
 microbial species, based on that of close relatives that have been fully
 sequenced. Using this information, microbial relative abundance can be corrected
 by applying to each species a weight proportional to the inverse of their
 estimated copy number.
 
-This script takes an OTU table containing the 16S counts of one or several
-microbial communities in the QIIME format or as a generic site-by-species table
-(note: biom format not supported at this time). The species in the table must be
-identified by their Greengenes (2012) taxonomy string, e.g.:
-
-  k__Bacteria; p__Proteobacteria; c__Alphaproteobacteria; o__Rhodospirillales; f__Rhodospirillaceae; g__Telmatospirillum; s__siberiense
-
-Also the average number of 16S copies in each community is reported on the
-standard output.
+An OTU table is used as input (see -i option) and a corrected OTU table with
+copy-corrected OTU table is generated (see -o option). Also the average number
+of 16S copies in each community is reported on standard output.
 
 =head1 REQUIRED ARGUMENTS
 
@@ -41,7 +35,12 @@ standard output.
 
 =item -i <input>
 
-Input OTU table (in generic site-by-species, GAAS, QIIME or Unifrac format).
+Input OTU table in QIIME, GAAS, Unifrac, or generic (tabular site-by-species)
+format (biom format not supported at this time). The table must contain read
+counts (not percentages) and species must have Greengenes (2012/10) taxonomic
+assignments, e.g.:
+
+  k__Bacteria; p__Proteobacteria; c__Alphaproteobacteria; o__Rhodospirillales; f__Rhodospirillaceae; g__Telmatospirillum; s__siberiense
 
 =for Euclid:
    input.type: readable
@@ -54,10 +53,10 @@ Input OTU table (in generic site-by-species, GAAS, QIIME or Unifrac format).
 
 =item -d <data>
 
-Instead of using the builtin 16S copy number data (based on IMG 4.0 genomes
-mapped onto the Oct 2012 Greengenes taxonomy), provide the data file to use. The
-data file should be tab-delimited and have two columns, as illustrated in this
-example:
+Instead of using Copyrighter's builtin 16S copy number data (based on IMG 4.0
+genomes mapped onto the Oct 2012 Greengenes taxonomy), provide the data file to
+use. The data file should be tab-delimited and have two columns, as illustrated
+in this example:
 
   k__Archaea; p__; c__; o__; f__; g__; s__	1.57262
   k__Archaea; p__Crenarchaeota; [...] g__Cenarchaeum; s__symbiosum	1.00000
@@ -70,7 +69,7 @@ example:
 =item -o <output>
 
 Output path for the corrected OTU table (in same format as input). Output OTU
-table has relative abundance, in percent, instead of counts. Default: output.default
+relative abundance are expressed in percent (not counts). Default: output.default
 
 =for Euclid:
    output.type: string
