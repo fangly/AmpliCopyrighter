@@ -13,18 +13,27 @@ resources
    repository 'git://github.com/fangly/AmpliCopyrighter.git';
 
 
-# Dependencies for everyone
+# Dependencies for main copyrighter script
 
-build_requires  'Test::More'                       =>  0;
-requires        'Getopt::Euclid'                   => '0.3.4';
-requires        'Method::Signatures'               =>  0;
-requires        'Bio::SeqIO'                       =>  0;
-requires        'Bio::DB::Fasta'                   =>  0; # from bioperl-live
-requires        'Bio::DB::Taxonomy'                =>  0; # dev version of bioperl-live
-requiresd       'Bio::Tools::Run::Alignment::Blat' =>  0; # from bioperl-run
-requires        'Bio::Community'                   =>  0; # from Bio-Community
-requires        'Statistics::Basic'                =>  0;
-requires        'IPC::Run'                         =>  0;
+build_requires 'Test::More'                       =>  0;
+requires       'Bio::Community'                   =>  0; # from Bio-Community
+requires       'Method::Signatures'               =>  0;
+requires       'Getopt::Euclid'                   => '0.3.4';
+
+
+# Dependencies for utilities in ./preprocessing/ (not installed by default)
+
+#requires       'Bio::Phylo'                       =>  0; # from bio-phylo
+#requires       'Bio::PrimarySeq'                  =>  0; # from bioperl-live
+#requires       'Bio::SearchIO'                    =>  0; # from bioperl-live
+#requires       'Bio::SeqIO'                       =>  0; # from bioperl-live
+#requires       'Bio::DB::Fasta'                   =>  0; # from bioperl-live dev version
+#requires       'Bio::Tools::Run::Alignment::Blat' =>  0; # from bioperl-run
+#requires       'IPC::Run'                         =>  0;
+#requires       'Math::Gradient'                   =>  0;
+#requires       'Statistics::Basic'                =>  0;
+#requires       'SVG'                              =>  0;
+#requires       'SVG::Parser'                      =>  0;
 
 
 # Dependencies for developpers only
@@ -41,9 +50,27 @@ author_requires 'Module::Install::AutoManifest';
 auto_install;
 
 
-# Extra scripts to install
+# Scripts to install: main copyrighter script
 
 install_script 'scripts/copyrighter';
+
+
+# Extra scripts: preprocessing utilities
+
+#install_script 'preprocessing/data_combiner';
+#install_script 'preprocessing/draw_trait_dist';
+#install_script 'preprocessing/estimate_species_trait';
+#install_script 'preprocessing/extract_ssu_seqs';
+#install_script 'preprocessing/fix_img_copy_number';
+#install_script 'preprocessing/fix_img_taxonomy';
+#install_script 'preprocessing/img_gg_matcher';
+#install_script 'preprocessing/PreprocUtils.pm';
+#install_script 'preprocessing/trait_by_clade';
+#install_script 'preprocessing/trait_by_clade_pic';
+#install_script 'preprocessing/trait_by_clade_weighted';
+#install_script 'preprocessing/trait_by_genome';
+#install_script 'preprocessing/use_cluster_repr';
+
 
 
 # Generate MANIFEST file
