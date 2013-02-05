@@ -1,19 +1,5 @@
-k__Bacteria	3.75
+k__Bacteria; p__Proteobacteria; c__Gammaproteobacteria; o__Oceanospirillales; f__SUP05; g__; s__	8
+k__Bacteria; p__Cyanobacteria; c__Oscillatoriophycideae; o__Chroococcales; f__Phormidiaceae; g__Trichodesmium; s__	3
+k__Bacteria; p__Proteobacteria; c__Gammaproteobacteria; o__Pasteurellales; f__Pasteurellaceae; g__Gallibacterium; s__melopsittaci	1
 
-k__Bacteria;p__Cyanobacteria	3
-k__Bacteria;p__Proteobacteria	4.5
-
-k__Bacteria;p__Cyanobacteria;c__Oscillatoriophycideae	3
-k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria	4.5
-
-k__Bacteria;p__Cyanobacteria;c__Oscillatoriophycideae;o__Oscillatoriales	3
-k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Oceanospirillales	4.5
-
-k__Bacteria;p__Cyanobacteria;c__Oscillatoriophycideae;o__Oscillatoriales;f__Phormidiaceae	3
-k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Oceanospirillales;f__ZA3412	8
-k__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;o__Oceanospirillales;f__Litincolaceae	1
-
-k__Bacteria;p__Cyanobacteria;c__Oscillatoriophycideae;o__Oscillatoriales;f__Phormidiaceae;g__Trichodesmium	3
-
-k__Bacteria;p__Cyanobacteria;c__Oscillatoriophycideae;o__Oscillatoriales;f__Phormidiaceae;g__Trichodesmium;s__Trichodesmiumerythraeum	3
 
