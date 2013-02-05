@@ -90,7 +90,7 @@ Florent Angly <florent.angly@gmail.com>
 
 =head1 VERSION
 
-0.2
+0.3
 
 =head1 BUGS
 
@@ -125,7 +125,7 @@ use Bio::Community::Tools::Summarizer;
 use Method::Signatures;
 use Getopt::Euclid qw(:minimal_keys);
 
-our $VERSION = 0.2;
+our $VERSION = 0.3;
 
 copyrighter( $ARGV{'i'}, $ARGV{'o'}, $ARGV{'d'}, $ARGV{'v'} );
 exit;
@@ -148,6 +148,7 @@ func copyrighter ($input, $output, $data, $verbose = 0) {
    my $format = $in->format;
    print "Detected input format is '$format'\n";
    
+   my %susp_comms;
    while (my $community = $in->next_community) {
       $meta->add_communities([$community]);
 
@@ -159,21 +160,30 @@ func copyrighter ($input, $output, $data, $verbose = 0) {
       my $num_w_avg = 0;
       while (my $member = $community->next_member()) {
          my $weight = $member->weights->[0];
-         if ( abs($weight - $avg) < 1e-10 ) { #### anything better
+         if ( abs($weight - $avg) < 1e-10 ) { # $weight == $avg
             $num_w_avg++;
          }
       }
       my $perc_ok = (1 - ($num_w_avg / $community->get_richness)) * 100;
       if ($perc_ok < 50) {
-         warn "Warning: Only $perc_ok OTUs have been given proper 16S copy ".
-            "number in community ".$community->name.". Maybe the community has ".
-            "many OTUs with no taxonomic assignments. More likely the taxonomic ".
-            "assignments in your community do not match those given in the 16S ".
-            "copy number file\n";
+         $susp_comms{$community->name} = $perc_ok;
       }
 
    }
    $in->close;
+
+   my $num_susp_comms = scalar keys %susp_comms;
+   if ($num_susp_comms > 0) {
+      my $msg = "Warning: $num_susp_comms communities had a suspiciously small ".
+         "number of OTUs with a proper 16S copy number:\n";
+      while (my ($name, $perc_ok) = each %susp_comms) {
+         $msg .= "   $name -> $perc_ok %\n";
+      }
+      $msg .= "Maybe these communities have many OTUs with no taxonomic ".
+         "assignments. More likely the taxonomic assignments in the communities".
+         " do not perfectly match those in the 16S copy number file used\n";
+      warn $msg;
+   }
 
    # Do the copy number correction
    my $summarized_communities = Bio::Community::Tools::Summarizer->new(
