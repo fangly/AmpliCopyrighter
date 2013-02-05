@@ -37,10 +37,12 @@ of 16S rRNA gene copies in each community is reported on standard output.
 
 Input OTU table in QIIME, GAAS, Unifrac, or generic (tabular site-by-species)
 format (biom format not supported at this time). The table must contain read
-counts (not percentages) and species must have Greengenes (2012/10) taxonomic
-assignments, e.g.:
+counts (not percentages) and species must have B<UNALTERED> Greengenes 2012/10
+taxonomic assignments, e.g.:
 
   k__Bacteria; p__Proteobacteria; c__Alphaproteobacteria; o__Rhodospirillales; f__Rhodospirillaceae; g__Telmatospirillum; s__siberiense
+
+Note that Greengenes 2012/10 includes a space after each semicolon.
 
 =for Euclid:
    input.type: readable
@@ -145,12 +147,31 @@ func copyrighter ($input, $output, $data, $verbose = 0) {
    $in->verbose($verbose);
    my $format = $in->format;
    print "Detected input format is '$format'\n";
-
-   # Report average 16S copy number
+   
    while (my $community = $in->next_community) {
       $meta->add_communities([$community]);
+
+      # Report average 16S copy number
       my $avg = $community->get_average_weights->[0];
       print "Average 16S copy number for community ".$community->name.": $avg\n";
+
+      # Check that a reasonable of members were given a weight
+      my $num_w_avg = 0;
+      while (my $member = $community->next_member()) {
+         my $weight = $member->weights->[0];
+         if ( abs($weight - $avg) < 1e-10 ) { #### anything better
+            $num_w_avg++;
+         }
+      }
+      my $perc_ok = (1 - ($num_w_avg / $community->get_richness)) * 100;
+      if ($perc_ok < 50) {
+         warn "Warning: Only $perc_ok OTUs have been given proper 16S copy ".
+            "number in community ".$community->name.". Maybe the community has ".
+            "many OTUs with no taxonomic assignments. More likely the taxonomic ".
+            "assignments in your community do not match those given in the 16S ".
+            "copy number file\n";
+      }
+
    }
    $in->close;
 
