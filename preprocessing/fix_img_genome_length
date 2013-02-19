@@ -1,0 +1,155 @@
+#! /usr/bin/env perl
+
+# fix_img_genome_length
+# Copyright 2013 Florent Angly
+# You may distribute this module under the terms of the GPLv3
+
+
+=head1 NAME
+
+fix_img_genome_length - Fix IMG SSU copy number based on external clues
+
+=head1 SYNOPSIS
+
+  fix_img_genome_length -i img_metadata.csv -s 10000 > img_metadata_fixed.txt
+
+=head1 DESCRIPTION
+
+Take an IMG metadata file (tab-delimited text file) and remove genomes with
+a potentially spurious genome length. Non-exhaustive manual inspection suggested
+that genomes with an average contig length smaller than 10kb tend to have a
+genome length different from that of other genomes.
+
+=head1 REQUIRED ARGUMENTS
+
+=over
+
+=item -i <img_file>
+
+Input IMG metadata file. The IMG metadata file can be obtained using the export
+function of IMG (http://img.jgi.doe.gov/). It should tab-delimited columns. This
+script will use the columns named: taxon_oid, Scaffold Count, Genome Size
+
+=for Euclid:
+   img_file.type: readable
+
+=back
+
+=head1 OPTIONAL ARGUMENTS
+
+=over
+
+=item -s <scaff>
+
+Consider an average scaffold length above this length as reliable. Default: scaff.default
+
+=for Euclid:
+   scaff.type: integer
+   scaff.default: 10_000
+
+=back
+
+=head1 AUTHOR
+
+Florent Angly <florent.angly@gmail.com>
+
+=head1 BUGS
+
+All complex software has bugs lurking in it, and this program is no exception.
+If you find a bug, please report it on the bug tracker:
+L<http://github.com/fangly/AmpliCopyrighter/issues>
+
+=head1 COPYRIGHT
+
+Copyright 2013 Florent Angly
+
+Copyrighter is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+Copyrighter is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+You should have received a copy of the GNU General Public License
+along with Copyrighter.  If not, see <http://www.gnu.org/licenses/>.
+
+=cut
+
+
+use strict;
+use warnings;
+use Method::Signatures;
+use Getopt::Euclid qw(:minimal_keys);
+use FindBin qw($Bin);
+use lib "$Bin";
+use PreprocUtils;
+
+fix_img_genome_length( $ARGV{'i'}, $ARGV{'s'} );
+
+exit;
+
+
+func fix_img_genome_length ( Str $img_metafile, Int $scaff_thr ) {
+   # Read all these input files
+   my $img_meta  = read_img_metadata($img_metafile, $scaff_thr);
+   warn "Info: Got ".scalar(keys %$img_meta)." reliable genomes\n";
+   write_img_metadata( $img_meta, $img_metafile);
+   return 1;
+}
+
+
+func write_img_metadata ($img, $input_meta) {
+   # Write IMG metadata file with updated SSU copy number
+   open my $in , '<', $input_meta  or die "Error: Could not read file $input_meta\n$!\n";
+   # Take care of header
+   my $header = <$in>;
+   chomp $header;
+   my @cols = PreprocUtils::find_column_for($header, 'taxon_oid');
+   print "$header\n";
+   # Now the rest of the file
+   while (my $line = <$in>) {
+      chomp $line;
+      next if $line =~ m/^#/;
+      my @splitline = split /\t/, $line;
+      my ($id) = @splitline[@cols];
+      if (exists $img->{$id}) {
+         @splitline[@cols] = ($id);
+         print join("\t", @splitline)."\n";
+      }
+   }
+   close $in;
+   return 1;
+}
+
+
+func read_img_metadata ( Str $img_metadata, $scaff_thr ) {
+   # Read IMG metadata file and record some data
+   my $img_data;
+   open my $in, '<', $img_metadata or die "Error: Could not read file $img_metadata\n$!\n";
+   # Identify which column holds the info we want
+   my $header = <$in>;
+   chomp $header;
+   my @cols = PreprocUtils::find_column_for($header, 'taxon_oid',
+      'Scaffold Count', 'Genome Size');
+
+   # Parse file
+   my $num = 0;
+   while (my $line = <$in>) {
+      chomp $line;
+      next if $line =~ m/^#/;
+      $num++;
+      my @splitline = split /\t/, $line;
+      my ($id, $scaff, $length) = @splitline[@cols];
+      my $avg_scaff_len = ($scaff == 0) ? 0 : $length / $scaff;
+      if ($avg_scaff_len < $scaff_thr) {
+         #warn "Removing genome $id. Average scaffold length of $avg_scaff_len < threshold $scaff_thr\n";
+         next;
+      }
+      $img_data->{$id} = undef;
+   }
+   close $in;
+   warn "Info: Parsed $num genomes from IMG metadata file\n";
+   return $img_data;
+}
+
