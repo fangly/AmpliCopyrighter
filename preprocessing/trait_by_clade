@@ -49,9 +49,9 @@ the name of the trait as found in the input file. Default: trait.default
 =item -a <advanced>
 
 Use advanced output: 1 is yes, 0 is no. The basic output is a tab-delimited file
-with two columns, suitable for use in Copyrighter: Taxonomy, Mean. The advanced
-output contains additional information distributed over four columns: Taxonomy,
-Num, Mean, Stddev. Default: advanced.default
+with two columns: Taxonomy, Mean. The advanced output contains additional
+information distributed over four columns: Taxonomy, Num, Mean, Stddev. Default:
+advanced.default
 
 =for Euclid:
    advanced.type: integer, advanced == 0 || advanced == 1
