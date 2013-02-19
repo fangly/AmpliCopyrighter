@@ -146,6 +146,11 @@ func ssu_thr ($mean_copy) {
 }
 
 
+func near_avg ($val, $mean, $stddev) {
+   return (abs($mean-$val) > 3*$stddev) ? 0 : 1;
+
+}
+
 func near_avg_ssu ($copy_num, $mean_copy, Int $mult = 1) {
    # Check that the difference between the given copy number (an integer) and
    # species average is under the maximum allowed threshold (w 20% error margin)

@@ -400,6 +400,9 @@ sub remove_outliers {
          if ($fixed) {
             $msg .= " Corrected to [".join(', ',@$vals)."].";
             $tax2trait->{$id} = $vals;
+            if (scalar @{$tax2trait->{$id}} == 0) {
+               delete $tax2trait->{$id};
+            }
          } else {
             $msg .= " Uncorrected.";
          }

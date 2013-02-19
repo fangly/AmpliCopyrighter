@@ -110,7 +110,6 @@ Remove genomes with unknown genus or species: 1=yes, 0=no. Default: unknown.defa
    unknown.type: integer, unknown == 0 || unknown == 1
    unknown.default: 1
 
-
 =item -s <scaff>
 
 Consider an average scaffold length above this length as very reliable, less
