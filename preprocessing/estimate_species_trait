@@ -156,7 +156,7 @@ sub estimate_species_trait {
    my $tax2trait = read_metadata($exp_file, $trait_name);
 
    if ($avg_outliers) {
-      $tax2trait = remove_outliers($tax2trait);
+      $tax2trait = remove_outliers($tax2trait, $trait_name);
    }
 
    $tax2trait = estimate_trait($phylo_tree, $tax2trait, \@est_files,
@@ -373,7 +373,7 @@ sub leaf_pic {
 
 
 sub remove_outliers {
-   my ($tax2trait) = @_;
+   my ($tax2trait, $trait_name) = @_;
    my $num_inconsistent = 0;
    my $num_fixed = 0;
    for my $id (keys %$tax2trait) {
@@ -385,16 +385,17 @@ sub remove_outliers {
          my $msg = "Warn: Outlier detected: $id => [".join(', ',@$vals)."].";
          for (my $i = 0; $i <= scalar @$vals - 1; $i++) {
             my $val = $vals->[$i];
-            if (not near_avg_ssu($val, $mean)) {
+            my $near_avg = ($trait_name =~ m/16S/i) ?
+                           PreprocUtils::near_avg_ssu($val, $mean) :
+                           PreprocUtils::near_avg($val, $mean, $mean/10);
+            if (not $near_avg) {
                $inconsistent = 1;
                $num_inconsistent++;
-               if ($val == 1) {
-                  # Remove an outlier (1's seem to be frequent errors)
-                  splice @$vals, $i, 1;
-                  $i--;
-                  $fixed = 1;
-                  $num_fixed++;
-               }
+               next if ($trait_name =~ m/16S/i) && ($val > 1); # 1s are a frequent 16S error
+               splice @$vals, $i, 1;
+               $i--;
+               $fixed = 1;
+               $num_fixed++;
             }
          }
          if ($fixed) {
