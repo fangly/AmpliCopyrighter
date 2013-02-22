@@ -147,9 +147,11 @@ func ssu_thr ($mean_copy) {
 
 
 func near_avg ($val, $mean, $stddev) {
+   # Given a mean and standard deviation, see if the provided value is near the
+   # mean, i.e. if it is less than 3 standard deviations away from it
    return (abs($mean-$val) > 3*$stddev) ? 0 : 1;
-
 }
+
 
 func near_avg_ssu ($copy_num, $mean_copy, Int $mult = 1) {
    # Check that the difference between the given copy number (an integer) and

@@ -26,7 +26,7 @@ This script takes the value of a trait across a phylogeny and plots it.
 Input file of the distribution of the trait in a taxonomy. This file should be
 tab-delimited and have at least two columns: full taxonomic lineage and trait
 value. The taxonomic lineage should be tab-separated, e.g.
-'k__Bacteria; p__Acidobacteria; [...]'. A optional third column can be provided
+'k__Bacteria; p__Acidobacteria; [...]'. An optional third column can be provided
 and should be the number of species in this lineage. Extra columns are ignored.
 
 =for Euclid:
