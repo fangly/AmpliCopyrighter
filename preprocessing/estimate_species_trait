@@ -70,7 +70,11 @@ as in the <phylo_tree> file. By default, all species are processed.
 
 If the input file contains several traits, select the name of the trait to use
 (case-insensitive), e.g. '16S rRNA Count' or 'Genome Size'. Make sure this
-matches the name of the trait as found in the input file. Default: trait_name.default
+matches the name of the trait as found in the input file.
+
+CAVEAT: Only traits expressed as integers are accepted at the moment!
+
+Default: trait_name.default
 
 =for Euclid:
    trait_name.type: string
@@ -87,8 +91,8 @@ Remove trait values inconsistent with the trait average for this IMG ID: 1=yes,
 
 =item -c <num_cpus>
 
-Specify the number of processes to use. This is script is slow, so you better
-use many processes. Default: num_cpus.default
+Specify the number of processes to use. This computation is time consuming, so
+you better use many processes. Default: num_cpus.default
 
 =for Euclid:
    num_cpus.type: integer, num_cpus > 0
@@ -257,18 +261,18 @@ sub estimate_trait {
       warn "Info: Using ".(scalar @$leaf_names)." species from $species_file only.\n";
    }
 
-   ##my $outfile = "tree_leaves_in_queue.txt";
-   ##open my $out, '>', $outfile or die "Error: Could not write file $outfile\n";
+   #my $outfile = "tree_leaves_in_queue.txt"; ###
+   #open my $out, '>', $outfile or die "Error: Could not write file $outfile\n"; ###
    my $q = Thread::Queue->new();
    for my $id (@$leaf_names) {
       if ( (not exists $tax2trait->{$id}) && (not exists $tax2trait_est->{$id}) ) {
          $q->enqueue($id);
-         ##print $out "$id\n";
+         #print $out "$id\n"; ###
       }
    }
    warn "Info: There are ".$q->pending." leaves for which to estimate trait value.\n";
    $leaf_names = [];
-   ##close $out;
+   #close $out; ###
    
    # Copy hash and average trait values
    my $tax2avgtrait = { %$tax2trait };
@@ -386,8 +390,8 @@ sub remove_outliers {
          for (my $i = 0; $i <= scalar @$vals - 1; $i++) {
             my $val = $vals->[$i];
             my $near_avg = ($trait_name =~ m/16S/i) ?
-                           PreprocUtils::near_avg_ssu($val, $mean) :
-                           PreprocUtils::near_avg($val, $mean, $mean/10);
+                           near_avg_ssu($val, $mean) :
+                           near_avg($val, $mean, $mean/10);
             if (not $near_avg) {
                $inconsistent = 1;
                $num_inconsistent++;
@@ -718,6 +722,14 @@ sub ssu_thr {
    # X of the species that this genome is from: D = 0.10377 X + 0.72642
    my $thr = 0.10377 * $mean_copy + 0.72642;
    return $thr;
+}
+
+
+sub near_avg {
+   my ($val, $mean, $stddev) = @_;
+   # Given a mean and standard deviation, see if the provided value is near the
+   # mean, i.e. if it is less than 3 standard deviations away from it
+   return (abs($mean-$val) > 3*$stddev) ? 0 : 1;
 }
 
 
