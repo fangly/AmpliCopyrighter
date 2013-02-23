@@ -1,0 +1,356 @@
+#!/usr/bin/env perl
+
+# taxo_signal
+# Copyright 2013 Florent Angly
+# You may distribute this module under the terms of the GPLv3
+
+
+=head1 NAME
+
+taxo_signal - Calculate the phylogenetic signal of a trait in a taxonomy
+
+=head1 SYNOPSIS
+
+  taxo_signal -i trait.txt -t taxonomy.txt
+
+=head1 DESCRIPTION
+
+This script takes a taxonomic system and makes it into a tree with arbitrary
+branch length. Given trait values are assigned to the leaves of the taxonomic
+tree and the phylogenetic signal is calculated.
+
+=head1 REQUIRED ARGUMENTS
+
+=over
+
+=item -i <input_file>
+
+Input file of the distribution of the trait in a taxonomy. This file should be
+tab-delimited and have at least two columns: full taxonomic lineage and trait
+value. The taxonomic lineage should be tab-separated, e.g.
+'k__Bacteria; p__Acidobacteria; [...]'. A optional third column can be provided
+and should be the number of species in this lineage. Extra columns are ignored.
+Only trait values for leaves of the tree (empirical) will be used.
+
+=for Euclid:
+   input_file.type: readable
+
+=item -t <taxo_file>
+
+Input taxonomy file.
+
+=for Euclid:
+   taxo_file.type: readable
+
+=back
+
+=head1 OPTIONAL ARGUMENTS
+
+=over
+
+=item -p <fix_polytomies>
+
+Replace polytomies by a set of binary banches with close-to-zero branch length:
+1=yes, 0=no. Default: fix_polytomies.default
+
+=for Euclid:
+   fix_polytomies.type: integer, fix_polytomies == 0 || fix_polytomies == 1
+   fix_polytomies.default: 0
+
+=back
+
+=head1 AUTHOR
+
+Florent Angly <florent.angly@gmail.com>
+
+=head1 BUGS
+
+All complex software has bugs lurking in it, and this program is no exception.
+If you find a bug, please report it on the bug tracker:
+L<http://github.com/fangly/AmpliCopyrighter/issues>
+
+=head1 COPYRIGHT
+
+Copyright 2013 Florent Angly
+
+Copyrighter is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+Copyrighter is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+You should have received a copy of the GNU General Public License
+along with Copyrighter.  If not, see <http://www.gnu.org/licenses/>.
+
+=cut
+
+
+use strict;
+use warnings;
+use Method::Signatures;
+use Getopt::Euclid qw(:minimal_keys);
+use File::Basename;
+use Statistics::R;
+use Bio::Phylo::Factory;
+use Bio::Phylo::Forest::Tree;
+use Bio::Community::TaxonomyUtils;
+use FindBin qw($Bin);
+use lib "$Bin";
+use PreprocUtils;
+
+use constant DEBUG => 0;
+use constant BRANCH_LEN_STD => 1.0;
+use constant BRANCH_LEN_SML => 0.0;
+
+taxo_signal( $ARGV{'i'}, $ARGV{'t'}, $ARGV{'p'} );
+exit;
+
+
+func taxo_signal ($input_file, $taxo_file, $fix_polytomies) {
+
+   # Parse input file
+   my ($tax2trait, $trait_name, $num_levels) = parse_file($input_file);
+
+   # Make a tree from taxonomy, prune, attach trait value, massage a bit,
+   # and save as Newick
+   my $tree_file = 'temp_tree.nw'; ###
+   my $tree = taxo2tree($tax2trait, $trait_name, $fix_polytomies, $tree_file);
+
+   # Save traits in a file
+   my $trait_file = 'temp_trait.txt'; ###
+   write_trait($tree, $trait_file, $trait_name);
+
+   # Calculate phylogenetic signal
+   phylosig($tree_file, $trait_file);
+
+   unlink $tree_file;
+   unlink $trait_file;
+   return 1;
+}
+
+
+func phylosig ($tree_file, $trait_file) {
+   # Calculate phylogenetic signal
+   my $r = Statistics::R->new();
+   $r->set('tree_file'  => $tree_file );
+   $r->set('trait_file' => $trait_file);
+   my $out = $r->run(
+      q`library(ape)`,
+      q`trait <- read.table(trait_file, header=TRUE, row.names=1, comment.char="", sep="\t")`,
+      q`tree  <- read.tree(tree_file)`,
+      q`library(phytools)`,
+      q`trait_ready <- trait$trait`,
+      q`names(trait_ready) <- rownames(trait)`,
+      q`res_lambda <- phylosig(tree, trait_ready, method="lambda", test=TRUE)`,
+      q`res_k      <- phylosig(tree, trait_ready, method="K"     , test=TRUE)`,
+   );
+   my $lambda   = $r->get('res_lambda$lambda');
+   my $lambda_p = $r->get('res_lambda$P');
+   print "lambda = $lambda\t(P = $lambda_p)\n";
+   my $k        = $r->get('res_k$K');
+   my $k_p      = $r->get('res_k$P');
+   print "     k = $k\t(P = $k_p)\n";
+   $r->stop;
+   return 1;
+}
+
+
+func esc_nw_chars ($str) {
+   # Escape some characters:
+   #    * replace ' ' by _
+   #    * remove -
+   #    * remove ( )
+   $str =~ s/ /_/g;
+   $str =~ s/[\-\(\)]//g;
+   return $str;
+}
+
+
+func parse_file ($file) {
+   # Parse input file and record taxonomy, trait value, number of species,
+   # trait name and number of taxonomic levels
+   my %tax2trait;
+   # Read trait name
+   open my $in, '<', $file or die "Error: Could not read file $file\n$!\n";
+   my $header = <$in>;
+   my $trait_name = (split /\t/, $header)[1];
+   # Read taxo and trait values
+   my $num_levels = 0;
+   while (my $line = <$in>) {
+      my ($tax, $trait, $num_spp, @extra) = split /\t/, $line;
+      $tax2trait{$tax} = $trait;
+      my $lineage_arr = Bio::Community::TaxonomyUtils::split_lineage_string($tax);
+      my $nof_elems = scalar @$lineage_arr;
+      if ($nof_elems > $num_levels) {
+         $num_levels = $nof_elems;
+      }
+   }
+   close $in;
+   warn "Info: Read ".(scalar keys %tax2trait)." taxonomic strings and trait values\n";
+   warn "Info: Detected $num_levels levels in this taxonomy\n";
+   return \%tax2trait, $trait_name, $num_levels;
+}
+
+
+func taxo2tree ( $tax2trait, $trait_name, $fix_polytomies, $tree_file ) {
+   # Transform taxonomy to a tree with arbitrary branch length, attach trait
+   # values, clean names, prune, and save as Newick in a file.
+   my $fac  = Bio::Phylo::Factory->new;
+   my $tree = $fac->create_tree;
+   my $root = $fac->create_node;
+   $root->set_name('LUCA');
+   $tree->insert($root);
+   my %seen;
+   my $assigned = 0;
+   for my $taxo (keys %$tax2trait) {
+      warn "\nlineage: $taxo\n" if DEBUG;
+      # Split lineage into its elements
+      my $lineage_arr = Bio::Community::TaxonomyUtils::split_lineage_string($taxo);
+      my $ancestor_name = 'LUCA';
+      for my $i (0 .. scalar @$lineage_arr - 1) {
+         my $name = $lineage_arr->[$i];
+         $name = esc_nw_chars($name);
+         if (not exists $seen{$name}) {
+            # Create and add the node unless it has already been seen
+            $seen{$name} = undef;
+            my $node = $fac->create_node;
+            $node->set_name($name);
+            $node->set_branch_length(BRANCH_LEN_STD);
+            my $ancestor = $tree->get_by_name($ancestor_name);
+            $ancestor->set_child($node);
+            warn "node $name, parent $ancestor_name\n" if DEBUG;
+            $tree->insert($node);
+         }
+         if ($i == scalar @$lineage_arr - 1) {
+            # Add trait value of taxon
+            my $trait_val = $tax2trait->{$taxo};
+            next if not defined $trait_val;
+            my $node = $tree->get_by_name($name);
+            $node->set_generic($trait_name => $trait_val);
+            warn "node $name, trait $trait_val\n" if DEBUG;
+            $assigned++;
+         }
+         $ancestor_name = $name;
+      }
+      delete $tax2trait->{$taxo};
+   }
+   %seen = ();
+   warn "Info: Trait values were assigned to $assigned nodes\n";
+
+   # Clean names
+   for my $node (@{$tree->get_entities}) {
+      my $name = $node->get_name;
+      # Remove Greengenes headers, e.g. transform k__Archaea to Archaea
+      $name =~ s/^(.)__//;
+      my $group = $1;
+      # Remove brackets, e.g. transform [Brachyspirae] to Brachyspirae
+      $name =~ s/^\[(.*)\]$/$1/;
+      # Disambiguate duplicate names, e.g. the first occurence of Chloroflexi
+      # (p__Chloroflexi) remains Chloroflexi and the second (c__Chloroflexi)
+      # becomes Chloroflexi@c
+      if (exists $seen{$name}) {
+         my $new_name = $name.'@'.$group;
+         warn "Info: $name renamed $new_name to prevent duplicates\n" if DEBUG;
+         $name = $new_name;
+      }
+      $node->set_name($name);
+      $seen{$name} = undef;
+   }
+
+   # Prune
+   my @keep;
+   for my $leaf (@{$tree->get_terminals}) {
+      my $trait = $leaf->get_generic($trait_name);
+      if (defined $trait) {
+         my $name = $leaf->get_name;
+         push @keep, $name;
+      }
+   }
+   $tree->keep_tips(\@keep);
+   warn "Info: Tree was pruned to ".scalar(@{$tree->get_terminals})." leaves (".scalar(@{$tree->get_internals})." internals)\n";
+
+   # Collapse singletons (ape does not handle them and will complain)
+   $tree = collapse_singletons($tree);
+   warn "Info: After singleton removal, tree had ".scalar(@{$tree->get_terminals})." leaves (".scalar(@{$tree->get_internals})." internals)\n";
+
+   # Fix non-binary branches
+   if ($fix_polytomies) {
+      $tree = fix_non_binary_branches($tree);
+      warn "Info: After fixing polytomies, tree had ".scalar(@{$tree->get_terminals})." leaves (".scalar(@{$tree->get_internals})." internals)\n";
+   }
+
+   PreprocUtils::write_tree($tree, $tree_file);
+   return $tree;
+}
+
+
+func fix_non_binary_branches ($tree) {
+   # Transform ternary and higher order branches into a set of binary branches
+   # with branch length close to zero.
+   my $fac = Bio::Phylo::Factory->new;
+   while (1) { # yeah... there's probably a better way
+      my $nof_mods = 0;
+      $tree = $tree->visit_breadth_first(
+         -pre => sub {
+            my $node = shift;
+            while (1) {
+               my $children = $node->get_children;
+               my $nof_children = scalar @$children;
+               last if $nof_children <= 2;
+               warn "Info: Fixing node ".$node->get_name." that has $nof_children children\n" if DEBUG;
+               $nof_mods++;
+               my $fake_node = $fac->create_node;
+               $fake_node->set_name('fake_'.$nof_mods);
+               $fake_node->set_branch_length(BRANCH_LEN_SML);
+               $node->set_child($fake_node);
+               $children = [@{$children}[1..$nof_children-1]];
+               for my $child (@$children) {
+                  $fake_node->set_child($child);
+               }
+               $tree->insert($fake_node);
+               $node = $children->[0];
+            }
+         },
+      );
+      last if $nof_mods == 0;
+   }
+   return $tree;
+}
+
+
+func collapse_singletons ($tree) {
+   # Remove nodes with a single child
+   while (1) { # yeah... there's probably a better way
+      my $nof_mods = 0;
+      $tree = $tree->visit_breadth_first(
+         -pre => sub {
+            my $node = shift;
+            if (scalar @{$node->get_children} == 1) {
+               warn "Info: Collapsing node with single child, ".$node->get_name."\n" if DEBUG;
+               $node->collapse;
+               $nof_mods++;
+            }
+         },
+      );
+      last if $nof_mods == 0;
+   }
+   return $tree;
+}
+
+
+func write_trait ($tree, $trait_file, $trait_name) {
+   # Save trait values in a file
+   open my $out, '>', $trait_file or die "Error: Could not write file $trait_file\n$!\n";
+   print $out "tax\ttrait\n";
+   for my $leaf (@{$tree->get_terminals}) {
+      my $trait = $leaf->get_generic($trait_name);
+      if (defined $trait) {
+         my $name = $leaf->get_name;
+         print $out "$name\t$trait\n";
+      }
+   }
+   close $out;
+   return 1;
+}
