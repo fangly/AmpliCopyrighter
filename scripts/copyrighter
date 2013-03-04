@@ -90,7 +90,7 @@ Florent Angly <florent.angly@gmail.com>
 
 =head1 VERSION
 
-0.3
+0.31
 
 =head1 BUGS
 
@@ -189,7 +189,7 @@ func copyrighter ($input, $output, $data, $verbose = 0) {
    my $summarized_communities = Bio::Community::Tools::Summarizer->new(
       -metacommunity => $meta,
       -merge_dups    => 0,
-   )->get_summaries;
+   )->get_summary;
 
    # Write results, converting to relative abundance in the process
    my $out = Bio::Community::IO->new(
