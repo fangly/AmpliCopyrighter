@@ -40,8 +40,8 @@ printed to screen.
 =item -g <gg_file>
 
 Input Greengenes taxonomy file. The Greengenes taxonomy file
-(http://www.secondgenome.com/go/2011-greengenes-taxonomy/) is tab-delimited and
-has two columns: GG ID, GG taxonomy string.
+(ftp://greengenes.microbio.me/greengenes_release/gg_12_10/gg_12_10_taxonomy.txt.gz)
+is tab-delimited and has two columns: GG ID, GG taxonomy string.
 
 =for Euclid:
    gg_file.type: readable
@@ -121,8 +121,10 @@ use lib "$Bin";
 use PreprocUtils;
 
 my $num_fixed = 0;
-my $spp_space = ''; # space in species name?
-my $sep_space = ''; # separator ';' followed by a space?
+my $sep_char  = ';'; # separator character
+my $sep_space = " "; # separator ';' followed by a space?
+my $spp_space = " "; # space in species name?
+
 
 data_combiner( $ARGV{'i'}, $ARGV{'g'}, $ARGV{'c'}, $ARGV{'f'}, $ARGV{'s'} );
 exit;
@@ -170,7 +172,7 @@ func combine ($img_file, $gg_taxonomy, $correlations, $finished, $species) {
             next;
          }
       }
-    
+
       my $gg_id      = $correlations->{$img_id};
       my $gg_tax     = (defined($gg_id) && exists($gg_taxonomy->{$gg_id})) ?
                           $gg_taxonomy->{$gg_id} : '-';
@@ -215,7 +217,7 @@ func fix_gg_tax ($gg_tax, $img_name) {
        #warn "Warning: Species $species is uppercase. $msg\n";
        return $gg_tax;
     }
-    my $names = [ split /;\s*/, $gg_tax ];
+    my $names = [ split /$sep_char\s*/, $gg_tax ];
     if (scalar @$names == 7) { # Proper number of fields, not simply '-'
         my $tax_genus   = $names->[-2];
         my $tax_species = $names->[-1];
@@ -237,13 +239,12 @@ func fix_gg_tax ($gg_tax, $img_name) {
 
                 # Fix species if it is known
                 if ( ($species !~ m/^sp\.?$/) && ($tax_species eq 's__') ) {
-                   $names->[-1] = 's__'.($candidatus?'Candidatus'.$spp_space:'').
-                      $genus.$spp_space.$species;
+                   $names->[-1] = 's__'.$species;
                    $fixed = 1;
                 }
 
                 $num_fixed++ if $fixed;
-                $gg_tax = join ';'.$sep_space, @$names;
+                $gg_tax = join $sep_char.$sep_space, @$names;
 
             }
         }
