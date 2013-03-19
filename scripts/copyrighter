@@ -68,6 +68,14 @@ illustrated in this example:
 =for Euclid:
    data.type: readable
 
+=item -l <lookup>
+
+Instead of matching the taxonomic description OTUs, match their ID. Default: lookup.default
+
+=for Euclid:
+   lookup.type: string, lookup eq 'desc' || lookup eq 'id'
+   lookup.default: 'desc'
+
 =item -o <output>
 
 Output path for the corrected OTU table (in same format as input). Output OTU
@@ -90,7 +98,7 @@ Florent Angly <florent.angly@gmail.com>
 
 =head1 VERSION
 
-0.31
+0.32
 
 =head1 BUGS
 
@@ -125,13 +133,13 @@ use Bio::Community::Tools::Summarizer;
 use Method::Signatures;
 use Getopt::Euclid qw(:minimal_keys);
 
-our $VERSION = 0.3;
+our $VERSION = 0.32;
 
-copyrighter( $ARGV{'i'}, $ARGV{'o'}, $ARGV{'d'}, $ARGV{'v'} );
+copyrighter( $ARGV{'i'}, $ARGV{'o'}, $ARGV{'d'}, $ARGV{'l'}, $ARGV{'v'} );
 exit;
 
 
-func copyrighter ($input, $output, $data, $verbose = 0) {
+func copyrighter ($input, $output, $data, $lookup, $verbose = 0) {
 
    # Use embedded data if no data file provided
    $data = \*DATA if not defined $data;
@@ -140,9 +148,10 @@ func copyrighter ($input, $output, $data, $verbose = 0) {
    my $meta = Bio::Community::Meta->new;
    print "Reading input file '$input'\n";
    my $in = Bio::Community::IO->new(
-      -file          => $input,
-      -weight_assign => 'community_average',
-      -weight_files  => [ $data ], # weights are the 16S rRNA copy number
+      -file              => $input,
+      -weight_assign     => 'community_average',
+      -weight_files      => [ $data ], # weights are the 16S rRNA copy number
+      -weight_identifier => $lookup,
    );
    $in->verbose($verbose);
    my $format = $in->format;
