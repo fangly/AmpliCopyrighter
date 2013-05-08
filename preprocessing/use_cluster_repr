@@ -11,7 +11,7 @@ use_cluster_repr - Replace GG IDs by the ID of their cluster representative sequ
 
 =head1 SYNOPSIS
 
-  use_cluster_repr -f trait.txt -p gg.tree -t gg_taxo.txt > trait_summary.txt
+  use_cluster_repr -i trait.txt -c gg_99_otu_map.txt > trait_99_otu.txt
 
 =head1 DESCRIPTION
 
