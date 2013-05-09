@@ -30,8 +30,9 @@ To do so, it uses the Newick Utils programs and Bio::Phylo Perl modules.
 
 Input files of tab-delimited traits. This script will use the column called
 'GG ID' and the one specified by the option <trait_name>. The first file is
-assumed to be experimental trait values, while optional extra files are assumed 
-to be trait values that have already be estimated and do not need to be recalculated.
+assumed to be experimental trait values for Greengene IDs, while optional extra
+files are assumed to be trait values that have already be estimated and do not
+need to be recalculated.
 
 =for Euclid:
    input_files.type: readable
@@ -132,6 +133,7 @@ use strict;
 use warnings;
 use threads;
 use Thread::Queue;
+use Scalar::Util qw(looks_like_number);
 use File::Spec::Functions qw(catfile tmpdir);
 use File::Temp qw(tempfile);
 use Statistics::Basic qw(mean);
@@ -167,10 +169,22 @@ sub estimate_species_trait {
       $species_file, $trait_name, $num_cpus);
    warn "Info: There are now trait values for ".(scalar keys %$tax2trait)." GG IDs\n";
 
+   # Results at the OTU ID level
+   print_results($tax2trait, $trait_name, 'ID');
+
    $tax2trait = map_tree_to_taxo($tax2trait, $taxo_file);
 
    $tax2trait = average_by_key($tax2trait);
-   print_results($tax2trait, $trait_name);
+
+   # Results at the OTU taxonomic string level
+   print_results($tax2trait, $trait_name, 'tax_string');
+
+
+   ####
+   # Now calculate for every intermediary clade
+   #print_results($tax2trait, $trait_name, 'clade');
+   ####
+
    return 1;
 }
 
@@ -422,11 +436,29 @@ sub remove_outliers {
 
 
 sub print_results {
-   my ($tax2trait, $trait_name) = @_;
-   # Print results, sorted by taxonomic level and alphabetically within each level
+   my ($tax2trait, $trait_name, $name) = @_;
+   # Print results, sorted by taxonomic level and alphabetically or within each
+   # level. It is sorted numerically when dealing with numbers.
+   # Determine if we can sort numerically
+   my $numeric = 1;
+   while ( (my $tax, undef) = each %$tax2trait ) {
+      if (not looks_like_number($tax)) {
+         $numeric = 0;
+         last;
+      }
+   }
+
    # Sort results by taxonomic level
-   print "# taxonomy\t$trait_name\n";
-   for my $tax ( sort keys %$tax2trait ) {
+   my @taxs = keys %$tax2trait;
+   if ($numeric) {
+      @taxs = sort {$a <=> $b} @taxs;
+   } else {
+      @taxs = sort {$a cmp $b} @taxs;
+   }
+
+   # Print results
+   print "# $name\t$trait_name\n";
+   for my $tax ( @taxs ) {
       my $val = sprintf('%.5f', $tax2trait->{$tax});
       print "$tax\t$val\n";
    }
