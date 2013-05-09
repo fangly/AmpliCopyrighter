@@ -59,6 +59,24 @@ Input Greengenes taxonomy file.
 
 =over
 
+=item -o <otu_file>
+
+If the entries in the tree have been clustered by OTU (using e.g. Greengenes's
+99% identity clustering file 99_otu_map.txt), instead of calculating the trait
+value only for the representative sequence of each OTU, provide the cluster file
+to use to reinflate trait value for all IDs. The file should be tab-delimited
+and have the following columns: OTU ID, ID of the representative sequence, IDs
+of the other sequences in the OTU. For example:
+
+ 0	367523
+ 1	187144
+ 2	544886	544649
+ 3	310669
+ 4	355095	310677	347705	563209
+
+=for Euclid:
+   otu_file.type: readable
+
 =item -s <species_file>
 
 Only process the species listed in the given file. Name of the species must be
@@ -147,14 +165,14 @@ use constant NONZERO => 1e-5;
 use constant DEBUG   => 0;
 
 my $gg_taxonomy;
-estimate_species_trait( $ARGV{'i'}, $ARGV{'p'}, $ARGV{'t'}, $ARGV{'s'},
-   $ARGV{'n'}, $ARGV{'a'}, $ARGV{'c'} );
+estimate_species_trait( $ARGV{'i'}, $ARGV{'p'}, $ARGV{'t'}, $ARGV{'o'},
+   $ARGV{'s'}, $ARGV{'n'}, $ARGV{'a'}, $ARGV{'c'} );
 exit;
 
 
 
 sub estimate_species_trait {
-   my ($input_files, $phylo_tree, $taxo_file, $species_file, $trait_name,
+   my ($input_files, $phylo_tree, $taxo_file, $otu_file, $species_file, $trait_name,
       $avg_outliers, $num_cpus) = @_;
 
    # Read experimental trait values
@@ -169,6 +187,11 @@ sub estimate_species_trait {
       $species_file, $trait_name, $num_cpus);
    warn "Info: There are now trait values for ".(scalar keys %$tax2trait)." GG IDs\n";
 
+   # Inflate OTUs
+   if (defined $otu_file) {
+      $tax2trait = inflate_otus($tax2trait, $otu_file);
+   }
+
    # Results at the OTU ID level
    print_results($tax2trait, $trait_name, 'ID');
 
@@ -179,13 +202,49 @@ sub estimate_species_trait {
    # Results at the OTU taxonomic string level
    print_results($tax2trait, $trait_name, 'tax_string');
 
-
    ####
    # Now calculate for every intermediary clade
    #print_results($tax2trait, $trait_name, 'clade');
    ####
 
    return 1;
+}
+
+
+sub inflate_otus {
+   my ($tax2trait, $taxo_file) = @_;
+   my $id2repr = read_otu_file($taxo_file);
+   for my $repr_id (keys %$tax2trait) {
+      my $trait_val = $tax2trait->{$repr_id};
+      my $seq_ids   = $id2repr->{$repr_id};
+      for my $seq_id (@$seq_ids) {
+         $tax2trait->{$seq_id} = $trait_val;
+      }
+   }
+   return $tax2trait;
+}
+
+
+sub read_otu_file {
+   my ($file) = @_;
+   my %id2repr;
+   my $tot_num_seqs;
+   open my $in, '<', $file or die "Error: Could not read file $file\n$!\n";
+   while (my $line = <$in>) {
+      chomp $line;
+      my ($otu_id, $repr_id, @seq_ids) = split "\t", $line;
+      $tot_num_seqs++;
+      my $num_seqs = scalar @seq_ids;
+      if ($num_seqs > 0) {
+         $id2repr{$repr_id} = \@seq_ids;
+         $tot_num_seqs += $num_seqs;
+      }
+   }
+   close $in;
+   if ($tot_num_seqs <= 0) {
+      die "No entries found in file $file\n";
+   }
+   return \%id2repr;
 }
 
 
