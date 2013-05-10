@@ -72,7 +72,7 @@ of the other sequences in the OTU. For example:
  1	187144
  2	544886	544649
  3	310669
- 4	355095	310677	347705	563209
+ 4	355095	310677	347705	563209 
 
 =for Euclid:
    otu_file.type: readable
@@ -196,7 +196,6 @@ sub estimate_species_trait {
    print_results($tax2trait, $trait_name, 'ID');
 
    $tax2trait = map_tree_to_taxo($tax2trait, $taxo_file);
-
    $tax2trait = average_by_key($tax2trait);
 
    # Results at the OTU taxonomic string level
@@ -310,6 +309,11 @@ sub estimate_trait {
       $tax2trait_est = read_metadata($est_files, $trait_name);
    }
 
+   # Ignore estimates when faced with hard data
+   while (my ($tax, undef) = each %$tax2trait) {
+      delete $tax2trait_est->{$tax};
+   }
+
    # Estimate the trait value for leaves that do not have it
    my @ids_to_keep = keys %$tax2trait;
 
@@ -377,7 +381,7 @@ sub estimate_trait {
    # Add pre-existing estimates
    for my $id (keys %$tax2trait_est) {
       push @{$tax2trait->{$id}}, @{delete $tax2trait_est->{$id}};
-   }   
+   }
 
    $tax2avgtrait = {};
 
@@ -518,7 +522,26 @@ sub print_results {
    # Print results
    print "# $name\t$trait_name\n";
    for my $tax ( @taxs ) {
-      my $val = sprintf('%.5f', $tax2trait->{$tax});
+      my $val = $tax2trait->{$tax};
+      my $ref = ref $val;
+      if ($ref eq 'ARRAY') {
+         my $num_vals = scalar @$val;
+         if ($num_vals <= 0) {
+            die "Error: unexpected empty array\n";
+         } elsif ($num_vals == 1) {
+            $val = $val->[0];
+         } else {
+            # There are several values. Calculate an average and format it
+            $val = mean($val)->query;
+            #$val = sprintf('%.5f', $val);
+         }
+      } elsif ($ref eq 'SCALAR') {
+         # do not change the format of $val
+      } elsif (not $ref eq '') {
+         die "Error: Don't know how to print a '".$ref."'\n";
+      } else {
+         # do not change the format of $val
+      }
       print "$tax\t$val\n";
    }
    print "\n";
