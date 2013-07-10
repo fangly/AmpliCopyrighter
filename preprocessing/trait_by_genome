@@ -40,7 +40,7 @@ IMG ID, IMG Name, IMG Tax, GG ID, GG Tax, 16S Count, Genome Length, Gene Count
 
 =item -w <warn>
 
-Warn if duplicate Greengenes ID have 16S counts that are more different that
+Warn if duplicate Greengenes ID have 16S counts that are more different than
 the specified standard deviation. Also warn if the 16S number is less than 1 or
 more than 15. Default: warn.default
 
