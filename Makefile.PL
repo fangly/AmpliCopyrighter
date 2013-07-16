@@ -19,6 +19,7 @@ build_requires 'Test::More'                       =>  0;
 requires       'Bio::Community'                   =>  0; # from Bio-Community
 requires       'Method::Signatures'               =>  0;
 requires       'Getopt::Euclid'                   => '0.3.4';
+requires       'Scalar::Util'                     =>  0;
 
 
 # Dependencies for utilities in ./preprocessing/ (not installed by default)
