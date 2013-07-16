@@ -6,7 +6,7 @@ use Test::More;
 use t::TestUtils;
 
 
-my ($in_file, $out_file, $data_file);
+my ($in_file, $data_file, $total_file, $out_file, $out_file_2);
 
 
 # Simply checking that the options work and that Copyrighter does not crash
@@ -14,8 +14,8 @@ my ($in_file, $out_file, $data_file);
 
 $in_file = data('otu_table.generic');
 ok run_copyrighter(['-i', $in_file]);
-ok -e 'otu_copyrighted.txt';
-unlink 'otu_copyrighted.txt';
+ok -e 'out_copyrighted.txt';
+unlink 'out_copyrighted.txt';
 
 
 $in_file  = data('otu_table.qiime');
@@ -33,12 +33,22 @@ unlink $out_file;
 
 
 $in_file   = data('otu_table.qiime');
-$out_file  = 'out_file.qiime';
 $data_file = data('16S_data.txt');
+$out_file  = 'out_file.qiime';
 ok run_copyrighter(['-i', $in_file, '-o', $out_file, '-d', $data_file]);
 ok -e $out_file;
 unlink $out_file;
 
+$in_file    = data('otu_table.qiime');
+$data_file  = data('16S_data.txt');
+$total_file = data('total_abundance.tsv');
+$out_file   = 'out_file.qiime';
+$out_file_2 = 'out_file_total.tsv';
+ok run_copyrighter(['-i', $in_file, '-o', $out_file, '-d', $data_file, '-t', $total_file]);
+ok -e $out_file;
+ok -e $out_file_2;
+unlink $out_file;
+unlink $out_file_2;
 
 done_testing();
 
