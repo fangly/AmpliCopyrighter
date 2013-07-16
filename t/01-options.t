@@ -44,11 +44,14 @@ $data_file  = data('16S_data.txt');
 $total_file = data('total_abundance.tsv');
 $out_file   = 'out_file.qiime';
 $out_file_2 = 'out_file_total.tsv';
+$out_file_3 = 'out_file_combined.qiime';
 ok run_copyrighter(['-i', $in_file, '-o', $out_file, '-d', $data_file, '-t', $total_file]);
 ok -e $out_file;
 ok -e $out_file_2;
+ok -e $out_file_3;
 unlink $out_file;
 unlink $out_file_2;
+unlink $out_file_3;
 
 done_testing();
 
