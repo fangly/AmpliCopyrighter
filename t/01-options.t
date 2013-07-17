@@ -6,7 +6,7 @@ use Test::More;
 use t::TestUtils;
 
 
-my ($in_file, $data_file, $total_file, $out_file, $out_file_2);
+my ($in_file, $data_file, $total_file, $out_file, $out_file_2, $out_file_3);
 
 
 # Simply checking that the options work and that Copyrighter does not crash
