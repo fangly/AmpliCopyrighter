@@ -12,6 +12,9 @@ my ($in_file, $data_file, $total_file, $out_file, $out_file_2, $out_file_3);
 # Simply checking that the options work and that Copyrighter does not crash
 # Should check the content of the output files someday
 
+use Env qw($COPYRIGHTER_DB);
+$COPYRIGHTER_DB = 'data/201210/ssu_img40_gg201210_merged.txt';
+
 $in_file = data('otu_table.generic');
 ok run_copyrighter(['-i', $in_file]);
 ok -e 'out_copyrighted.txt';
@@ -52,6 +55,8 @@ ok -e $out_file_3;
 unlink $out_file;
 unlink $out_file_2;
 unlink $out_file_3;
+
+# TEST $ENV{COPYRIGHTER_DB}
 
 done_testing();
 
