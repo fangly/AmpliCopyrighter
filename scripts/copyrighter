@@ -93,6 +93,7 @@ this variable point to your preferred data file.
 
 =for Euclid:
    data.type: readable
+   data.default: $COPYRIGHTER_DB
 
 =item -l <lookup>
 
@@ -178,29 +179,16 @@ use Bio::Community::IO;
 use Bio::Community::Meta;
 use Bio::Community::Tools::Summarizer;
 use Method::Signatures;
-use Getopt::Euclid qw(:minimal_keys);
+use Getopt::Euclid qw(:minimal_keys :defer);
 
 our $VERSION = 0.45;
 
+Getopt::Euclid->process_args(\@ARGV);
 copyrighter( $ARGV{'i'}, $ARGV{'d'}, $ARGV{'l'}, $ARGV{'o'}, $ARGV{'t'}, $ARGV{'v'} );
 exit;
 
 
 func copyrighter ($input, $data, $lookup, $output, $total, $verbose = 0) {
-
-   # Use COPYRIGHTER_DB environment variable if no data file provided
-   if (not defined $data) {
-      if (not defined $COPYRIGHTER_DB) {
-         die "Error: No <data> file provided and the COPYRIGHTER_DB environment ".
-             "variable is not set.\n";
-      } elsif (not -f $COPYRIGHTER_DB) {
-         die "Error: No <data> file provided and the COPYRIGHTER_DB environment ".
-             "variable points to '$COPYRIGHTER_DB', which is not an accessible ".
-             "file\n";
-      }
-      $data = $COPYRIGHTER_DB;
-   }
-   ### should use "data.default: $COPYRIGHTER_DB" if possible
 
    # Read input communities and do weight assignment
    my $meta = Bio::Community::Meta->new;
