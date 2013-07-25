@@ -1,0 +1,36 @@
+0.45
+ - Removed data embedded in the CopyRighter script. Provided the COPYRIGHTER_DB
+   environment variable to setup default data file.
+
+0.44  16-Jul-2013
+ - Output absolute abundance of species when total abundance file is provided.
+  
+0.43  15-Jul-2013 
+ - Accept and correct total (absolute) abundance.
+ - Improved data files so that id+desc method is not needed anymore.
+
+0.42  07-May-2013
+ - New assignment method, id+desc: attempt 'id' assignemnt and fall back to
+   'desc' if unsuccessful.
+
+0.41  07-May-2013
+ - Instead of assuming 16S copy number, get the trait name from the data file
+
+0.4   07-May-2013
+ - Data file include OTU ID level, taxonomic level and clade level trait values
+
+0.32  18-Mar-2013
+ - Option to assign trait value based on member ID instead of taxonomic string
+
+0.31  03-Mar-2013
+ - Keep in sync with Bio::Community::Tools::Summarizer syntax
+
+0.3   04-Feb-2013
+ - Warn users about communities with few species assigned a trait value
+ - Report community averages
+
+0.2   29-Jan-2013
+ - Match all members exactly instead of using ancestor method.
+
+0.1   20-Sep-2012
+ - Initial version
