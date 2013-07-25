@@ -1,8 +1,8 @@
 #! /usr/bin/env perl
 
-# CopyRighter
+# This file is part of CopyRighter
 # Copyright 2012-2013 Florent Angly <florent.angly@gmail.com>
-# You may distribute this module under the terms of the GPLv3
+# You may distribute this file under the terms of the GPLv3
 
 
 =head1 NAME
