@@ -66,7 +66,7 @@ See also the <data> parameter to specify your own database of trait values.
 
 Provide the file of trait estimates to use for correction. Data files of 16S
 rRNA gene copy number and genome length (based on IMG 4.0 genomes mapped onto
-the Oct 2012 Greengenes taxonomy) are distributed with Copyrighter. In case you
+the Oct 2012 Greengenes taxonomy) are distributed with CopyRighter. In case you
 want to use an alternative data file, be aware that it should be tab-delimited
 and have two columns, an ID or taxonomic string (col 1), and trait estimate (col
 2), as illustrated in this example:
@@ -155,16 +155,16 @@ L<http://github.com/fangly/AmpliCopyrighter/issues>
 
 Copyright 2012-2013 Florent ANGLY <florent.angly@gmail.com>
 
-Copyrighter is free software: you can redistribute it and/or modify
+CopyRighter is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
-Copyrighter is distributed in the hope that it will be useful,
+CopyRighter is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
-along with Copyrighter.  If not, see <http://www.gnu.org/licenses/>.
+along with CopyRighter.  If not, see <http://www.gnu.org/licenses/>.
 
 =cut
 
