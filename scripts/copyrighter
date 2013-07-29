@@ -7,7 +7,7 @@
 
 =head1 NAME
 
-CopyRighter - Correct microbial surveys for 16S rRNA gene copy number or genome length
+CopyRighter - Correct trait bias in microbial profiles
 
 =head1 SYNOPSIS
 
@@ -15,7 +15,7 @@ CopyRighter - Correct microbial surveys for 16S rRNA gene copy number or genome 
 
 =head1 DESCRIPTION
 
-The genome of Bacteria and Archaea often contain several copies of the 16S rRNA
+The genome of Bacteria and Archaea often contains several copies of the 16S rRNA
 gene. This can lead to significant biases when estimating the composition of
 microbial communities using 16S rRNA amplicons or microarrays or their total
 abundance using 16S rRNA quantitative PCR, since species with a large number of
@@ -125,7 +125,7 @@ will produce two additional output files, one containing the corrected total
 microbial abundance, and other the absolute abundance of each taxon in the
 <input> (in the same format as <input>): assuming an <output> called
 'out_copyrighted.txt', these files will be named, respectively,
-'out_copyrighted_total.txt' and 'out_copyrighted_combined.txt'.
+'out_copyrighted_total.tsv' and 'out_copyrighted_combined.txt'.
 
 =for Euclid:
    total.type: readable
