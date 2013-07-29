@@ -1,0 +1,7 @@
+# QIIME v1.3.0 OTU table
+#OTU ID	Sample1	Sample2	Sample3	Consensus Lineage
+0	0	0	4	k__Bacteria; p__Proteobacteria; c__Gammaproteobacteria; o__Enterobacteriales; f__Enterobacteriaceae; g__Escherichia; s__
+1	5	3	0	k__Bacteria; p__Cyanobacteria; c__Nostocophycideae; o__Nostocales; f__Nostocaceae; g__Dolichospermum; s__
+2	0	0	3	k__Archaea; p__Euryarchaeota; c__Methanomicrobia; o__Methanosarcinales; f__Methanosarcinaceae; g__Methanosarcina; s__mazei
+3	2	2	2	k__Bacteria; p__Firmicutes; c__Clostridia; o__Halanaerobiales; f__Halanaerobiaceae; g__Halanaerobium; s__
+4	0	1	1	No blast hit

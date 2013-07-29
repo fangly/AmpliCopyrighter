@@ -1,0 +1,7 @@
+<tables>
+  <!-- Locations of database files for CopyRighter -->
+  <table name="trait_db" comment_char="#">
+    <columns>id, name, value</columns>
+    <file path="tool-data/trait_db.loc" />
+  </table>
+</tables>

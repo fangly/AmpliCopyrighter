@@ -1,0 +1,137 @@
+{
+   "generated_by" : "Bio::Community version 0.1",
+   "matrix_type" : "sparse",
+   "date" : "2013-07-27T03:34:40",
+   "data" : [
+      [
+         0,
+         0,
+         72.1591861673745
+      ],
+      [
+         1,
+         0,
+         27.8408138326255
+      ],
+      [
+         0,
+         1,
+         50.7189439619348
+      ],
+      [
+         2,
+         1,
+         16.6666666666667
+      ],
+      [
+         1,
+         1,
+         32.6143893713985
+      ],
+      [
+         2,
+         2,
+         10
+      ],
+      [
+         1,
+         2,
+         21.5547529141356
+      ],
+      [
+         3,
+         2,
+         25.3357412575932
+      ],
+      [
+         4,
+         2,
+         43.1095058282712
+      ]
+   ],
+   "rows" : [
+      {
+         "metadata" : {
+            "taxonomy" : [
+               "k__Bacteria",
+               "p__Cyanobacteria",
+               "c__Nostocophycideae",
+               "o__Nostocales",
+               "f__Nostocaceae",
+               "g__Dolichospermum",
+               "s__"
+            ]
+         },
+         "id" : "1"
+      },
+      {
+         "metadata" : {
+            "taxonomy" : [
+               "k__Bacteria",
+               "p__Firmicutes",
+               "c__Clostridia",
+               "o__Halanaerobiales",
+               "f__Halanaerobiaceae",
+               "g__Halanaerobium",
+               "s__"
+            ]
+         },
+         "id" : "3"
+      },
+      {
+         "metadata" : null,
+         "id" : "4"
+      },
+      {
+         "metadata" : {
+            "taxonomy" : [
+               "k__Bacteria",
+               "p__Proteobacteria",
+               "c__Gammaproteobacteria",
+               "o__Enterobacteriales",
+               "f__Enterobacteriaceae",
+               "g__Escherichia",
+               "s__"
+            ]
+         },
+         "id" : "0"
+      },
+      {
+         "metadata" : {
+            "taxonomy" : [
+               "k__Archaea",
+               "p__Euryarchaeota",
+               "c__Methanomicrobia",
+               "o__Methanosarcinales",
+               "f__Methanosarcinaceae",
+               "g__Methanosarcina",
+               "s__mazei"
+            ]
+         },
+         "id" : "2"
+      }
+   ],
+   "matrix_element_type" : "float",
+   "format_url" : "http://biom-format.org/documentation/format_versions/biom-1.0.html",
+   "format" : "Biological Observation Matrix 1.0",
+   "columns" : [
+      {
+         "metadata" : null,
+         "id" : "Sample1"
+      },
+      {
+         "metadata" : null,
+         "id" : "Sample2"
+      },
+      {
+         "metadata" : null,
+         "id" : "Sample3"
+      }
+   ],
+   "shape" : [
+      5,
+      3
+   ],
+   "id" : "",
+   "type" : "OTU table"
+}

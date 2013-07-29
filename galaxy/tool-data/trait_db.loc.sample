@@ -1,0 +1,10 @@
+# This file defines the locations and of available database files of microbial
+# traits needed to run CopyRighter. Edit this file by adding the name and
+# location of the databases you want (tab-delimited!) and move the file to the
+# tool-data/ directory.
+
+# id	name	path
+ssu_img40_gg201210	Short ribosomal subunit (16S) data (IMG 4.0, Greengenes 2012/10)	/path/to/ssu_img40_gg201210.txt
+genlength_img40_gg201210	Genome length data (IMG 4.0, Greengenes 2012/10)	/path/to/genlength_img40_gg201210.txt
+
+

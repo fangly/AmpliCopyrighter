@@ -1,0 +1,137 @@
+<tool id="copyrighter" name="CopyRighter" version="0.45">
+
+  <description>trait bias corrector for microbial profiles</description>
+
+  <requirements>
+    <requirement type="binary">copyrighter</requirement>
+  </requirements>
+
+  <version_string>copyrighter --version</version_string>
+
+  <command>
+    copyrighter
+      -i $input
+      -d $database.value
+      #if str($lookup):
+        -l $lookup
+      #end if
+      #if str($total) != "None":
+        -t $total
+      #end if
+      #if str($verbose):
+        -v
+      #end if
+  </command>
+
+  <inputs>
+    <param name="input" type="data" format="txt" label="Input community file" help="Text file obtained from 16S rRNA microarray, 16S rRNA amplicon sequencing or metagenomic sequencing, in biom, QIIME, GAAS, Unifrac, or generic (tabular site-by-species) format. The file must contain read counts (not percentages) and taxa must have UNALTERED taxonomic assignments." />
+    <conditional name="database">
+      <param name="specify" type="select" label="Trait database" help="Tab-delimited file of traits: 16S copy number, genome length, ...">
+        <option value="builtin">Built-in file</option>
+        <option value="uploaded">Uploaded file</option>
+      </param>
+      <when value="builtin">
+        <param name="value" type="select" label="Built-in file">
+          <options from_data_table="trait_db" />
+          <validator type="no_options" message="No built-in trait database is available"/>
+        </param>
+      </when>
+      <when value="uploaded">
+        <param name="value" type="data" format="tabular" label="Uploaded file" />
+      </when>
+    </conditional>
+    <param name="lookup" type="select" display="radio" value="desc" label="Lookup method" help="What to match when looking up the trait value of a taxon.">
+      <option value="desc">OTU name</option>
+      <option value="id">OTU ID (if recorded in your input community file)</option>
+    </param>
+    <param name="total" type="data" format="tabular" optional="true" label="Total abundance file" help="Tab-delimited file containing the total microbial abundance of each community, e.g. 16S rRNA quantitative PCR numbers to be corrected by the average 16S rRNA copy number." />
+    <param name="verbose" type="boolean" checked="no" truevalue="1" falsevalue="0" format="txt" label="Verbose" help="Display trait value assignments." />
+  </inputs>
+
+  <outputs>
+    <data format="txt" name="relative" from_work_dir="out_copyrighted.txt" label="${tool.name} from ${on_string} (relative)"/>
+    <data format="tabular" name="absolute" from_work_dir="out_copyrighted_total.tsv" label="${tool.name} from ${on_string} (absolute)">
+      <filter>str(total) != "None"</filter>
+    </data>
+    <data format="txt" name="combined" from_work_dir="out_copyrighted_combined.txt" label="${tool.name} from ${on_string} (combined)">
+      <filter>str(total) != "None"</filter>
+    </data>
+  </outputs>
+
+  <stdio>
+    <exit_code range="1:"  level="fatal" />
+    <regex match="error|exception|invalid" source="stderr" level="fatal" />
+  </stdio>
+
+  <tests>
+    <test>
+      <param name="input" value="test_data/in.qiime" />
+      <param name="specify" value="uploaded"/>
+      <param name="value" value="test_data/in_db.tsv"/>
+      <output name="relative" file="test_data/out.qiime"/>
+    </test>
+    <test>
+      <param name="input" value="test_data/in.biom"/>
+      <param name="specify"  value="uploaded"/>
+      <param name="value" value="test_data/in_db.tsv"/>
+      <output name="relative" file="test_data/out.biom" lines_diff="2"/>
+    </test>
+    <test>
+      <param name="input" value="test_data/in.qiime"/>
+      <param name="specify"  value="uploaded"/>
+      <param name="value" value="test_data/in_db.tsv"/>
+      <param name="verbose" value="yes"/>
+      <output name="relative" file="test_data/out.qiime"/>
+    </test>
+    <test>
+      <param name="input" value="test_data/in.biom"/>
+      <param name="specify"  value="uploaded"/>
+      <param name="value" value="test_data/in_db.tsv"/>
+      <param name="lookup" value="id"/>
+      <output name="relative" file="test_data/out2.biom" lines_diff="2"/>
+    </test>
+    <test>
+      <param name="input" value="test_data/in.qiime"/>
+      <param name="specify"  value="uploaded"/>
+      <param name="value" value="test_data/in_db.tsv"/>
+      <param name="total" value="test_data/in_total.tsv"/>
+      <output name="relative" file="test_data/out.qiime"/>
+      <output name="absolute" file="test_data/out_total.tsv"/>
+      <output name="combined" file="test_data/out_combined.qiime"/>
+    </test>
+    <!--<test>
+      <param name="input" value="test_data/in.biom"/>
+      <param name="specify"  value="builtin"/>
+      <param name="value" value="test_data/in_db.tsv"/>
+      <output name="relative" file="test_data/out.biom" lines_diff="2"/>
+    </test>-->
+  </tests>
+
+  <help>
+**What CopyRighter does**
+
+The genome of Bacteria and Archaea often contains several copies of the
+16S rRNA gene. This can lead to significant biases when estimating the
+composition of microbial communities using 16S rRNA amplicons or
+microarrays or their total abundance using 16S rRNA quantitative PCR,
+since species with a large number of copies will contribute
+disproportionally more 16S amplicons than species with a unique copy.
+Fortunately, it is possible to infer the copy number of unsequenced
+microbial species, based on that of close relatives that have been fully
+sequenced. Using this information, CopyRigher corrects microbial
+relative abundance by applying a weight proportional to the inverse of
+the estimated copy number to each species.
+
+In metagenomic surveys, a similar problem arises due to genome length
+variations between species, and can be corrected by CopyRighter as well.
+
+In all cases, a community file is used as input and a corrected community
+file with trait-corrected (16S rRNA gene copy number or genome length)
+relative abundances is generated. Total abundance can optionally be
+provided, corrected and combined with relative abundance estimates to
+get the absolute abundance of each species. Also the average trait value
+in each community is reported on standard output.
+  </help>
+
+</tool>
+

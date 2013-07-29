@@ -1,0 +1,7 @@
+# QIIME v1.3.0 OTU table
+#OTU ID	Sample1	Sample2	Sample3	Consensus Lineage
+1	72.1591861673745	50.7189439619348	0	k__Bacteria; p__Cyanobacteria; c__Nostocophycideae; o__Nostocales; f__Nostocaceae; g__Dolichospermum; s__
+3	27.8408138326255	32.6143893713985	21.5547529141356	k__Bacteria; p__Firmicutes; c__Clostridia; o__Halanaerobiales; f__Halanaerobiaceae; g__Halanaerobium; s__
+4	0	16.6666666666667	10	No blast hit
+0	0	0	25.3357412575932	k__Bacteria; p__Proteobacteria; c__Gammaproteobacteria; o__Enterobacteriales; f__Enterobacteriaceae; g__Escherichia; s__
+2	0	0	43.1095058282712	k__Archaea; p__Euryarchaeota; c__Methanomicrobia; o__Methanosarcinales; f__Methanosarcinaceae; g__Methanosarcina; s__mazei
