@@ -1,1 +1,130 @@
-This is the AmpliCopyrighter project. More to come soon...
+NAME
+    copyrighter - Correct microbial surveys for 16S rRNA gene copy number or
+    genome length
+
+SYNOPSIS
+      copyrighter -i otu_table.qiime -o otu_table_copyrighted.generic
+
+DESCRIPTION
+    The genome of Bacteria and Archaea often contain several copies of the
+    16S rRNA gene. This can lead to significant biases when estimating the
+    composition of microbial communities using 16S rRNA amplicons or
+    microarrays or their total abundance using 16S rRNA quantitative PCR,
+    since species with a large number of copies will contribute
+    disproportionally more 16S amplicons than species with a unique copy.
+    Fortunately, it is possible to infer the copy number of unsequenced
+    microbial species, based on that of close relatives that have been fully
+    sequenced. Using this information, CopyRigher corrects microbial
+    relative abundance by applying a weight proportional to the inverse of
+    the estimated copy number to each species.
+
+    In metagenomic surveys, a similar problem arises due to genome length
+    variations between species, and can be corrected by CopyRighter as well.
+
+    In all cases, a community file is used as input (-i option) and a
+    corrected community file with trait-corrected (16S rRNA gene copy number
+    or genome length) relative abundances is generated (-o option). Total
+    abundance can optionally be provided (-t option), corrected and combined
+    with relative abundance estimates to get the absolute abundance of each
+    species. Also the average trait value in each community is reported on
+    standard output.
+
+REQUIRED ARGUMENTS
+    -i <input>
+        Input community file obtained from 16S rRNA microarray, 16S rRNA
+        amplicon sequencing or metagenomic sequencing, in biom, QIIME, GAAS,
+        Unifrac, or generic (tabular site-by-species) format. The file must
+        contain read counts (not percentages) and taxa must have UNALTERED
+        taxonomic assignments. Here is an example of Greengenes 2012/10
+        taxonomic string (note the whitespace after each semicolon):
+
+          k__Bacteria; p__Proteobacteria; c__Alphaproteobacteria; o__Rhodospirillales; f__Rhodospirillaceae; g__Telmatospirillum; s__siberiense
+
+        See also the <data> parameter to specify your own database of trait
+        values.
+
+OPTIONAL ARGUMENTS
+    -d <data>
+        Provide the file of trait estimates to use for correction. Data
+        files of 16S rRNA gene copy number and genome length (based on IMG
+        4.0 genomes mapped onto the Oct 2012 Greengenes taxonomy) are
+        distributed with CopyRighter. In case you want to use an alternative
+        data file, be aware that it should be tab-delimited and have two
+        columns, an ID or taxonomic string (col 1), and trait estimate (col
+        2), as illustrated in this example:
+
+          # ID  16S rRNA count
+          4     1.51098055313977
+          7     1.51812891020048
+          ...
+          24084 3.41268502385832
+
+          # taxstring   16S rRNA count
+          k__Archaea; p__; c__; o__; f__; g__; s__      1.57262
+          k__Archaea; p__Crenarchaeota; [...] g__Cenarchaeum; s__symbiosum      1.00000
+          ...
+          k__Bacteria; p__Actinobacteria; [...] g__Actinomyces; s__europaeus    1.19211
+
+        Extra columns are ignored, as well as empty lines and comment lines
+        (starting with #). Note that the header line can define the name of
+        the weight used. Also, the file can contain trait values both at the
+        ID and taxstring level.
+
+        This argument is optional. When omitted, CopyRighter will look for
+        the data file location stored in the "COPYRIGHTER_DB" environment
+        variable. Feel free to make this variable point to your preferred
+        data file.
+
+    -l <lookup>
+        What to match when looking up the trait value of a taxon: 'desc',
+        use taxonomic description, or 'id', use OTU ID (if recorded in your
+        input community file). The script bc_use_repr_id of Bio::Community
+        can help in replacing arbitrary OTU IDs by their corresponding
+        Greengenes ID. Default: desc
+
+    -o <output>
+        Output path for the corrected community files (in same format as
+        input), with relative abundance expressed in percent. Default:
+        out_copyrighted.txt
+
+    -t <total>
+        File containing the total microbial abundance to be corrected by the
+        average trait value, e.g. 16S rRNA quantitative PCR numbers to be
+        corrected by the average 16S rRNA copy number in each community.
+        This file should be tab-delimited and contain two columns: community
+        name, and total abundance. Using this option will produce two
+        additional output files, one containing the corrected total
+        microbial abundance, and other the absolute abundance of each taxon
+        in the <input> (in the same format as <input>): assuming an <output>
+        called 'out_copyrighted.txt', these files will be named,
+        respectively, 'out_copyrighted_total.txt' and
+        'out_copyrighted_combined.txt'.
+
+    -v  Verbose mode. Display trait value assignments. You should probably
+        use this option and make sure that your taxa are processed as
+        intended.
+
+AUTHOR
+    Florent Angly <florent.angly@gmail.com>
+
+VERSION
+    This document refers to copyrighter version 0.45
+
+BUGS
+    All complex software has bugs lurking in it, and this program is no
+    exception. If you find a bug, please report it on the bug tracker:
+    <http://github.com/fangly/AmpliCopyrighter/issues>
+
+COPYRIGHT
+    Copyright 2012-2013 Florent ANGLY <florent.angly@gmail.com>
+
+    CopyRighter is free software: you can redistribute it and/or modify it
+    under the terms of the GNU General Public License as published by the
+    Free Software Foundation, either version 3 of the License, or (at your
+    option) any later version. CopyRighter is distributed in the hope that
+    it will be useful, but WITHOUT ANY WARRANTY; without even the implied
+    warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+    GNU General Public License for more details. You should have received a
+    copy of the GNU General Public License along with CopyRighter. If not,
+    see <http://www.gnu.org/licenses/>.
+
