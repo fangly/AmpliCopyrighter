@@ -53,7 +53,8 @@ but this script expects to find at least two columns, named 'taxon_oid' and
 
 Method to use for the identification of 16S/18S genes: 'img' to trust the IMG
 annotations, 'rnammer' to identify SSU genes using RNAmmer, or 'rfam_scan' to
-identify them using a more sensitive RFAM search. Default: method.default
+identify them using a more sensitive RFAM search, or 'infernal' to use INFERNAL
+(recommended). Default: method.default
 
 =for Euclid:
   method.type: /(img|rnammer|rfam_scan|infernal)/

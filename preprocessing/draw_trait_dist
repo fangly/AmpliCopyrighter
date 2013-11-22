@@ -11,7 +11,7 @@ draw_trait_dist - Plot trait distribution across a taxonomy
 
 =head1 SYNOPSIS
 
-  draw_trait_dist -i trait_by_taxo.txt -o graph.svg
+  draw_trait_dist -i trait_by_taxo.txt > graph.svg
 
 =head1 DESCRIPTION
 
@@ -54,6 +54,19 @@ Default: max_width.default
    max_width.type: integer, max_width > 0
    max_width.default: 1500
 
+=item -c <min_trait> <max_trait> <num_classes>
+
+Use the given trait classes. By default, the minimum and maximum in the data
+are detected and used as the basis to form num_classes.default classes.
+
+=for Euclid:
+   min_trait.type  : number
+   max_trait.type  : number
+   num_classes.type: integer, num_classes > 0
+   min_trait.default: ''
+   max_trait.default: ''
+   num_classes.default: 10
+
 =back
 
 =head1 AUTHOR
@@ -68,7 +81,7 @@ L<http://github.com/fangly/AmpliCopyrighter/issues>
 
 =head1 COPYRIGHT
 
-Copyright 2012 Florent Angly
+Copyright 2012, 2013 Florent Angly
 
 Copyrighter is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -102,22 +115,27 @@ use PreprocUtils;
 
 use constant DEBUG => 0;
 
-draw_trait_dist( $ARGV{'i'}, $ARGV{'l'}, $ARGV{'w'} );
+draw_trait_dist(
+   $ARGV{'i'}, $ARGV{'l'}, $ARGV{'w'},
+   $ARGV{'c'}{'min_trait'}, $ARGV{'c'}{'max_trait'}, $ARGV{'c'}{'num_classes'}
+);
 exit;
 
 
-func draw_trait_dist ($input_file, $max_level, $max_width) {
+func draw_trait_dist ($input_file, $max_level, $max_width, $min_trait, $max_trait, $num_classes) {
    # Parse input file
    my ($tax2trait, $tax2num, $trait_name, $num_levels) = parse_file($input_file);
    # Make a tree from taxonomy and attach trait value
    my $tree = taxo2tree($tax2trait, $tax2num, $trait_name, $num_levels, $max_level);
    # Now draw the tree and the trait values
-   draw_tree($tree, $max_width, $trait_name);
+   draw_tree($tree, $max_width, $trait_name, $min_trait, $max_trait, $num_classes);
    return 1;
 }
 
 
-func draw_tree (Bio::Phylo::Forest::Tree $tree, $max_width, $trait_name) {
+func draw_tree (Bio::Phylo::Forest::Tree $tree, $max_width, $trait_name,
+   $want_min, $want_max, $want_classes) {
+
    # Draw the tree with its associated trait
 
    ### Ideally, max_width should be estimated from the number of leaves, and
@@ -132,7 +150,8 @@ func draw_tree (Bio::Phylo::Forest::Tree $tree, $max_width, $trait_name) {
    my $out_css = 'taxo_tree.css';
    write_css_file($tree, $out_css);
    my $out_orn = 'taxo_tree.orn';
-   my ($min_trait, $max_trait) = write_ornament_file($tree, $out_orn, $trait_name);
+   my ($min_trait, $max_trait) = write_ornament_file($tree, $out_orn,
+      $trait_name, $want_min, $want_max, $want_classes);
    # Run nw_display to draw tree in SVG
    my $out_svg = 'taxo_tree.svg';
    warn "Info: Drawing tree in SVG file $out_svg\n";
@@ -155,7 +174,7 @@ func draw_tree (Bio::Phylo::Forest::Tree $tree, $max_width, $trait_name) {
       $out_newick,        # input Newick tree file
    );
    run \@cmd, '>', $out_svg or die "Error: Could not run nw_display\n$!\n";
-   finish_svg($out_svg, $min_trait, $max_trait); # add a legend and do some cleanup
+   finish_svg($out_svg, $min_trait, $max_trait, $want_classes); # add a legend and do some cleanup
    cat($out_svg);
    #unlink $out_newick, $out_css, $out_orn, $out_svg;
    unlink $out_css, $out_orn, $out_svg;
@@ -174,7 +193,7 @@ func cat ($file) {
 }
 
 
-func finish_svg ($svg_file, $min_trait, $max_trait) {
+func finish_svg ($svg_file, $min_trait, $max_trait, $want_classes) {
    # Remove some text elements, massage some others
    my %args = (
       #-debug      => DEBUG,
@@ -195,7 +214,7 @@ func finish_svg ($svg_file, $min_trait, $max_trait) {
          next;
       }
    }
-   add_legend($svg, $min_trait, $max_trait);
+   add_legend($svg, $min_trait, $max_trait, $want_classes);
    open my $out, '>', $svg_file or die "Error: Could not write file $svg_file\n$!\n";
    print $out $svg->xmlify;
    close $out;
@@ -275,7 +294,7 @@ func calc_style ($num, $num_max, $num_min) {
 }
 
 
-func write_ornament_file ($tree, $file, $trait_name) {
+func write_ornament_file ($tree, $file, $trait_name, $want_min, $want_max, $want_classes) {
    # Generate a file of ornaments (colored circles) for nw_display
 
    # Calculate min and max trait value
@@ -287,13 +306,14 @@ func write_ornament_file ($tree, $file, $trait_name) {
       push @names, $name;
       push @vals , $val ;
    }
-   my $min = min @vals;
-   my $max = max @vals;
+   my $min = $want_min eq '' ? min @vals : $want_min;
+   my $max = $want_max eq '' ? max @vals : $want_max;
+
    warn "Info: Minimum trait value is $min\n";
    warn "Info: Maximum trait value is $max\n";
 
    # Attribute style (circle radius and fill color) to clades
-   my $colors = get_col_palette();
+   my $colors = get_col_palette($want_classes);
    my %styles;
    for my $i (0 .. scalar @names - 1) {
       my $name = esc_nw_chars( $names[$i] );
@@ -318,27 +338,31 @@ func write_ornament_file ($tree, $file, $trait_name) {
 }
 
 
-func get_col_palette {
+func get_col_palette ($num_colors) {
    # Return the color palette to use
    my $blue   = [  0,   0, 255]; #0000FF
    my $blue2  = [  0, 127, 255]; #007FFF
    my $cyan   = [  0, 255, 255]; #00FFFF
    my $cyan2  = [127, 255, 127]; #7FFF7F
    my $green  = [  0, 255,   0]; #00FF00
+   my $green2 = [127, 255,   0]; #00FF00
    my $yellow = [255, 255,   0]; #FFFF00
    my $orange = [255, 127,   0]; #FF7F00
    my $red    = [255,   0,   0]; #FF0000
    my $red2   = [127,   0,   0]; #7F0000
-   #my @colors = multi_array_gradient(10, $green, $yellow, $red);
    #my @colors = multi_array_gradient(10, $blue, $green, $red);
-   my @colors = multi_array_gradient(15, $blue, $blue2, $cyan, $cyan2, $yellow,
-      $orange, $red, $red2); # Jet color palette
+   my @colors = multi_array_gradient($num_colors, $blue, $blue2, $cyan, $cyan2, $yellow,
+      $orange, $red, $red2);
+   #my @colors = ($blue, $blue2, $cyan, $cyan2, $green, $green2, $yellow, $orange, $red, $red2);
+   #my @colors = multi_array_gradient($num_colors, $blue, $blue2, $cyan, $cyan2, $yellow,
+   #   $orange, $red, $red2); # Jet color palette (10 colors)
+   #my @colors = multi_array_gradient($num_colors, $blue, $green, $red);
    return \@colors;
 }
 
 
-func add_legend ($svg, $min_trait, $max_trait) {
-   my $colors = get_col_palette();
+func add_legend ($svg, $min_trait, $max_trait, $num_classes) {
+   my $colors = get_col_palette($num_classes);
    my $num_cols = scalar @$colors;
    my $interval = ($max_trait - $min_trait) / $num_cols;
    my @boundaries = ($min_trait);
