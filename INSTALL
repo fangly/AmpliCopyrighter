@@ -1,0 +1,61 @@
+INSTALLATION
+
+
+Dependencies
+  You need to install these dependencies first:
+
+  *   Perl (>= 5.10.0)
+      <http://www.perl.com/download.csp>
+
+  *   make
+      Many systems have make installed by default. If your system does
+      not, you should install the implementation of make of your choice,
+      e.g. GNU make: <http://www.gnu.org/s/make/>
+
+  The following CPAN Perl modules are dependencies that will be installed
+  automatically for you:
+
+  *   Bio::Community
+
+  *   Getopt::Euclid (>= 0.4.3)
+
+  *   Method::Signatures
+
+      First released with Perl v5.7.3
+
+  *   Scalar::Util
+
+If you want to use the utilities included in the ./preprocessing/ folder, you
+will need to install additional CPAN dependencies. See the Makefile.PL file
+for details.
+
+
+Procedure
+  To install CopyRighter globally on your system, run the following commands
+  in a terminal or command prompt:
+
+  On Linux, Unix, MacOS:
+
+     perl Makefile.PL
+     make
+
+  And finally, with administrator privileges:
+
+     make install
+
+  On Windows, run the same commands but with nmake or dmake instead of make.
+
+
+No administrator privileges?
+  If you do not have administrator privileges, CopyRighter needs to be
+  installed in your home directory.
+
+  First, follow the instructions to install local::lib at
+  <http://search.cpan.org/~apeiron/local-lib-1.008004/lib/local/lib.pm#The
+  _bootstrapping_technique>. After local::lib is installed, every Perl
+  module that you install manually or through the CPAN command-line
+  application will be installed in your home directory.
+
+  Then, install CopyRighter by following the instructions detailed in the
+  "Procedure" section above.
+
