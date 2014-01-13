@@ -190,6 +190,15 @@ exit;
 
 func copyrighter ($input, $data, $lookup, $output, $total, $verbose = 0) {
 
+   # Check that data file was specified
+   if (not defined $data) {
+      die "Error: <data> was not provided and the COPYRIGHTER_DB global ".
+          "variable was not set.\n";
+   } elsif (not -f $data) {
+      die "Error: Your COPYRIGHTER_DB global variable points to '$COPYRIGHTER_DB',".
+          " which is not a valid file.\n";
+   }
+
    # Read input communities and do weight assignment
    my $meta = Bio::Community::Meta->new;
    print "Reading input file '$input'\n";

@@ -31,11 +31,9 @@ sub run_copyrighter {
    my ($args) = @_;
    my $script = catfile('scripts', 'copyrighter');
    my @cmd = ($script, @$args);
-   my $err_msg = "Error: The following command returned status $?:\n".
-                 join(' ', @cmd)."\n";
-   #IPC::Run::run( \@cmd ) or die $err_msg;
-   #return 1;
-   return IPC::Run::run( \@cmd );
+   my $err_msg;
+   IPC::Run::run( \@cmd, '2>', \$err_msg ) or die $err_msg;
+   return 1;
 }
 
 

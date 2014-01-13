@@ -16,6 +16,7 @@ resources
 # Dependencies for main copyrighter script
 
 build_requires 'Test::More'                       =>  0;
+build_requires 'Test::Exception'                  =>  0;
 requires       'Bio::Community'                   =>  0; # from Bio-Community
 requires       'Getopt::Euclid'                   => '0.4.3';
 requires       'Method::Signatures'               =>  0;
