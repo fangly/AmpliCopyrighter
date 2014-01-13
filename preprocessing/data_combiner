@@ -1,7 +1,7 @@
 #! /usr/bin/env perl
 
 # data_combiner
-# Copyright 2012 Florent Angly and Adam Skarshewski
+# Copyright 2012-2014 Florent Angly and Adam Skarshewski
 # You may distribute this module under the terms of the GPLv3
 
 
@@ -96,7 +96,7 @@ L<http://github.com/fangly/AmpliCopyrighter/issues>
 
 =head1 COPYRIGHT
 
-Copyright 2012 Florent Angly and Adam Skarshewski
+Copyright 2012-2014 Florent Angly and Adam Skarshewski
 
 Copyrighter is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by

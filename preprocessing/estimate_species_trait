@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 
 # estimate_species_trait
-# Copyright 2012 Florent Angly
+# Copyright 2012-2014 Florent Angly
 # You may distribute this module under the terms of the GPLv3
 
 
@@ -131,7 +131,7 @@ L<http://github.com/fangly/AmpliCopyrighter/issues>
 
 =head1 COPYRIGHT
 
-Copyright 2012 Florent Angly
+Copyright 2012-2014 Florent Angly
 
 Copyrighter is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
