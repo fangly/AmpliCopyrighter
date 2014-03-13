@@ -1,4 +1,4 @@
-0.46
+0.46  2014-03-12
  - Validate COPYRIGHTER_DB environment variable (bug #1, reported by bstamps)
 
 0.45
