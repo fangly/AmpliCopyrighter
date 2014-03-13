@@ -1,12 +1,11 @@
 NAME
-    copyrighter - Correct microbial surveys for 16S rRNA gene copy number or
-    genome length
+    copyrighter - Correct trait bias in microbial profiles
 
 SYNOPSIS
       copyrighter -i otu_table.qiime -o otu_table_copyrighted.generic
 
 DESCRIPTION
-    The genome of Bacteria and Archaea often contain several copies of the
+    The genome of Bacteria and Archaea often contains several copies of the
     16S rRNA gene. This can lead to significant biases when estimating the
     composition of microbial communities using 16S rRNA amplicons or
     microarrays or their total abundance using 16S rRNA quantitative PCR,
@@ -97,7 +96,7 @@ OPTIONAL ARGUMENTS
         microbial abundance, and other the absolute abundance of each taxon
         in the <input> (in the same format as <input>): assuming an <output>
         called 'out_copyrighted.txt', these files will be named,
-        respectively, 'out_copyrighted_total.txt' and
+        respectively, 'out_copyrighted_total.tsv' and
         'out_copyrighted_combined.txt'.
 
     -v  Verbose mode. Display trait value assignments. You should probably
@@ -108,7 +107,7 @@ AUTHOR
     Florent Angly <florent.angly@gmail.com>
 
 VERSION
-    This document refers to copyrighter version 0.45
+    This document refers to copyrighter version 0.46
 
 BUGS
     All complex software has bugs lurking in it, and this program is no

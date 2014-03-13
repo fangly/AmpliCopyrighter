@@ -1,3 +1,6 @@
+0.46
+ - Validate COPYRIGHTER_DB environment variable (bug #1, reported by bstamps)
+
 0.45
  - Removed data embedded in the CopyRighter script. Provided the COPYRIGHTER_DB
    environment variable to setup default data file.
