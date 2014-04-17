@@ -181,7 +181,7 @@ use Bio::Community::Tools::Summarizer;
 use Method::Signatures;
 use Getopt::Euclid qw(:minimal_keys :defer);
 
-our $VERSION = 0.45;
+our $VERSION = 0.46;
 
 Getopt::Euclid->process_args(\@ARGV);
 copyrighter( $ARGV{'i'}, $ARGV{'d'}, $ARGV{'l'}, $ARGV{'o'}, $ARGV{'t'}, $ARGV{'v'} );
