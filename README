@@ -28,6 +28,10 @@ DESCRIPTION
     species. Also the average trait value in each community is reported on
     standard output.
 
+    We are grateful to the L<Genomics Virtual Lab|https://genome.edu.au/>
+    for providing a public Galaxy webserver in which users can run CopyRighter
+    in a graphical environment: L<http://galaxy-qld.genome.edu.au>.
+
 REQUIRED ARGUMENTS
     -i <input>
         Input community file obtained from 16S rRNA microarray, 16S rRNA
