@@ -36,6 +36,10 @@ provided (-t option), corrected and combined with relative abundance estimates
 to get the absolute abundance of each species. Also the average trait value in
 each community is reported on standard output.
 
+We are grateful to the L<Genomics Virtual Lab|https://genome.edu.au/>
+for providing a public Galaxy webserver in which users can run CopyRighter
+in a graphical environment: L<http://galaxy-qld.genome.edu.au>.
+
 =head1 REQUIRED ARGUMENTS
 
 =over
@@ -137,6 +141,20 @@ option and make sure that your taxa are processed as intended.
 
 =back
 
+=head1 HELP & FEEDBACK
+
+=head2 Mailing list
+
+New releases of CopyRighter, usage help and suggestions are discussed on this
+mailing list:
+L<https://groups.google.com/d/forum/copyrighter>
+
+=head2 Bugs
+
+All complex software has bugs lurking in it, and this program is no exception.
+If you find a bug, please report it on the bug tracker:
+L<http://github.com/fangly/AmpliCopyrighter/issues>
+
 =head1 AUTHOR
 
 Florent Angly <florent.angly@gmail.com>
@@ -144,12 +162,6 @@ Florent Angly <florent.angly@gmail.com>
 =head1 VERSION
 
 0.46
-
-=head1 BUGS
-
-All complex software has bugs lurking in it, and this program is no exception.
-If you find a bug, please report it on the bug tracker:
-L<http://github.com/fangly/AmpliCopyrighter/issues>
 
 =head1 COPYRIGHT
 
